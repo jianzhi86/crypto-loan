@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import { prisma } from '@/lib/db/prisma';
+import { CONTRACT_ADDRESSES } from '@/lib/contractConfig';
 
 const RPC_URL     = process.env.HARDHAT_RPC_URL ?? 'http://127.0.0.1:8545';
-const LOAN_ADDR   = '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512';
+const LOAN_ADDR   = CONTRACT_ADDRESSES.CryptoLoan;
 const SET_KYC_ABI = ['function setKYC(address user, bool approved) external'];
 
 // POST /api/kyc/approve — admin approves a KYC submission on-chain

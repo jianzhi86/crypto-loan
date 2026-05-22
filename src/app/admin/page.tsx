@@ -124,8 +124,8 @@ export default async function AdminPage() {
         {/* Schema info for assignment demo */}
         <div className="mt-6 rounded-xl p-5" style={{ backgroundColor: '#131629', border: '1px solid #1E2035' }}>
           <h2 className="text-sm font-semibold text-white mb-3">Database Schema</h2>
-          <pre className="text-xs overflow-x-auto" style={{ color: '#64748B' }}>{`Table: KycSubmission (SQLite · prisma/dev.db)
-  id          INTEGER   PRIMARY KEY AUTOINCREMENT
+          <pre className="text-xs overflow-x-auto" style={{ color: '#64748B' }}>{`Table: KycSubmission (PostgreSQL · Supabase)
+  id          SERIAL    PRIMARY KEY
   wallet      TEXT      UNIQUE  — linked to MetaMask address
   fullName    TEXT
   icNumber    TEXT

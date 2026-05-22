@@ -8,10 +8,10 @@ import { Skeleton, SkeletonCard } from '@/components/Skeleton';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices } from '@/hooks/usePrices';
 
-const APR       = 12;
+const APR       = 4.8;
 const ORIG_FEE  = 0.001;
 const MAX_LTV   = 70;
-const LIQ_THRES = 75;
+const LIQ_THRES = 80;
 
 function hColor(hf: number) { return !isFinite(hf) || hf >= 2 ? '#22c55e' : hf >= 1.5 ? '#eab308' : '#ef4444'; }
 function hLabel(hf: number) { return !isFinite(hf) || hf >= 2 ? 'Safe' : hf >= 1.5 ? 'Moderate' : 'At Risk'; }
@@ -398,7 +398,7 @@ export default function PortfolioPage() {
                 {[
                   { label: 'Annual Rate (APR)',     value: `${APR}%`,          vc: '#22c55e' },
                   { label: 'Max LTV',               value: `${MAX_LTV}%`,      vc: '#F1F5F9' },
-                  { label: 'Liquidation Threshold', value: `${LIQ_THRES}%`,    vc: '#F1F5F9' },
+                  { label: 'Liquidation Threshold', value: `${LIQ_THRES}% LTV`, vc: '#F1F5F9' },
                   { label: 'Origination Fee',       value: `${ORIG_FEE * 100}%`, vc: '#F1F5F9' },
                   { label: 'Collateral Asset',      value: 'ETH',              vc: '#627EEA' },
                   { label: 'Borrow Asset',          value: 'MYR (Mock)',       vc: '#22c55e' },

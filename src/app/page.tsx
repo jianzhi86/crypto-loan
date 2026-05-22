@@ -10,7 +10,7 @@ import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 
 const ASSETS = [
   { symbol: 'BTC', name: 'Bitcoin',   color: '#F7931A', maxLTV: 70, borrowAPR: 5.2, supplyAPR: 2.1, liquidity: 'RM 11.2B', icon: '₿' },
-  { symbol: 'ETH', name: 'Ethereum',  color: '#627EEA', maxLTV: 75, borrowAPR: 4.8, supplyAPR: 1.8, liquidity: 'RM 8.5B',  icon: 'Ξ' },
+  { symbol: 'ETH', name: 'Ethereum',  color: '#627EEA', maxLTV: 70, borrowAPR: 4.8, supplyAPR: 1.8, liquidity: 'RM 8.5B',  icon: 'Ξ' },
   { symbol: 'SOL', name: 'Solana',    color: '#9945FF', maxLTV: 65, borrowAPR: 6.5, supplyAPR: 3.2, liquidity: 'RM 1.9B',  icon: '◎' },
   { symbol: 'BNB', name: 'BNB Chain', color: '#F3BA2F', maxLTV: 65, borrowAPR: 5.8, supplyAPR: 2.4, liquidity: 'RM 3.1B',  icon: 'B' },
 ];
@@ -62,14 +62,15 @@ export default function Dashboard() {
   const router              = useRouter();
   const { prices, loading } = usePrices();
 
-  const [calcAssetIdx, setCalcAssetIdx] = useState(1);
-  const [collAmt, setCollAmt]           = useState('1');
-  const [ltv, setLtv]                   = useState(50);
-  const [activeTab, setActiveTab]       = useState<'deposit' | 'borrow' | 'repay'>('deposit');
-  const [depositAmt, setDepositAmt]     = useState('');
-  const [borrowAmt, setBorrowAmt]       = useState('');
-  const [repayAmt, setRepayAmt]         = useState('');
-  const [loanTermDays, setLoanTermDays] = useState(90);
+  const [calcAssetIdx, setCalcAssetIdx]     = useState(1);
+  const [collAmt, setCollAmt]               = useState('1');
+  const [ltv, setLtv]                       = useState(50);
+  const [activeTab, setActiveTab]           = useState<'deposit' | 'borrow' | 'repay'>('deposit');
+  const [depositAmt, setDepositAmt]         = useState('');
+  const [borrowAmt, setBorrowAmt]           = useState('');
+  const [repayAmt, setRepayAmt]             = useState('');
+  const [loanTermDays, setLoanTermDays]     = useState(90);
+  const [holdMultiplier, setHoldMultiplier] = useState(1.5);
 
   const calcAsset  = ASSETS[calcAssetIdx];
   const livePrice  = prices[SYMBOL_TO_ID[calcAsset.symbol]]?.myr ?? 0;
@@ -84,6 +85,17 @@ export default function Dashboard() {
   const calcMonthly       = (borrowable * calcAsset.borrowAPR / 100) / 12;
   const calcTotal         = borrowable + calcInterest;
   const originationFee    = borrowable * 0.001;
+
+  // Hold vs Sell comparison
+  const colAmtNum      = parseFloat(collAmt || '0');
+  const targetPrice    = assetPrice * holdMultiplier;
+  const ethGain        = colAmtNum * assetPrice * (holdMultiplier - 1);
+  const netAdvantage   = ethGain - calcInterest;
+  // Break-even: ETH needs to drop to this price for selling to be equally good
+  // Borrow path net = colAmt × targetPrice − interest; sell path = collUSD
+  // Equal when: colAmt × breakEven − interest = collUSD → breakEven = (collUSD + interest) / colAmt
+  const breakEvenPrice = colAmtNum > 0 ? (collUSD + calcInterest) / colAmtNum : 0;
+  const breakEvenDropPct = assetPrice > 0 ? ((assetPrice - breakEvenPrice) / assetPrice) * 100 : 0;
 
   const isLive = wallet.isConnected && wallet.isCorrectNetwork && wallet.isDeployed;
 
@@ -168,7 +180,7 @@ export default function Dashboard() {
               {[
                 { step: '01', icon: '🪪', title: 'Complete KYC',      desc: 'Verify your identity as required by Malaysian financial regulations (BNM).' },
                 { step: '02', icon: '🔒', title: 'Deposit Collateral', desc: 'Lock your crypto (ETH, BTC, SOL) as collateral to secure your loan.' },
-                { step: '03', icon: '💸', title: 'Borrow MYR',         desc: 'Receive Mock Malaysian Ringgit instantly — up to 75% of your collateral value.' },
+                { step: '03', icon: '💸', title: 'Borrow MYR',         desc: 'Receive Mock Malaysian Ringgit instantly — up to 70% of your collateral value.' },
                 { step: '04', icon: '✅', title: 'Repay & Unlock',     desc: 'Repay your loan at any time to unlock and withdraw your collateral.' },
               ].map(s => (
                 <div key={s.step} className="p-4 rounded-xl" style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
@@ -261,6 +273,114 @@ export default function Dashboard() {
                       {t.label}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Hold vs Sell Comparison */}
+              <div className="mb-5">
+                <div className="flex items-center justify-between mb-3">
+                  <Lbl>Why Not Just Sell? — Price Scenario</Lbl>
+                  <span className="text-xs" style={{ color: '#64748B' }}>
+                    {calcAsset.symbol} at {holdMultiplier}× = {rm(targetPrice)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5 mb-4">
+                  {[
+                    { label: 'Flat',  mult: 1.0 },
+                    { label: '+50%',  mult: 1.5 },
+                    { label: '2×',    mult: 2.0 },
+                    { label: '3×',    mult: 3.0 },
+                  ].map(opt => (
+                    <button key={opt.mult} onClick={() => setHoldMultiplier(opt.mult)}
+                      className="py-1.5 rounded-lg text-xs font-semibold transition-all"
+                      style={{
+                        backgroundColor: holdMultiplier === opt.mult ? '#22c55e' : '#0D0F1A',
+                        color: holdMultiplier === opt.mult ? '#fff' : '#64748B',
+                        border: `1px solid ${holdMultiplier === opt.mult ? '#22c55e' : '#1E2035'}`,
+                      }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Sell */}
+                  <div className="p-3 rounded-xl" style={{ backgroundColor: '#0D0F1A', border: '1px solid #ef444433' }}>
+                    <p className="text-xs font-semibold mb-2" style={{ color: '#ef4444' }}>✗ Sell Today</p>
+                    <p className="text-xs mb-1" style={{ color: '#64748B' }}>You receive</p>
+                    <p className="text-base font-bold text-white">{rm(collUSD)}</p>
+                    <div className="mt-2 pt-2 space-y-1 text-xs" style={{ borderTop: '1px solid #1E2035' }}>
+                      <div className="flex justify-between">
+                        <span style={{ color: '#64748B' }}>Cash</span>
+                        <span className="text-white">{rm(collUSD)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span style={{ color: '#64748B' }}>{calcAsset.symbol} position</span>
+                        <span style={{ color: '#ef4444' }}>Gone</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span style={{ color: '#64748B' }}>
+                          If {calcAsset.symbol} goes to {rm(targetPrice)}
+                        </span>
+                        <span style={{ color: '#ef4444' }}>Miss {rm(ethGain)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Borrow + Hold */}
+                  <div className="p-3 rounded-xl" style={{ backgroundColor: '#0D0F1A', border: '1px solid #22c55e33' }}>
+                    <p className="text-xs font-semibold mb-2" style={{ color: '#22c55e' }}>✓ Borrow + Hold</p>
+                    <p className="text-xs mb-1" style={{ color: '#64748B' }}>Cash + ETH upside</p>
+                    <p className="text-base font-bold text-white">{rm(borrowable)} <span className="text-xs font-normal" style={{ color: '#64748B' }}>+ ETH</span></p>
+                    <div className="mt-2 pt-2 space-y-1 text-xs" style={{ borderTop: '1px solid #1E2035' }}>
+                      <div className="flex justify-between">
+                        <span style={{ color: '#64748B' }}>Cash borrowed</span>
+                        <span className="text-white">{rm(borrowable)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span style={{ color: '#64748B' }}>{calcAsset.symbol} position</span>
+                        <span style={{ color: '#22c55e' }}>Kept</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span style={{ color: '#64748B' }}>
+                          {calcAsset.symbol} gain at {rm(targetPrice)}
+                        </span>
+                        <span style={{ color: ethGain > 0 ? '#22c55e' : '#94A3B8' }}>+{rm(ethGain)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span style={{ color: '#64748B' }}>Interest ({loanTermDays}d)</span>
+                        <span style={{ color: '#eab308' }}>−{rm(calcInterest, 2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Net advantage */}
+                <div className="mt-3 p-3 rounded-xl"
+                  style={{
+                    background: netAdvantage >= 0
+                      ? 'linear-gradient(135deg, #05140a, #052e16)'
+                      : 'linear-gradient(135deg, #1a0505, #450a0a)',
+                    border: `1px solid ${netAdvantage >= 0 ? '#22c55e33' : '#ef444433'}`,
+                  }}>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-xs font-semibold" style={{ color: netAdvantage >= 0 ? '#22c55e' : '#ef4444' }}>
+                        {netAdvantage >= 0 ? '✓ Borrowing wins by' : '✗ Selling was better by'}
+                      </p>
+                      <p className="text-xs mt-1" style={{ color: '#64748B' }}>
+                        vs selling at today&apos;s price ({rm(assetPrice)})
+                      </p>
+                    </div>
+                    <p className="text-xl font-bold" style={{ color: netAdvantage >= 0 ? '#22c55e' : '#ef4444' }}>
+                      {rm(Math.abs(netAdvantage))}
+                    </p>
+                  </div>
+                  {assetPrice > 0 && (
+                    <p className="text-xs mt-2 pt-2" style={{ borderTop: `1px solid ${netAdvantage >= 0 ? '#22c55e22' : '#ef444422'}`, color: '#64748B' }}>
+                      Break-even: {calcAsset.symbol} needs to drop below {rm(breakEvenPrice)} (−{breakEvenDropPct.toFixed(1)}% from today) for selling to have been smarter.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -539,14 +659,40 @@ export default function Dashboard() {
                     </InputBox>
                     {wallet.isConnected && <p className="text-xs mt-1" style={{ color: '#64748B' }}>Wallet balance: {wallet.ethBalance} ETH</p>}
                   </div>
-                  <div className="p-3 rounded-xl space-y-2.5" style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
-                    <Row label="ETH Price (on-chain)" value={rm(isLive ? wallet.ethPriceMYR : ethPriceMYR)} />
-                    <Row label="Collateral Value (MYR)" value={rm((parseFloat(depositAmt || '0')) * (isLive ? wallet.ethPriceMYR : ethPriceMYR))} />
-                    <Row label="Max LTV" value="75%" />
-                    <div className="border-t pt-2" style={{ borderColor: '#1E2035' }}>
-                      <Row label="Max Borrowable" value={rm((parseFloat(depositAmt || '0')) * (isLive ? wallet.ethPriceMYR : ethPriceMYR) * 0.75) + ' MYR'} vc="#06B6D4" bold />
-                    </div>
-                  </div>
+                  {/* Borrowing Power Breakdown */}
+                  {(() => {
+                    const depEth    = parseFloat(depositAmt || '0');
+                    const price     = isLive ? wallet.ethPriceMYR : ethPriceMYR;
+                    const colValue  = depEth * price;
+                    const maxBorrow = colValue * 0.70;
+                    const alreadyBorrowed = isLive && wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0;
+                    const totalColAfter   = (isLive && wallet.loanInfo
+                      ? parseFloat(ethers.formatEther(wallet.loanInfo.collateral)) : 0) + depEth;
+                    const totalColMYR     = totalColAfter * price;
+                    const newMaxBorrow    = totalColMYR * 0.70;
+                    const newAvailable    = Math.max(0, newMaxBorrow - alreadyBorrowed);
+                    return (
+                      <div className="p-3 rounded-xl space-y-2.5" style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
+                        <p className="text-xs font-semibold text-white mb-1">Borrowing Power</p>
+                        <Row label={`ETH Price (on-chain)`}   value={rm(price)} />
+                        <Row label={`${depEth.toFixed(4)} ETH × RM ${price.toLocaleString()}`} value={rm(colValue)} />
+                        <Row label="× Max LTV (70%)"          value={`= ${rm(maxBorrow)}`} vc="#06B6D4" />
+                        {isLive && alreadyBorrowed > 0 && <>
+                          <div className="border-t pt-2" style={{ borderColor: '#1E2035' }}>
+                            <Row label="Total collateral after deposit" value={`${totalColAfter.toFixed(4)} ETH`} />
+                            <Row label="New max borrowable"             value={rm(newMaxBorrow)} />
+                            <Row label="Already borrowed"               value={`− ${rm(alreadyBorrowed, 2)}`} vc="#eab308" />
+                          </div>
+                        </>}
+                        <div className="border-t pt-2" style={{ borderColor: '#1E2035' }}>
+                          <Row
+                            label={isLive && alreadyBorrowed > 0 ? 'Available after deposit' : 'Max you can borrow'}
+                            value={rm(isLive && alreadyBorrowed > 0 ? newAvailable : maxBorrow, 2) + ' MYR'}
+                            vc="#06B6D4" bold />
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div className="p-3 rounded-lg text-xs" style={{ backgroundColor: '#052e1620', border: '1px solid #22c55e22', color: '#22c55e' }}>
                     ✓ Your collateral is locked in a non-custodial smart contract. Only you can withdraw it after repaying.
                   </div>
