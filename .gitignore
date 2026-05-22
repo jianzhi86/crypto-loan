@@ -39,3 +39,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+
+# SQLite database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Hardhat — artifacts and local dependencies
+blockchain/node_modules/
+blockchain/artifacts/
+blockchain/cache/
+blockchain/typechain-types/

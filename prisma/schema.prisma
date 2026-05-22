@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model KycSubmission {
+  id          Int      @id @default(autoincrement())
+  wallet      String   @unique
+  fullName    String
+  icNumber    String
+  dob         String
+  gender      String
+  nationality String
+  phone       String
+  email       String
+  addr1       String
+  addr2       String   @default("")
+  postcode    String
+  city        String
+  state       String
+  employment  String
+  income      String
+  purpose     String
+  fundSource  String
+  status      String   @default("pending")
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
