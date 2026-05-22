@@ -57,13 +57,13 @@ export default function Navbar() {
             {/* KYC badge */}
             {isLive && (
               <button
-                onClick={() => !wallet.kycApproved && router.push('/kyc')}
+                onClick={() => router.push('/kyc')}
                 className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-colors"
                 style={{
                   backgroundColor: wallet.kycApproved ? '#052e16' : '#1a0f2e',
                   color: wallet.kycApproved ? '#22c55e' : '#A78BFA',
                   border: `1px solid ${wallet.kycApproved ? '#22c55e44' : '#7C3AED55'}`,
-                  cursor: wallet.kycApproved ? 'default' : 'pointer',
+                  cursor: 'pointer',
                 }}>
                 <span>{wallet.kycApproved ? '✓' : '🪪'}</span>
                 {wallet.kycApproved ? 'KYC Verified' : 'KYC Required'}

@@ -135,11 +135,7 @@ export default function KYCPage() {
 
   useEffect(() => { setMounted(true); }, []);
 
-  useEffect(() => {
-    if (mounted && wallet.kycApproved && !submittedId) {
-      router.push('/');
-    }
-  }, [mounted, wallet.kycApproved, submittedId, router]);
+  // no redirect — show verified screen inline instead
 
   const set = (field: keyof FormData, value: string | boolean) =>
     setForm(p => ({ ...p, [field]: value }));
@@ -226,6 +222,51 @@ export default function KYCPage() {
   }
 
   // ── KYC Form ──────────────────────────────────────────────────────────────
+  // Already verified — show status screen
+  if (mounted && wallet.kycApproved && !submittedId) {
+    return (
+      <div className="min-h-screen bg-[#0D0F1A] text-white">
+        <Navbar />
+        <main className="max-w-lg mx-auto px-4 py-16">
+          <div className="bg-[#12152A] border border-gray-800 rounded-2xl p-10 text-center">
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5"
+              style={{ background: 'linear-gradient(135deg, #05140a, #052e16)', border: '2px solid #22c55e44' }}>
+              <span className="text-4xl">✅</span>
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">KYC Verified</h2>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold mb-6"
+              style={{ backgroundColor: '#052e16', color: '#22c55e', border: '1px solid #22c55e44' }}>
+              ✓ Identity Confirmed
+            </div>
+            <div className="rounded-xl p-4 mb-6 text-left space-y-3"
+              style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
+              {[
+                { label: 'Wallet', value: wallet.address ? `${wallet.address.slice(0,10)}…${wallet.address.slice(-6)}` : '—' },
+                { label: 'Status', value: 'Approved', vc: '#22c55e' },
+                { label: 'Verification', value: 'On-chain (Hardhat)' },
+                { label: 'Borrowing', value: 'Enabled', vc: '#22c55e' },
+              ].map(r => (
+                <div key={r.label} className="flex justify-between text-sm">
+                  <span style={{ color: '#64748B' }}>{r.label}</span>
+                  <span className="font-medium" style={{ color: (r as {vc?: string}).vc ?? '#F1F5F9' }}>{r.value}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs mb-6" style={{ color: '#64748B' }}>
+              Your identity has been verified. You can now deposit collateral and borrow MYR on the dashboard.
+            </p>
+            <button
+              onClick={() => router.push('/?tab=deposit')}
+              className="w-full py-2.5 rounded-lg text-white text-sm font-semibold"
+              style={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)' }}>
+              Start Borrowing →
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0D0F1A] text-white">
       <Navbar />
