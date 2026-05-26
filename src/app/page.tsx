@@ -9,10 +9,15 @@ import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 
 const ASSETS = [
-  { symbol: 'BTC', name: 'Bitcoin',   color: '#F7931A', maxLTV: 70, borrowAPR: 5.2, supplyAPR: 2.1, liquidity: 'RM 11.2B', icon: '₿' },
-  { symbol: 'ETH', name: 'Ethereum',  color: '#627EEA', maxLTV: 70, borrowAPR: 4.8, supplyAPR: 1.8, liquidity: 'RM 8.5B',  icon: 'Ξ' },
-  { symbol: 'SOL', name: 'Solana',    color: '#9945FF', maxLTV: 65, borrowAPR: 6.5, supplyAPR: 3.2, liquidity: 'RM 1.9B',  icon: '◎' },
-  { symbol: 'BNB', name: 'BNB Chain', color: '#F3BA2F', maxLTV: 65, borrowAPR: 5.8, supplyAPR: 2.4, liquidity: 'RM 3.1B',  icon: 'B' },
+  { symbol: 'BTC',  name: 'Bitcoin',   color: '#F7931A', maxLTV: 70, borrowAPR: 5.2, supplyAPR: 2.1, liquidity: 'RM 11.2B', icon: '₿' },
+  { symbol: 'ETH',  name: 'Ethereum',  color: '#627EEA', maxLTV: 70, borrowAPR: 4.8, supplyAPR: 1.8, liquidity: 'RM 8.5B',  icon: 'Ξ' },
+  { symbol: 'SOL',  name: 'Solana',    color: '#9945FF', maxLTV: 65, borrowAPR: 6.5, supplyAPR: 3.2, liquidity: 'RM 1.9B',  icon: '◎' },
+  { symbol: 'BNB',  name: 'BNB Chain', color: '#F3BA2F', maxLTV: 65, borrowAPR: 5.8, supplyAPR: 2.4, liquidity: 'RM 3.1B',  icon: 'B' },
+  { symbol: 'XRP',  name: 'XRP',       color: '#00AAE4', maxLTV: 55, borrowAPR: 7.8, supplyAPR: 4.8, liquidity: 'RM 720M',  icon: 'X' },
+  { symbol: 'AVAX', name: 'Avalanche', color: '#E84142', maxLTV: 60, borrowAPR: 7.2, supplyAPR: 4.1, liquidity: 'RM 840M',  icon: 'A' },
+  { symbol: 'LINK', name: 'Chainlink', color: '#2A5ADA', maxLTV: 60, borrowAPR: 7.5, supplyAPR: 4.5, liquidity: 'RM 520M',  icon: 'L' },
+  { symbol: 'DOT',  name: 'Polkadot',  color: '#E6007A', maxLTV: 55, borrowAPR: 8.0, supplyAPR: 5.0, liquidity: 'RM 310M',  icon: 'D' },
+  { symbol: 'ADA',  name: 'Cardano',   color: '#0033AD', maxLTV: 50, borrowAPR: 8.5, supplyAPR: 5.5, liquidity: 'RM 280M',  icon: '₳' },
 ];
 
 const LOAN_TERMS = [
@@ -60,9 +65,14 @@ function Row({ label, value, vc, bold }: { label: string; value: string; vc?: st
 export default function Dashboard() {
   const wallet              = useWallet();
   const router              = useRouter();
-  const { prices, loading } = usePrices();
+  const { prices, loading, flash } = usePrices();
 
-  const [calcAssetIdx, setCalcAssetIdx]     = useState(1);
+  const [calcAssetIdx, setCalcAssetIdx]     = useState(() => {
+    if (typeof window === 'undefined') return 1;
+    const asset = new URLSearchParams(window.location.search).get('asset')?.toUpperCase();
+    const idx = asset ? ASSETS.findIndex(a => a.symbol === asset) : -1;
+    return idx >= 0 ? idx : 1;
+  });
   const [collAmt, setCollAmt]               = useState('1');
   const [ltv, setLtv]                       = useState(50);
   const [activeTab, setActiveTab]           = useState<'deposit' | 'borrow' | 'repay'>('deposit');
@@ -213,9 +223,14 @@ export default function Dashboard() {
               </div>
 
               <Lbl>Collateral Asset</Lbl>
-              <div className="grid grid-cols-4 gap-2 mb-5">
+              <div className="grid grid-cols-3 gap-2 mb-5">
                 {ASSETS.map((asset, i) => {
-                  const p = prices[SYMBOL_TO_ID[asset.symbol]];
+                  const p   = prices[SYMBOL_TO_ID[asset.symbol]];
+                  const myr = p?.myr ?? 0;
+                  const fmt = myr >= 100000 ? `RM ${(myr / 1000).toFixed(0)}K`
+                            : myr >= 1000   ? `RM ${(myr / 1000).toFixed(1)}K`
+                            : myr >= 1      ? `RM ${myr.toFixed(0)}`
+                            :                 `RM ${myr.toFixed(2)}`;
                   return (
                     <button key={asset.symbol}
                       onClick={() => { setCalcAssetIdx(i); setLtv(Math.min(ltv, asset.maxLTV)); }}
@@ -226,7 +241,7 @@ export default function Dashboard() {
                       }}>
                       <span className="text-xl font-bold leading-none" style={{ color: asset.color }}>{asset.icon}</span>
                       <span className="text-xs font-semibold text-white">{asset.symbol}</span>
-                      <span className="text-xs" style={{ color: '#64748B' }}>{loading ? '…' : `RM ${(p?.myr ?? 0).toLocaleString()}`}</span>
+                      <span className="text-xs" style={{ color: '#64748B' }}>{loading ? '…' : fmt}</span>
                     </button>
                   );
                 })}
@@ -449,7 +464,7 @@ export default function Dashboard() {
                             </div>
                           </div>
                         </td>
-                        <td className="py-4">
+                        <td className={`py-4 rounded ${flash[SYMBOL_TO_ID[a.symbol]] ? `price-flash-${flash[SYMBOL_TO_ID[a.symbol]]}` : ''}`}>
                           <p className="font-medium text-white">{loading ? '…' : `RM ${(p?.myr ?? 0).toLocaleString()}`}</p>
                           <p className="text-xs" style={{ color: change >= 0 ? '#22c55e' : '#ef4444' }}>
                             {change >= 0 ? '+' : ''}{change.toFixed(2)}%

@@ -40,3 +40,16 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
   border: 2px solid #0D0F1A;
 }
+
+@keyframes flash-up {
+  0%   { background-color: #22c55e33; }
+  100% { background-color: transparent; }
+}
+
+@keyframes flash-down {
+  0%   { background-color: #ef444433; }
+  100% { background-color: transparent; }
+}
+
+.price-flash-up   { animation: flash-up   1.5s ease-out; }
+.price-flash-down { animation: flash-down 1.5s ease-out; }
