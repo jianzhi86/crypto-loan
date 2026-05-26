@@ -75,7 +75,12 @@ export default function Dashboard() {
   });
   const [collAmt, setCollAmt]               = useState('1');
   const [ltv, setLtv]                       = useState(50);
-  const [activeTab, setActiveTab]           = useState<'deposit' | 'borrow' | 'repay'>('deposit');
+  const [activeTab, setActiveTab]           = useState<'deposit' | 'borrow' | 'repay'>(() => {
+    if (typeof window === 'undefined') return 'deposit';
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    if (tab === 'borrow' || tab === 'repay') return tab;
+    return 'deposit';
+  });
   const [depositAmt, setDepositAmt]         = useState('');
   const [borrowAmt, setBorrowAmt]           = useState('');
   const [repayAmt, setRepayAmt]             = useState('');

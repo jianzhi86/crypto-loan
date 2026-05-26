@@ -158,10 +158,15 @@ Max borrow (MYR)  = Collateral value × 70%
 Current LTV       = Borrowed MYR / Collateral value × 100%`}
             </CodeBlock>
             <Table rows={[
-              ['ETH (Hardhat)',  '70%', '80%'],
-              ['BTC (demo)',     '70%', '80%'],
-              ['SOL (demo)',     '65%', '75%'],
-              ['BNB (demo)',     '65%', '75%'],
+              ['ETH (Hardhat)', '70%', '80%'],
+              ['BTC',           '70%', '80%'],
+              ['SOL',           '65%', '75%'],
+              ['BNB',           '65%', '75%'],
+              ['XRP',           '55%', '65%'],
+              ['AVAX',          '60%', '70%'],
+              ['LINK',          '60%', '70%'],
+              ['DOT',           '55%', '65%'],
+              ['ADA',           '50%', '60%'],
             ]} />
           </Section>
 

@@ -365,7 +365,7 @@ export default function PortfolioPage() {
                 ) : (
                   [
                     { icon: 'Ξ', color: '#627EEA', label: 'ETH', sub: 'Ethereum', value: `${wallet.ethBalance} ETH`, usd: rm(parseFloat(wallet.ethBalance) * (isLive ? wallet.ethPriceMYR : ethMYR)) },
-                    { icon: '₿', color: '#22c55e', label: 'MYR', sub: 'Mock Ringgit', value: `RM ${wallet.myrBalance}`, usd: 'Borrowed token' },
+                    { icon: 'M',  color: '#22c55e', label: 'MYR', sub: 'Mock Ringgit', value: `RM ${wallet.myrBalance}`, usd: 'Borrowed token' },
                   ].map(b => (
                     <div key={b.label} className="flex items-center justify-between p-3 rounded-xl"
                       style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
