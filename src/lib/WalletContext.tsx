@@ -29,6 +29,8 @@ export interface LoanInfo {
   healthFactor: number;
   available: bigint;
   collateralValueMYR: number;
+  accruedInterest: bigint;
+  startTime: bigint;
 }
 
 export interface WalletState {
@@ -77,7 +79,6 @@ interface WalletCtx extends WalletState {
   borrow: (myr: string) => Promise<void>;
   repay: (myr: string) => Promise<void>;
   withdrawCollateral: (eth: string) => Promise<void>;
-  submitKYC: () => Promise<void>;
   refresh: () => Promise<void>;
   clearTx: () => void;
 }
@@ -113,12 +114,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const c = await getContracts(false);
       if (!c) { setS(p => ({ ...p, isRefreshing: false })); return; }
-      const [ethBal, myrBal, info, price, kyc] = await Promise.all([
+      const [ethBal, myrBal, info, price, kyc, loanRaw] = await Promise.all([
         provider.getBalance(address),
         c.myr.balanceOf(address),
         c.loan.getLoanInfo(address),
         c.loan.ethPrice(),
         c.loan.kycApproved(address),
+        c.loan.loans(address),
       ]);
       const MAX_U = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
       const hfRaw = info[2] as bigint;
@@ -128,11 +130,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         ethBalance: parseFloat(ethers.formatEther(ethBal)).toFixed(4),
         myrBalance: (Number(myrBal) / 1e6).toFixed(2),
         loanInfo: {
-          collateral: info[0] as bigint,
-          borrowed:   info[1] as bigint,
-          healthFactor: hf,
-          available:    info[3] as bigint,
+          collateral:        info[0] as bigint,
+          borrowed:          info[1] as bigint,
+          healthFactor:      hf,
+          available:         info[3] as bigint,
           collateralValueMYR: Number(info[4] as bigint),
+          accruedInterest:   info[5] as bigint,
+          startTime:         loanRaw[2] as bigint,
         },
         ethPriceMYR: Number(price as bigint),
         kycApproved: kyc as boolean,
@@ -206,18 +210,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     } catch { setTx('error', 'Repay failed', 1, 2); }
   }, [getContracts, s.address, refresh]);
 
-  const submitKYC = useCallback(async () => {
-    const c = await getContracts(true);
-    if (!c || !s.address) return;
-    setTx('pending', 'Submitting KYC verification…');
-    try {
-      const tx = await c.loan.submitKYC();
-      await tx.wait();
-      setTx('success', 'KYC verified successfully!');
-      await refresh(s.address);
-    } catch { setTx('error', 'KYC submission failed'); }
-  }, [getContracts, s.address, refresh]);
-
   const withdrawCollateral = useCallback(async (ethAmt: string) => {
     const c = await getContracts(true);
     if (!c || !s.address) return;
@@ -273,7 +265,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value: WalletCtx = {
     ...s,
     connect, switchToHardhat,
-    depositCollateral, borrow, repay, withdrawCollateral, submitKYC,
+    depositCollateral, borrow, repay, withdrawCollateral,
     refresh: () => s.address ? refresh(s.address) : Promise.resolve(),
     clearTx: () => setS(p => ({ ...p, txStatus: 'idle', txMessage: '' })),
   };

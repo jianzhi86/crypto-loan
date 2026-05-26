@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db/prisma';
 import type { KycSubmission } from '@prisma/client';
 import { AdminApproveBtn } from '@/components/AdminApproveBtn';
+import { AdminSyncPriceBtn } from '@/components/AdminSyncPriceBtn';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,7 @@ export default async function AdminPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <AdminSyncPriceBtn />
             {pending > 0 && (
               <div className="px-3 py-1.5 rounded-full text-xs font-semibold"
                 style={{ backgroundColor: '#1E1B3A', color: '#A78BFA', border: '1px solid #A78BFA33' }}>

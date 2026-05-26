@@ -185,6 +185,25 @@ export const CRYPTO_LOAN_ABI = [
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "accruedInterest",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "myrAmount",
         "type": "uint256"
@@ -248,6 +267,11 @@ export const CRYPTO_LOAN_ABI = [
       {
         "internalType": "uint256",
         "name": "collateralValueMYR",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "interest",
         "type": "uint256"
       }
     ],
@@ -363,6 +387,25 @@ export const CRYPTO_LOAN_ABI = [
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "totalDue",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "_price",
         "type": "uint256"
@@ -387,13 +430,6 @@ export const CRYPTO_LOAN_ABI = [
       }
     ],
     "name": "setKYC",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "submitKYC",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

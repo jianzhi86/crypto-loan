@@ -2,7 +2,6 @@
 
 import { ethers } from 'ethers';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
 import Navbar from '@/components/Navbar';
 import { Skeleton, SkeletonCard } from '@/components/Skeleton';
 import { useWallet } from '@/lib/WalletContext';
@@ -49,37 +48,23 @@ export default function PortfolioPage() {
   const priceDrop = isLive && wallet.ethPriceMYR > 0 && liqPrice > 0
     ? ((wallet.ethPriceMYR - liqPrice) / wallet.ethPriceMYR) * 100 : 0;
 
-  // Loan timeline — persisted to localStorage per wallet
-  const [borrowDate, setBorrowDate] = useState<Date | null>(null);
-  const [loanTerm]  = useState(90); // default 90-day term in demo
-
-  useEffect(() => {
-    if (!wallet.address || borMYR === 0) { setBorrowDate(null); return; }
-    const key = `borrowDate_${wallet.address.toLowerCase()}`;
-    let stored = localStorage.getItem(key);
-    if (!stored) {
-      // Simulate a borrow date 15 days ago for demo
-      const demo = new Date();
-      demo.setDate(demo.getDate() - 15);
-      stored = demo.toISOString();
-      localStorage.setItem(key, stored);
-    }
-    setBorrowDate(new Date(stored));
-  }, [wallet.address, borMYR]);
-
+  // Loan timeline — derived from on-chain startTime
+  const LOAN_TERM   = 90; // illustrative 90-day term
+  const startTime   = loan?.startTime ?? BigInt(0);
+  const borrowDate  = startTime > BigInt(0) ? new Date(Number(startTime) * 1000) : null;
   const today       = new Date();
   const daysElapsed = borrowDate ? Math.max(0, Math.floor((today.getTime() - borrowDate.getTime()) / 86400000)) : 0;
-  const daysLeft    = Math.max(0, loanTerm - daysElapsed);
-  const maturityDate = borrowDate ? addDays(borrowDate, loanTerm) : null;
-  const progressPct  = loanTerm > 0 ? Math.min((daysElapsed / loanTerm) * 100, 100) : 0;
+  const daysLeft    = Math.max(0, LOAN_TERM - daysElapsed);
+  const maturityDate = borrowDate ? addDays(borrowDate, LOAN_TERM) : null;
+  const progressPct  = LOAN_TERM > 0 ? Math.min((daysElapsed / LOAN_TERM) * 100, 100) : 0;
 
-  // Interest calculations
-  const origFee       = borMYR * ORIG_FEE;
-  const accruedInt    = borMYR * (APR / 100) * (daysElapsed / 365);
-  const projTotalInt  = borMYR * (APR / 100) * (loanTerm / 365);
-  const totalRepay    = borMYR + accruedInt;
-  const fullRepay     = borMYR + projTotalInt;
-  const dailyInt      = borMYR * (APR / 100) / 365;
+  // Interest from contract (authoritative), projected figures from formula
+  const origFee      = borMYR * ORIG_FEE;
+  const accruedInt   = loan ? Number(loan.accruedInterest) / 1e6 : 0;
+  const projTotalInt = borMYR * (APR / 100) * (LOAN_TERM / 365);
+  const totalRepay   = borMYR + accruedInt;
+  const fullRepay    = borMYR + projTotalInt;
+  const dailyInt     = borMYR * (APR / 100) / 365;
 
   // Not connected
   if (!wallet.isConnected) {
@@ -304,7 +289,7 @@ export default function PortfolioPage() {
                     { label: 'Origination Fee (0.1%)',  value: rm(origFee, 2),        sub: 'Charged at disbursement',      vc: '#94A3B8' },
                     { label: 'Accrued Interest',        value: rm(accruedInt, 2),     sub: `${APR}% APR × ${daysElapsed} days / 365`,  vc: '#F59E0B' },
                     { label: 'Daily Interest Rate',     value: rm(dailyInt, 2) + '/day', sub: 'Accruing continuously',     vc: '#64748B' },
-                    { label: 'Projected Total Interest',value: rm(projTotalInt, 2),   sub: `If held full ${loanTerm} days`, vc: '#94A3B8' },
+                    { label: 'Projected Total Interest',value: rm(projTotalInt, 2),   sub: `If held full ${LOAN_TERM} days`, vc: '#94A3B8' },
                   ].map(r => (
                     <div key={r.label} className="flex items-center justify-between p-3 rounded-xl"
                       style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
@@ -332,7 +317,7 @@ export default function PortfolioPage() {
                     <div className="flex justify-between items-center">
                       <div>
                         <p className="text-sm font-medium text-white">Full-Term Repayment</p>
-                        <p className="text-xs mt-0.5" style={{ color: '#64748B' }}>If held to {loanTerm}-day maturity</p>
+                        <p className="text-xs mt-0.5" style={{ color: '#64748B' }}>If held to {LOAN_TERM}-day maturity</p>
                       </div>
                       <span className="text-sm font-semibold" style={{ color: '#94A3B8' }}>{rm(fullRepay, 2)}</span>
                     </div>

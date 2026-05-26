@@ -822,26 +822,36 @@ export default function Dashboard() {
                       <span className="text-sm font-bold" style={{ color: '#06B6D4' }}>RM</span>
                       <input type="number" min={0} value={repayAmt} onChange={e => setRepayAmt(e.target.value)}
                         className="flex-1 bg-transparent outline-none text-white text-lg font-medium" placeholder="0.00" />
-                      <button onClick={() => isLive && wallet.loanInfo
-                        ? setRepayAmt((Number(wallet.loanInfo.borrowed) / 1e6).toFixed(2)) : undefined}
+                      <button onClick={() => {
+                          if (!isLive || !wallet.loanInfo) return;
+                          const due = (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6;
+                          setRepayAmt(due.toFixed(2));
+                        }}
                         className="text-xs px-2 py-1 rounded font-semibold"
                         style={{ backgroundColor: '#06B6D422', color: '#06B6D4' }}>FULL</button>
                     </InputBox>
                     {isLive && <p className="text-xs mt-1" style={{ color: '#64748B' }}>MYR balance: {wallet.myrBalance}</p>}
                   </div>
                   <div className="p-3 rounded-xl space-y-2.5" style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
-                    <Row label="Outstanding Debt"
+                    <Row label="Outstanding Principal"
                       value={isLive && wallet.loanInfo ? `RM ${(Number(wallet.loanInfo.borrowed)/1e6).toFixed(2)}` : '—'} />
+                    <Row label="Accrued Interest"
+                      value={isLive && wallet.loanInfo ? `RM ${(Number(wallet.loanInfo.accruedInterest)/1e6).toFixed(4)}` : '—'} vc="#F59E0B" />
+                    <Row label="Total Due"
+                      value={isLive && wallet.loanInfo
+                        ? `RM ${((Number(wallet.loanInfo.borrowed)+Number(wallet.loanInfo.accruedInterest))/1e6).toFixed(2)}`
+                        : '—'} vc="#06B6D4" />
                     <Row label="Repaying"
-                      value={repayAmt ? `RM ${parseFloat(repayAmt).toFixed(2)}` : '—'} vc="#06B6D4" />
-                    <Row label="Remaining After"
-                      value={isLive && wallet.loanInfo && repayAmt
-                        ? `RM ${Math.max(0, Number(wallet.loanInfo.borrowed)/1e6 - parseFloat(repayAmt)).toFixed(2)}` : '—'} />
+                      value={repayAmt ? `RM ${parseFloat(repayAmt).toFixed(2)}` : '—'} vc="#22c55e" />
                     <div className="border-t pt-2" style={{ borderColor: '#1E2035' }}>
                       <Row label="New Health Factor"
                         value={(() => {
                           if (!isLive || !wallet.loanInfo || !repayAmt) return '—';
-                          const rem = Math.max(0, Number(wallet.loanInfo.borrowed)/1e6 - parseFloat(repayAmt));
+                          const interest = Number(wallet.loanInfo.accruedInterest) / 1e6;
+                          const principal = Number(wallet.loanInfo.borrowed) / 1e6;
+                          const paying = parseFloat(repayAmt);
+                          const principalPaid = Math.max(0, paying - interest);
+                          const rem = Math.max(0, principal - principalPaid);
                           if (rem <= 0) return '∞';
                           return ((wallet.loanInfo.collateralValueMYR * 0.8) / rem).toFixed(2);
                         })()} vc="#22c55e" bold />
