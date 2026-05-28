@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 const CG_URL =
   'https://api.coingecko.com/api/v3/simple/price' +
-  '?ids=bitcoin,ethereum,solana,binancecoin,avalanche-2,chainlink,polkadot,cardano,ripple' +
+  '?ids=bitcoin,ethereum,solana,binancecoin,avalanche-2,chainlink,polkadot,cardano,ripple,matic-network' +
   '&vs_currencies=myr,usd' +
   '&include_24hr_change=true';
 
@@ -30,6 +30,7 @@ export async function GET() {
       polkadot:    { myr: raw.polkadot?.myr         ?? 0, usd: raw.polkadot?.usd         ?? 0, change24h: raw.polkadot?.usd_24h_change         ?? 0 },
       cardano:     { myr: raw.cardano?.myr          ?? 0, usd: raw.cardano?.usd          ?? 0, change24h: raw.cardano?.usd_24h_change          ?? 0 },
       ripple:      { myr: raw.ripple?.myr           ?? 0, usd: raw.ripple?.usd           ?? 0, change24h: raw.ripple?.usd_24h_change           ?? 0 },
+      polygon:     { myr: raw['matic-network']?.myr ?? 0, usd: raw['matic-network']?.usd ?? 0, change24h: raw['matic-network']?.usd_24h_change ?? 0 },
     };
 
     return NextResponse.json({ ok: true, prices }, {

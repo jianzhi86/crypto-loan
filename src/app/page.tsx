@@ -3,7 +3,22 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ethers } from 'ethers';
-import { SkeletonCard } from '@/components/Skeleton';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Paper from '@mui/material/Paper';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import Slider from '@mui/material/Slider';
+import InputBase from '@mui/material/InputBase';
+import Alert from '@mui/material/Alert';
+import MuiSkeleton from '@mui/material/Skeleton';
+import LinearProgress from '@mui/material/LinearProgress';
+import Table from '@mui/material/Table';
+import TableHead from '@mui/material/TableHead';
+import TableBody from '@mui/material/TableBody';
+import TableRow from '@mui/material/TableRow';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import Navbar from '@/components/Navbar';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
@@ -36,56 +51,55 @@ function hColor(hf: number) { return !isFinite(hf) || hf >= 2 ? '#22c55e' : hf >
 function hLabel(hf: number) { return !isFinite(hf) || hf >= 2 ? 'Safe' : hf >= 1.5 ? 'Moderate' : 'At Risk'; }
 function rm(n: number, dec = 0) { return 'RM ' + n.toLocaleString('en-MY', { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
 
-function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`rounded-2xl p-6 ${className}`} style={{ backgroundColor: '#131629', border: '1px solid #1E2035' }}>
-      {children}
-    </div>
-  );
-}
-function Lbl({ children }: { children: React.ReactNode }) {
-  return <p className="text-xs mb-2" style={{ color: '#94A3B8' }}>{children}</p>;
-}
-function InputBox({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
-      {children}
-    </div>
-  );
-}
 function Row({ label, value, vc, bold }: { label: string; value: string; vc?: string; bold?: boolean }) {
   return (
-    <div className="flex justify-between text-xs">
-      <span style={{ color: '#94A3B8' }}>{label}</span>
-      <span className={bold ? 'font-semibold' : ''} style={{ color: vc ?? '#F1F5F9' }}>{value}</span>
-    </div>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+      <Typography variant="caption" color="text.secondary">{label}</Typography>
+      <Typography variant="caption" sx={{ color: vc ?? '#F1F5F9', fontWeight: bold ? 600 : 400 }}>{value}</Typography>
+    </Box>
   );
 }
 
+function StatCardSkeleton() {
+  return (
+    <Paper sx={{ p: 2.5, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2 }}>
+      <MuiSkeleton width={80} height={12} sx={{ bgcolor: '#1E2035', mb: 1.5 }} />
+      <MuiSkeleton width={120} height={28} sx={{ bgcolor: '#1E2035', mb: 0.75 }} />
+      <MuiSkeleton width={96} height={12} sx={{ bgcolor: '#1E2035' }} />
+    </Paper>
+  );
+}
+
+const cardSx = { p: 3, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 3 };
+const rowBoxSx = { p: 1.5, bgcolor: '#0D0F1A', border: '1px solid #1E2035', borderRadius: 2 };
+
 export default function Dashboard() {
-  const wallet              = useWallet();
-  const router              = useRouter();
+  const wallet  = useWallet();
+  const router  = useRouter();
   const { prices, loading, flash } = usePrices();
 
-  const [calcAssetIdx, setCalcAssetIdx]     = useState(() => {
+  const [calcAssetIdx, setCalcAssetIdx] = useState(() => {
     if (typeof window === 'undefined') return 1;
     const asset = new URLSearchParams(window.location.search).get('asset')?.toUpperCase();
     const idx = asset ? ASSETS.findIndex(a => a.symbol === asset) : -1;
     return idx >= 0 ? idx : 1;
   });
-  const [collAmt, setCollAmt]               = useState('1');
-  const [ltv, setLtv]                       = useState(50);
-  const [activeTab, setActiveTab]           = useState<'deposit' | 'borrow' | 'repay'>(() => {
+  const [collAmt, setCollAmt]             = useState('1');
+  const [ltv, setLtv]                     = useState(50);
+  const [activeTab, setActiveTab]         = useState<'deposit' | 'borrow' | 'repay'>(() => {
     if (typeof window === 'undefined') return 'deposit';
     const tab = new URLSearchParams(window.location.search).get('tab');
     if (tab === 'borrow' || tab === 'repay') return tab;
     return 'deposit';
   });
-  const [depositAmt, setDepositAmt]         = useState('');
-  const [borrowAmt, setBorrowAmt]           = useState('');
-  const [repayAmt, setRepayAmt]             = useState('');
-  const [loanTermDays, setLoanTermDays]     = useState(90);
-  const [holdMultiplier, setHoldMultiplier] = useState(1.5);
+  const [depositAmt, setDepositAmt]                   = useState('');
+  const [borrowAmt, setBorrowAmt]                     = useState('');
+  const [repayAmt, setRepayAmt]                       = useState('');
+  const [loanTermDays, setLoanTermDays]               = useState(90);
+  const [holdMultiplier, setHoldMultiplier]           = useState(1.5);
+  const [deliveryMethod, setDeliveryMethod]           = useState<'token' | 'bank'>('token');
+  const [transferResult, setTransferResult]           = useState<{ refNo: string; bankName: string; last4: string } | null>(null);
+  const [transferError, setTransferError]             = useState('');
 
   const calcAsset  = ASSETS[calcAssetIdx];
   const livePrice  = prices[SYMBOL_TO_ID[calcAsset.symbol]]?.myr ?? 0;
@@ -95,21 +109,16 @@ export default function Dashboard() {
   const ltvPct     = ltv / calcAsset.maxLTV;
   const calcHF     = ltv > 0 ? calcAsset.maxLTV / ltv : Infinity;
 
-  // Interest calculations for calculator
-  const calcInterest      = (borrowable * calcAsset.borrowAPR / 100) * (loanTermDays / 365);
-  const calcMonthly       = (borrowable * calcAsset.borrowAPR / 100) / 12;
-  const calcTotal         = borrowable + calcInterest;
-  const originationFee    = borrowable * 0.001;
+  const calcInterest   = (borrowable * calcAsset.borrowAPR / 100) * (loanTermDays / 365);
+  const calcMonthly    = (borrowable * calcAsset.borrowAPR / 100) / 12;
+  const calcTotal      = borrowable + calcInterest;
+  const originationFee = borrowable * 0.001;
 
-  // Hold vs Sell comparison
-  const colAmtNum      = parseFloat(collAmt || '0');
-  const targetPrice    = assetPrice * holdMultiplier;
-  const ethGain        = colAmtNum * assetPrice * (holdMultiplier - 1);
-  const netAdvantage   = ethGain - calcInterest;
-  // Break-even: ETH needs to drop to this price for selling to be equally good
-  // Borrow path net = colAmt × targetPrice − interest; sell path = collUSD
-  // Equal when: colAmt × breakEven − interest = collUSD → breakEven = (collUSD + interest) / colAmt
-  const breakEvenPrice = colAmtNum > 0 ? (collUSD + calcInterest) / colAmtNum : 0;
+  const colAmtNum    = parseFloat(collAmt || '0');
+  const targetPrice  = assetPrice * holdMultiplier;
+  const ethGain      = colAmtNum * assetPrice * (holdMultiplier - 1);
+  const netAdvantage = ethGain - calcInterest;
+  const breakEvenPrice   = colAmtNum > 0 ? (collUSD + calcInterest) / colAmtNum : 0;
   const breakEvenDropPct = assetPrice > 0 ? ((assetPrice - breakEvenPrice) / assetPrice) * 100 : 0;
 
   const isLive = wallet.isConnected && wallet.isCorrectNetwork && wallet.isDeployed;
@@ -119,116 +128,191 @@ export default function Dashboard() {
   const liveHF      = wallet.loanInfo?.healthFactor ?? null;
   const ethPriceMYR = wallet.isConnected ? wallet.ethPriceMYR : prices.ethereum.myr;
 
-  // Borrow panel interest details
-  const borrowMYR       = parseFloat(borrowAmt || '0');
-  const panelMonthly    = (borrowMYR * 4.8 / 100) / 12;
-  const panelInterest   = (borrowMYR * 4.8 / 100) * (loanTermDays / 365);
-  const panelTotal      = borrowMYR + panelInterest + (borrowMYR * 0.001);
+  const mktEthPrice   = prices.ethereum.myr;
+  const colEth        = wallet.loanInfo ? Number(ethers.formatEther(wallet.loanInfo.collateral)) : 0;
+  const liveColMktMYR = isLive ? colEth * mktEthPrice : null;
+  const mktNetPos     = liveColMktMYR !== null && liveBorMYR !== null ? liveColMktMYR - liveBorMYR : null;
+  const mktHF         = (liveColMktMYR !== null && liveBorMYR !== null && liveBorMYR > 0)
+    ? (liveColMktMYR * 0.8) / liveBorMYR : null;
+
+  const onChainPrice    = wallet.ethPriceMYR;
+  const priceDiffPct    = onChainPrice > 0 ? Math.abs((mktEthPrice - onChainPrice) / onChainPrice) * 100 : 0;
+  const hasPriceMismatch = isLive && priceDiffPct > 3;
+
+  const borrowMYR    = parseFloat(borrowAmt || '0');
+  const panelMonthly = (borrowMYR * 4.8 / 100) / 12;
+  const panelInterest = (borrowMYR * 4.8 / 100) * (loanTermDays / 365);
+  const panelTotal   = borrowMYR + panelInterest + (borrowMYR * 0.001);
+
+  const ltvColor = ltvPct > 0.85 ? '#ef4444' : ltvPct > 0.6 ? '#eab308' : '#06B6D4';
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#0D0F1A', color: '#F1F5F9' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#0D0F1A' }}>
       <Navbar />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <Box component="main" sx={{ maxWidth: 1280, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4 }}>
 
-        {/* ── Protocol Stats Banner ──────────────────────────────────────── */}
-        <div className="rounded-2xl p-5 mb-8 grid grid-cols-2 lg:grid-cols-4 gap-4"
-          style={{ background: 'linear-gradient(135deg, #12152A 0%, #0D1020 100%)', border: '1px solid #1E2035' }}>
+        {/* Protocol Stats Banner */}
+        <Paper sx={{ p: 3, mb: 4, display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, 1fr)' }, gap: 3,
+                      background: 'linear-gradient(135deg, #12152A 0%, #0D1020 100%)', border: '1px solid #1E2035', borderRadius: 3 }}>
           {[
-            { label: 'Total Value Locked',  value: 'RM 892M',   sub: '+3.2% this week',  color: '#22c55e' },
-            { label: 'Active Loans',        value: '2,847',     sub: 'Across all assets', color: '#06B6D4' },
-            { label: 'Total Borrowed',      value: 'RM 534M',   sub: '59.9% utilisation', color: '#eab308' },
-            { label: 'Base Borrow Rate',    value: '4.80% APR', sub: 'ETH collateral',    color: '#A78BFA' },
+            { label: 'Total Value Locked', value: 'RM 892M',   sub: '+3.2% this week',   color: '#22c55e' },
+            { label: 'Active Loans',       value: '2,847',     sub: 'Across all assets',  color: '#06B6D4' },
+            { label: 'Total Borrowed',     value: 'RM 534M',   sub: '59.9% utilisation',  color: '#eab308' },
+            { label: 'Base Borrow Rate',   value: '4.80% APR', sub: 'ETH collateral',     color: '#A78BFA' },
           ].map(s => (
-            <div key={s.label}>
-              <p className="text-xs mb-1" style={{ color: '#475569' }}>{s.label}</p>
-              <p className="text-xl font-bold" style={{ color: s.color }}>{s.value}</p>
-              <p className="text-xs mt-0.5" style={{ color: '#475569' }}>{s.sub}</p>
-            </div>
+            <Box key={s.label}>
+              <Typography variant="caption" sx={{ color: '#475569', display: 'block', mb: 0.5 }}>{s.label}</Typography>
+              <Typography variant="h5" sx={{ color: s.color, fontWeight: 700, my: 0.25 }}>{s.value}</Typography>
+              <Typography variant="caption" sx={{ color: '#475569' }}>{s.sub}</Typography>
+            </Box>
           ))}
-        </div>
+        </Paper>
 
-        {/* ── User Stats ────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        {/* User Stats */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, 1fr)' }, gap: 2, mb: 3 }}>
           {isLive && wallet.isRefreshing ? (
-            [0,1,2,3].map(i => <SkeletonCard key={i} />)
+            [0,1,2,3].map(i => <StatCardSkeleton key={i} />)
           ) : (
-            [
-              {
-                label: 'My Collateral',
-                value: isLive && liveColMYR !== null ? rm(liveColMYR) : 'RM 233,838',
-                sub:   isLive ? `${parseFloat(ethers.formatEther(wallet.loanInfo?.collateral ?? BigInt(0))).toFixed(4)} ETH` : 'Demo data',
-                sc: '#22c55e',
-              },
-              {
-                label: 'Outstanding Debt',
-                value: isLive && liveBorMYR !== null ? rm(liveBorMYR, 2) : 'RM 129,000',
-                sub:   isLive ? `${wallet.myrBalance} MYR balance` : '55.2% utilisation',
-                sc: '#eab308',
-              },
-              {
-                label: 'Net Position',
-                value: isLive && liveColMYR !== null && liveBorMYR !== null ? rm(liveColMYR - liveBorMYR) : 'RM 104,838',
-                sub:   isLive ? 'Collateral − Debt' : 'Demo data',
-                sc: '#22c55e',
-              },
-              {
-                label: 'Health Factor',
-                value: isLive && liveHF !== null ? (isFinite(liveHF) ? liveHF.toFixed(2) : '∞') : '1.58',
-                sub:   isLive && liveHF !== null ? hLabel(liveHF) : 'Moderate risk',
-                sc: isLive && liveHF !== null ? hColor(liveHF) : '#eab308',
-              },
-            ].map(s => (
-              <div key={s.label} className="p-4 rounded-xl" style={{ backgroundColor: '#131629', border: '1px solid #1E2035' }}>
-                <p className="text-xs mb-1.5" style={{ color: '#64748B' }}>{s.label}</p>
-                <p className="text-2xl font-bold text-white">{s.value}</p>
-                <p className="text-xs mt-1" style={{ color: s.sc }}>{s.sub}</p>
-              </div>
-            ))
-          )}
-        </div>
+            <>
+              <Paper sx={{ p: 2.5, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2 }}>
+                <Typography variant="caption" color="text.secondary">My Collateral</Typography>
+                <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, my: 0.5 }}>
+                  {isLive && liveColMktMYR !== null ? rm(liveColMktMYR) : 'RM 233,838'}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#22c55e' }}>
+                  {isLive ? `${colEth.toFixed(4)} ETH · live market` : 'Demo data'}
+                </Typography>
+                {isLive && liveColMYR !== null && hasPriceMismatch && (
+                  <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 0.5 }}>
+                    Contract: {rm(liveColMYR)}
+                  </Typography>
+                )}
+              </Paper>
 
-        {/* ── How It Works (disconnected only) ──────────────────────────── */}
+              <Paper sx={{ p: 2.5, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2 }}>
+                <Typography variant="caption" color="text.secondary">Outstanding Debt</Typography>
+                <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, my: 0.5 }}>
+                  {isLive && liveBorMYR !== null ? rm(liveBorMYR, 2) : 'RM 129,000'}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#eab308' }}>
+                  {isLive ? `${wallet.myrBalance} MYR balance` : '55.2% utilisation'}
+                </Typography>
+              </Paper>
+
+              <Paper sx={{ p: 2.5, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2 }}>
+                <Typography variant="caption" color="text.secondary">Net Position</Typography>
+                <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, my: 0.5 }}>
+                  {isLive && mktNetPos !== null ? rm(mktNetPos) : 'RM 104,838'}
+                </Typography>
+                <Typography variant="caption" sx={{ color: mktNetPos !== null && mktNetPos >= 0 ? '#22c55e' : '#ef4444' }}>
+                  {isLive ? 'Market collateral − Debt' : 'Demo data'}
+                </Typography>
+              </Paper>
+
+              <Paper sx={{ p: 2.5, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2 }}>
+                <Typography variant="caption" color="text.secondary">Health Factor</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 700, my: 0.5,
+                  color: isLive && mktHF !== null ? hColor(mktHF) : isLive && liveHF !== null ? hColor(liveHF) : '#eab308' }}>
+                  {isLive && mktHF !== null
+                    ? (isFinite(mktHF) ? mktHF.toFixed(2) : '∞')
+                    : isLive && liveHF !== null
+                      ? (isFinite(liveHF) ? liveHF.toFixed(2) : '∞')
+                      : '1.58'}
+                </Typography>
+                <Typography variant="caption" sx={{ color: isLive && mktHF !== null ? hColor(mktHF) : '#eab308' }}>
+                  {isLive && mktHF !== null
+                    ? `${hLabel(mktHF)} · market price`
+                    : isLive && liveHF !== null ? hLabel(liveHF) : 'Moderate risk'}
+                </Typography>
+                {isLive && liveHF !== null && hasPriceMismatch && (
+                  <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 0.5 }}>
+                    Contract HF: {isFinite(liveHF) ? liveHF.toFixed(2) : '∞'}
+                  </Typography>
+                )}
+              </Paper>
+            </>
+          )}
+        </Box>
+
+        {/* Price Mismatch Warning */}
+        {hasPriceMismatch && (
+          <Alert severity="warning" icon={<Typography sx={{ fontSize: 16 }}>⚠️</Typography>}
+            sx={{ mb: 3, bgcolor: '#1C1200', color: '#fbbf24', border: '1px solid #854d0e55',
+                  '& .MuiAlert-icon': { color: '#fbbf24' }, borderRadius: 2 }}
+            action={
+              <Button size="small" onClick={async () => {
+                await fetch('/api/admin/sync-price', { method: 'POST' });
+                wallet.refresh();
+              }}
+                sx={{ color: '#06B6D4', borderColor: 'rgba(6,182,212,0.3)', border: '1px solid', fontSize: 11,
+                      whiteSpace: 'nowrap', '&:hover': { bgcolor: 'rgba(6,182,212,0.1)' } }}>
+                ⟳ Sync Price
+              </Button>
+            }>
+            <Typography variant="body2" sx={{ fontWeight: 600, color: '#fbbf24' }}>
+              On-chain price differs from live market
+            </Typography>
+            <Typography variant="caption" sx={{ color: '#92400e', display: 'block', mt: 0.5 }}>
+              Contract uses{' '}
+              <Box component="span" sx={{ color: '#fbbf24' }}>{rm(onChainPrice)}/ETH</Box>
+              {' '}·{' '}
+              Live price is{' '}
+              <Box component="span" sx={{ color: '#fbbf24' }}>{rm(mktEthPrice)}/ETH</Box>
+              {' '}({priceDiffPct.toFixed(1)}% diff). Your collateral is worth{' '}
+              <Box component="span" sx={{ color: '#fbbf24' }}>
+                {colEth > 0 ? rm(colEth * mktEthPrice) : 'less'} at market
+              </Box>
+              {' '}vs{' '}
+              <Box component="span" sx={{ color: '#92400e' }}>
+                {colEth > 0 ? rm(colEth * onChainPrice) : 'more'} on-chain
+              </Box>.
+            </Typography>
+          </Alert>
+        )}
+
+        {/* How It Works */}
         {!wallet.isConnected && (
-          <div className="rounded-2xl p-6 mb-8" style={{ backgroundColor: '#131629', border: '1px solid #1E2035' }}>
-            <h2 className="text-lg font-semibold text-white mb-5">How CryptoLend Works</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <Paper sx={{ ...cardSx, mb: 4 }}>
+            <Typography variant="h6" color="text.primary" sx={{ fontWeight: 600, mb: 3 }}>How CryptoLend Works</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(4, 1fr)' }, gap: 2 }}>
               {[
                 { step: '01', icon: '🪪', title: 'Complete KYC',      desc: 'Verify your identity as required by Malaysian financial regulations (BNM).' },
                 { step: '02', icon: '🔒', title: 'Deposit Collateral', desc: 'Lock your crypto (ETH, BTC, SOL) as collateral to secure your loan.' },
                 { step: '03', icon: '💸', title: 'Borrow MYR',         desc: 'Receive Mock Malaysian Ringgit instantly — up to 70% of your collateral value.' },
                 { step: '04', icon: '✅', title: 'Repay & Unlock',     desc: 'Repay your loan at any time to unlock and withdraw your collateral.' },
               ].map(s => (
-                <div key={s.step} className="p-4 rounded-xl" style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: '#7C3AED22', color: '#A78BFA' }}>{s.step}</span>
-                    <span className="text-xl">{s.icon}</span>
-                  </div>
-                  <p className="text-sm font-semibold text-white mb-1">{s.title}</p>
-                  <p className="text-xs leading-relaxed" style={{ color: '#64748B' }}>{s.desc}</p>
-                </div>
+                <Box key={s.step} sx={{ p: 2, bgcolor: '#0D0F1A', border: '1px solid #1E2035', borderRadius: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <Box sx={{ px: 1, py: 0.25, borderRadius: 999, bgcolor: '#7C3AED22' }}>
+                      <Typography variant="caption" sx={{ color: '#A78BFA', fontWeight: 700 }}>{s.step}</Typography>
+                    </Box>
+                    <Typography sx={{ fontSize: 20 }}>{s.icon}</Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, mb: 0.5 }}>{s.title}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.6 }}>{s.desc}</Typography>
+                </Box>
               ))}
-            </div>
-          </div>
+            </Box>
+          </Paper>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        {/* Main grid */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' }, gap: 3 }}>
 
-          {/* ── Left (3/5) ── */}
-          <div className="lg:col-span-3 flex flex-col gap-6">
+          {/* ── Left column ── */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
 
             {/* Loan Calculator */}
-            <Card>
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-lg font-semibold text-white">Loan Calculator</h2>
-                {loading ? (
-                  <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: '#1E2035', color: '#64748B' }}>Loading prices…</span>
-                ) : (
-                  <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: '#06B6D422', color: '#06B6D4' }}>Live MYR prices</span>
-                )}
-              </div>
+            <Paper sx={cardSx}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                <Typography variant="h6" color="text.primary" sx={{ fontWeight: 600 }}>Loan Calculator</Typography>
+                <Chip label={loading ? 'Loading prices…' : 'Live MYR prices'} size="small"
+                  sx={{ bgcolor: loading ? '#1E2035' : '#06B6D422', color: loading ? '#64748B' : '#06B6D4', fontSize: 11 }} />
+              </Box>
 
-              <Lbl>Collateral Asset</Lbl>
-              <div className="grid grid-cols-3 gap-2 mb-5">
+              {/* Asset selector */}
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Collateral Asset</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, mb: 3 }}>
                 {ASSETS.map((asset, i) => {
                   const p   = prices[SYMBOL_TO_ID[asset.symbol]];
                   const myr = p?.myr ?? 0;
@@ -237,274 +321,258 @@ export default function Dashboard() {
                             : myr >= 1      ? `RM ${myr.toFixed(0)}`
                             :                 `RM ${myr.toFixed(2)}`;
                   return (
-                    <button key={asset.symbol}
+                    <Box key={asset.symbol}
                       onClick={() => { setCalcAssetIdx(i); setLtv(Math.min(ltv, asset.maxLTV)); }}
-                      className="flex flex-col items-center gap-1 p-3 rounded-xl transition-all"
-                      style={{
-                        backgroundColor: calcAssetIdx === i ? '#1E1B3A' : '#0D0F1A',
+                      sx={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5,
+                        p: 1.5, borderRadius: 2, cursor: 'pointer', transition: 'all 0.15s',
+                        bgcolor: calcAssetIdx === i ? '#1E1B3A' : '#0D0F1A',
                         border: `1px solid ${calcAssetIdx === i ? '#7C3AED' : '#1E2035'}`,
+                        '&:hover': { borderColor: '#7C3AED' },
                       }}>
-                      <span className="text-xl font-bold leading-none" style={{ color: asset.color }}>{asset.icon}</span>
-                      <span className="text-xs font-semibold text-white">{asset.symbol}</span>
-                      <span className="text-xs" style={{ color: '#64748B' }}>{loading ? '…' : fmt}</span>
-                    </button>
+                      <Typography sx={{ fontSize: 20, fontWeight: 700, lineHeight: 1, color: asset.color }}>{asset.icon}</Typography>
+                      <Typography variant="caption" color="text.primary" sx={{ fontWeight: 600 }}>{asset.symbol}</Typography>
+                      <Typography variant="caption" sx={{ color: '#64748B', fontSize: 10 }}>{loading ? '…' : fmt}</Typography>
+                    </Box>
                   );
                 })}
-              </div>
+              </Box>
 
-              <div className="mb-5">
-                <Lbl>Collateral Amount</Lbl>
-                <InputBox>
-                  <span className="text-xl font-bold" style={{ color: calcAsset.color }}>{calcAsset.icon}</span>
-                  <input type="number" min={0} value={collAmt} onChange={e => setCollAmt(e.target.value)}
-                    className="flex-1 bg-transparent outline-none text-white text-lg font-medium" placeholder="0.00" />
-                  <span className="text-sm font-semibold" style={{ color: '#64748B' }}>{calcAsset.symbol}</span>
-                </InputBox>
-                <p className="text-xs mt-1.5" style={{ color: '#64748B' }}>≈ {rm(collUSD, 2)} MYR</p>
-              </div>
+              {/* Collateral Amount */}
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Collateral Amount</Typography>
+              <Box sx={{ ...rowBoxSx, display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.75 }}>
+                <Typography sx={{ fontSize: 20, fontWeight: 700, color: calcAsset.color, lineHeight: 1 }}>{calcAsset.icon}</Typography>
+                <InputBase type="number" value={collAmt} onChange={e => setCollAmt(e.target.value)}
+                  placeholder="0.00" sx={{ flex: 1, color: 'text.primary', fontSize: 18, fontWeight: 500 }} />
+                <Typography variant="caption" sx={{ color: '#64748B', fontWeight: 600 }}>{calcAsset.symbol}</Typography>
+              </Box>
+              <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mb: 3 }}>≈ {rm(collUSD, 2)} MYR</Typography>
 
-              <div className="mb-5">
-                <div className="flex justify-between mb-2">
-                  <Lbl>Loan-to-Value (LTV)</Lbl>
-                  <span className="text-xs font-semibold"
-                    style={{ color: ltvPct > 0.85 ? '#ef4444' : ltvPct > 0.6 ? '#eab308' : '#06B6D4' }}>
+              {/* LTV Slider */}
+              <Box sx={{ mb: 3 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Loan-to-Value (LTV)</Typography>
+                  <Typography variant="caption" sx={{ color: ltvColor, fontWeight: 600 }}>
                     {ltv}% / {calcAsset.maxLTV}% max
-                  </span>
-                </div>
-                <input type="range" min={0} max={calcAsset.maxLTV} value={ltv}
-                  onChange={e => setLtv(Number(e.target.value))} className="w-full cursor-pointer" />
-                <div className="flex justify-between mt-1.5 text-xs" style={{ color: '#64748B' }}>
-                  <span>0%</span><span style={{ color: '#22c55e' }}>Safe ≤50%</span><span style={{ color: '#ef4444' }}>Max {calcAsset.maxLTV}%</span>
-                </div>
-              </div>
+                  </Typography>
+                </Box>
+                <Slider min={0} max={calcAsset.maxLTV} value={ltv}
+                  onChange={(_, val) => setLtv(val as number)}
+                  sx={{ color: ltvColor, '& .MuiSlider-thumb': { width: 16, height: 16 } }} />
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Typography variant="caption" color="text.secondary">0%</Typography>
+                  <Typography variant="caption" sx={{ color: '#22c55e' }}>Safe ≤50%</Typography>
+                  <Typography variant="caption" sx={{ color: '#ef4444' }}>Max {calcAsset.maxLTV}%</Typography>
+                </Box>
+              </Box>
 
               {/* Loan Term */}
-              <div className="mb-5">
-                <Lbl>Loan Term</Lbl>
-                <div className="grid grid-cols-4 gap-2">
-                  {LOAN_TERMS.map(t => (
-                    <button key={t.days} onClick={() => setLoanTermDays(t.days)}
-                      className="py-2 rounded-lg text-xs font-semibold transition-all"
-                      style={{
-                        backgroundColor: loanTermDays === t.days ? '#7C3AED' : '#0D0F1A',
-                        color: loanTermDays === t.days ? '#fff' : '#64748B',
-                        border: `1px solid ${loanTermDays === t.days ? '#7C3AED' : '#1E2035'}`,
-                      }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Loan Term</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, mb: 3 }}>
+                {LOAN_TERMS.map(t => (
+                  <Box key={t.days} onClick={() => setLoanTermDays(t.days)}
+                    sx={{
+                      py: 1, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer', transition: 'all 0.15s',
+                      bgcolor: loanTermDays === t.days ? '#7C3AED' : '#0D0F1A',
+                      border: `1px solid ${loanTermDays === t.days ? '#7C3AED' : '#1E2035'}`,
+                    }}>
+                    <Typography variant="caption" sx={{ color: loanTermDays === t.days ? 'white' : '#64748B', fontWeight: 600 }}>
                       {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
 
               {/* Hold vs Sell Comparison */}
-              <div className="mb-5">
-                <div className="flex items-center justify-between mb-3">
-                  <Lbl>Why Not Just Sell? — Price Scenario</Lbl>
-                  <span className="text-xs" style={{ color: '#64748B' }}>
+              <Box sx={{ mb: 3 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                  <Typography variant="caption" color="text.secondary">Why Not Just Sell? — Price Scenario</Typography>
+                  <Typography variant="caption" sx={{ color: '#64748B' }}>
                     {calcAsset.symbol} at {holdMultiplier}× = {rm(targetPrice)}
-                  </span>
-                </div>
-                <div className="grid grid-cols-4 gap-1.5 mb-4">
+                  </Typography>
+                </Box>
+
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, mb: 2 }}>
                   {[
-                    { label: 'Flat',  mult: 1.0 },
-                    { label: '+50%',  mult: 1.5 },
-                    { label: '2×',    mult: 2.0 },
-                    { label: '3×',    mult: 3.0 },
+                    { label: 'Flat', mult: 1.0 },
+                    { label: '+50%', mult: 1.5 },
+                    { label: '2×',   mult: 2.0 },
+                    { label: '3×',   mult: 3.0 },
                   ].map(opt => (
-                    <button key={opt.mult} onClick={() => setHoldMultiplier(opt.mult)}
-                      className="py-1.5 rounded-lg text-xs font-semibold transition-all"
-                      style={{
-                        backgroundColor: holdMultiplier === opt.mult ? '#22c55e' : '#0D0F1A',
-                        color: holdMultiplier === opt.mult ? '#fff' : '#64748B',
+                    <Box key={opt.mult} onClick={() => setHoldMultiplier(opt.mult)}
+                      sx={{
+                        py: 1, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer', transition: 'all 0.15s',
+                        bgcolor: holdMultiplier === opt.mult ? '#22c55e' : '#0D0F1A',
                         border: `1px solid ${holdMultiplier === opt.mult ? '#22c55e' : '#1E2035'}`,
                       }}>
-                      {opt.label}
-                    </button>
+                      <Typography variant="caption" sx={{ color: holdMultiplier === opt.mult ? 'white' : '#64748B', fontWeight: 600 }}>
+                        {opt.label}
+                      </Typography>
+                    </Box>
                   ))}
-                </div>
+                </Box>
 
-                <div className="grid grid-cols-2 gap-3">
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
                   {/* Sell */}
-                  <div className="p-3 rounded-xl" style={{ backgroundColor: '#0D0F1A', border: '1px solid #ef444433' }}>
-                    <p className="text-xs font-semibold mb-2" style={{ color: '#ef4444' }}>✗ Sell Today</p>
-                    <p className="text-xs mb-1" style={{ color: '#64748B' }}>You receive</p>
-                    <p className="text-base font-bold text-white">{rm(collUSD)}</p>
-                    <div className="mt-2 pt-2 space-y-1 text-xs" style={{ borderTop: '1px solid #1E2035' }}>
-                      <div className="flex justify-between">
-                        <span style={{ color: '#64748B' }}>Cash</span>
-                        <span className="text-white">{rm(collUSD)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span style={{ color: '#64748B' }}>{calcAsset.symbol} position</span>
-                        <span style={{ color: '#ef4444' }}>Gone</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span style={{ color: '#64748B' }}>
-                          If {calcAsset.symbol} goes to {rm(targetPrice)}
-                        </span>
-                        <span style={{ color: '#ef4444' }}>Miss {rm(ethGain)}</span>
-                      </div>
-                    </div>
-                  </div>
+                  <Box sx={{ p: 1.5, bgcolor: '#0D0F1A', border: '1px solid #ef444433', borderRadius: 2 }}>
+                    <Typography variant="caption" sx={{ color: '#ef4444', fontWeight: 600, display: 'block', mb: 1 }}>✗ Sell Today</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>You receive</Typography>
+                    <Typography variant="body1" color="text.primary" sx={{ fontWeight: 700 }}>{rm(collUSD)}</Typography>
+                    <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid #1E2035', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                      <Row label="Cash" value={rm(collUSD)} />
+                      <Row label={`${calcAsset.symbol} position`} value="Gone" vc="#ef4444" />
+                      <Row label={`If ${calcAsset.symbol} → ${rm(targetPrice)}`} value={`Miss ${rm(ethGain)}`} vc="#ef4444" />
+                    </Box>
+                  </Box>
 
                   {/* Borrow + Hold */}
-                  <div className="p-3 rounded-xl" style={{ backgroundColor: '#0D0F1A', border: '1px solid #22c55e33' }}>
-                    <p className="text-xs font-semibold mb-2" style={{ color: '#22c55e' }}>✓ Borrow + Hold</p>
-                    <p className="text-xs mb-1" style={{ color: '#64748B' }}>Cash + ETH upside</p>
-                    <p className="text-base font-bold text-white">{rm(borrowable)} <span className="text-xs font-normal" style={{ color: '#64748B' }}>+ ETH</span></p>
-                    <div className="mt-2 pt-2 space-y-1 text-xs" style={{ borderTop: '1px solid #1E2035' }}>
-                      <div className="flex justify-between">
-                        <span style={{ color: '#64748B' }}>Cash borrowed</span>
-                        <span className="text-white">{rm(borrowable)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span style={{ color: '#64748B' }}>{calcAsset.symbol} position</span>
-                        <span style={{ color: '#22c55e' }}>Kept</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span style={{ color: '#64748B' }}>
-                          {calcAsset.symbol} gain at {rm(targetPrice)}
-                        </span>
-                        <span style={{ color: ethGain > 0 ? '#22c55e' : '#94A3B8' }}>+{rm(ethGain)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span style={{ color: '#64748B' }}>Interest ({loanTermDays}d)</span>
-                        <span style={{ color: '#eab308' }}>−{rm(calcInterest, 2)}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  <Box sx={{ p: 1.5, bgcolor: '#0D0F1A', border: '1px solid #22c55e33', borderRadius: 2 }}>
+                    <Typography variant="caption" sx={{ color: '#22c55e', fontWeight: 600, display: 'block', mb: 1 }}>✓ Borrow + Hold</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>Cash + ETH upside</Typography>
+                    <Typography variant="body1" color="text.primary" sx={{ fontWeight: 700 }}>
+                      {rm(borrowable)}{' '}
+                      <Box component="span" sx={{ fontSize: 11, color: '#64748B', fontWeight: 400 }}>+ ETH</Box>
+                    </Typography>
+                    <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid #1E2035', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                      <Row label="Cash borrowed" value={rm(borrowable)} />
+                      <Row label={`${calcAsset.symbol} position`} value="Kept" vc="#22c55e" />
+                      <Row label={`Gain at ${rm(targetPrice)}`} value={`+${rm(ethGain)}`} vc={ethGain > 0 ? '#22c55e' : '#94A3B8'} />
+                      <Row label={`Interest (${loanTermDays}d)`} value={`−${rm(calcInterest, 2)}`} vc="#eab308" />
+                    </Box>
+                  </Box>
+                </Box>
 
                 {/* Net advantage */}
-                <div className="mt-3 p-3 rounded-xl"
-                  style={{
-                    background: netAdvantage >= 0
-                      ? 'linear-gradient(135deg, #05140a, #052e16)'
-                      : 'linear-gradient(135deg, #1a0505, #450a0a)',
-                    border: `1px solid ${netAdvantage >= 0 ? '#22c55e33' : '#ef444433'}`,
-                  }}>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-xs font-semibold" style={{ color: netAdvantage >= 0 ? '#22c55e' : '#ef4444' }}>
+                <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2,
+                    background: netAdvantage >= 0 ? 'linear-gradient(135deg, #05140a, #052e16)' : 'linear-gradient(135deg, #1a0505, #450a0a)',
+                    border: `1px solid ${netAdvantage >= 0 ? '#22c55e33' : '#ef444433'}` }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: netAdvantage >= 0 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
                         {netAdvantage >= 0 ? '✓ Borrowing wins by' : '✗ Selling was better by'}
-                      </p>
-                      <p className="text-xs mt-1" style={{ color: '#64748B' }}>
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 0.5 }}>
                         vs selling at today&apos;s price ({rm(assetPrice)})
-                      </p>
-                    </div>
-                    <p className="text-xl font-bold" style={{ color: netAdvantage >= 0 ? '#22c55e' : '#ef4444' }}>
+                      </Typography>
+                    </Box>
+                    <Typography variant="h6" sx={{ color: netAdvantage >= 0 ? '#22c55e' : '#ef4444', fontWeight: 700 }}>
                       {rm(Math.abs(netAdvantage))}
-                    </p>
-                  </div>
+                    </Typography>
+                  </Box>
                   {assetPrice > 0 && (
-                    <p className="text-xs mt-2 pt-2" style={{ borderTop: `1px solid ${netAdvantage >= 0 ? '#22c55e22' : '#ef444422'}`, color: '#64748B' }}>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 1, pt: 1,
+                        borderTop: `1px solid ${netAdvantage >= 0 ? '#22c55e22' : '#ef444422'}`, color: '#64748B' }}>
                       Break-even: {calcAsset.symbol} needs to drop below {rm(breakEvenPrice)} (−{breakEvenDropPct.toFixed(1)}% from today) for selling to have been smarter.
-                    </p>
+                    </Typography>
                   )}
-                </div>
-              </div>
+                </Box>
+              </Box>
 
               {/* Result card */}
-              <div className="p-4 rounded-xl"
-                style={{ background: 'linear-gradient(135deg, #1A1535 0%, #0D1520 100%)', border: '1px solid #7C3AED33' }}>
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <p className="text-xs mb-1" style={{ color: '#94A3B8' }}>You Can Borrow</p>
-                    <p className="text-3xl font-bold" style={{ color: '#06B6D4' }}>{rm(borrowable)}</p>
-                    <p className="text-xs mt-0.5" style={{ color: '#64748B' }}>Malaysian Ringgit</p>
-                  </div>
-                  <div className="px-2.5 py-1 rounded-full text-xs font-semibold"
-                    style={{ backgroundColor: `${hColor(calcHF)}22`, color: hColor(calcHF) }}>
-                    HF {isFinite(calcHF) ? calcHF.toFixed(2) : '∞'}
-                  </div>
-                </div>
-                <div className="space-y-2.5 pt-3 mb-4" style={{ borderTop: '1px solid #7C3AED22' }}>
-                  <Row label="Interest Rate"         value={`${calcAsset.borrowAPR}% APR`} />
-                  <Row label={`Interest (${loanTermDays}d)`}  value={rm(calcInterest, 2)} vc="#eab308" />
-                  <Row label="Origination Fee (0.1%)" value={rm(originationFee, 2)} />
-                  <Row label="Monthly Payment"       value={rm(calcMonthly, 2)} vc="#A78BFA" />
-                  <div className="border-t pt-2" style={{ borderColor: '#7C3AED22' }}>
-                    <Row label="Total Repayment"     value={rm(calcTotal, 2)} vc="#22c55e" bold />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3 pt-3" style={{ borderTop: '1px solid #7C3AED22' }}>
+              <Box sx={{ p: 2.5, borderRadius: 2, background: 'linear-gradient(135deg, #1A1535 0%, #0D1520 100%)', border: '1px solid #7C3AED33' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2.5 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>You Can Borrow</Typography>
+                    <Typography variant="h4" sx={{ color: '#06B6D4', fontWeight: 700 }}>{rm(borrowable)}</Typography>
+                    <Typography variant="caption" color="text.secondary">Malaysian Ringgit</Typography>
+                  </Box>
+                  <Chip label={`HF ${isFinite(calcHF) ? calcHF.toFixed(2) : '∞'}`} size="small"
+                    sx={{ bgcolor: `${hColor(calcHF)}22`, color: hColor(calcHF), fontWeight: 600 }} />
+                </Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, pt: 2, borderTop: '1px solid #7C3AED22', mb: 2.5 }}>
+                  <Row label="Interest Rate"           value={`${calcAsset.borrowAPR}% APR`} />
+                  <Row label={`Interest (${loanTermDays}d)`} value={rm(calcInterest, 2)} vc="#eab308" />
+                  <Row label="Origination Fee (0.1%)"  value={rm(originationFee, 2)} />
+                  <Row label="Monthly Payment"         value={rm(calcMonthly, 2)} vc="#A78BFA" />
+                  <Box sx={{ pt: 1, borderTop: '1px solid #7C3AED22' }}>
+                    <Row label="Total Repayment"       value={rm(calcTotal, 2)} vc="#22c55e" bold />
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, pt: 2, borderTop: '1px solid #7C3AED22' }}>
                   {[
-                    { label: 'Liq. Price',     value: rm(assetPrice * (1 - calcAsset.maxLTV / 100 * 0.9)) },
-                    { label: 'Min. Collateral', value: rm(borrowable / assetPrice / (calcAsset.maxLTV / 100), 4) + ' ' + calcAsset.symbol },
+                    { label: 'Liq. Price',      value: rm(assetPrice * (1 - calcAsset.maxLTV / 100 * 0.9)) },
+                    { label: 'Min. Collateral', value: (borrowable / assetPrice / (calcAsset.maxLTV / 100)).toFixed(4) + ' ' + calcAsset.symbol },
                   ].map(({ label, value }) => (
-                    <div key={label}>
-                      <p className="text-xs mb-0.5" style={{ color: '#64748B' }}>{label}</p>
-                      <p className="text-sm font-semibold text-white">{value}</p>
-                    </div>
+                    <Box key={label}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>{label}</Typography>
+                      <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>{value}</Typography>
+                    </Box>
                   ))}
-                </div>
-              </div>
-            </Card>
+                </Box>
+              </Box>
+            </Paper>
 
-            {/* Supported Assets */}
-            <Card>
-              <h2 className="text-lg font-semibold text-white mb-5">Supported Assets</h2>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #1E2035' }}>
-                    {['Asset', 'Price (MYR)', 'Max LTV', 'Borrow APR', 'Supply APR', 'Liquidity'].map(h => (
-                      <th key={h} className="text-left pb-3 text-xs font-medium" style={{ color: '#64748B' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {ASSETS.map((a, i) => {
-                    const p = prices[SYMBOL_TO_ID[a.symbol]];
-                    const change = p?.change24h ?? 0;
-                    return (
-                      <tr key={a.symbol} className="cursor-pointer" onClick={() => setCalcAssetIdx(i)}
-                        style={{ borderBottom: i < ASSETS.length - 1 ? '1px solid #1E2035' : 'none' }}>
-                        <td className="py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                              style={{ backgroundColor: `${a.color}1A`, color: a.color }}>{a.icon}</div>
-                            <div>
-                              <p className="font-semibold text-white">{a.symbol}</p>
-                              <p className="text-xs" style={{ color: '#64748B' }}>{a.name}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className={`py-4 rounded ${flash[SYMBOL_TO_ID[a.symbol]] ? `price-flash-${flash[SYMBOL_TO_ID[a.symbol]]}` : ''}`}>
-                          <p className="font-medium text-white">{loading ? '…' : `RM ${(p?.myr ?? 0).toLocaleString()}`}</p>
-                          <p className="text-xs" style={{ color: change >= 0 ? '#22c55e' : '#ef4444' }}>
-                            {change >= 0 ? '+' : ''}{change.toFixed(2)}%
-                          </p>
-                        </td>
-                        <td className="py-4"><span className="font-semibold" style={{ color: '#06B6D4' }}>{a.maxLTV}%</span></td>
-                        <td className="py-4">
-                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold"
-                            style={{ backgroundColor: '#ef444420', color: '#ef4444' }}>{a.borrowAPR}%</span>
-                        </td>
-                        <td className="py-4">
-                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold"
-                            style={{ backgroundColor: '#22c55e20', color: '#22c55e' }}>{a.supplyAPR}%</span>
-                        </td>
-                        <td className="py-4 text-xs" style={{ color: '#94A3B8' }}>{a.liquidity}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </Card>
-          </div>
+            {/* Supported Assets Table */}
+            <Paper sx={cardSx}>
+              <Typography variant="h6" color="text.primary" sx={{ fontWeight: 600, mb: 3 }}>Supported Assets</Typography>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      {['Asset', 'Price (MYR)', 'Max LTV', 'Borrow APR', 'Supply APR', 'Liquidity'].map(h => (
+                        <TableCell key={h} sx={{ color: '#64748B', bgcolor: 'transparent', fontSize: 11, fontWeight: 500, border: 'none', borderBottom: '1px solid #1E2035', pb: 1.5 }}>{h}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {ASSETS.map((a, i) => {
+                      const p = prices[SYMBOL_TO_ID[a.symbol]];
+                      const change = p?.change24h ?? 0;
+                      return (
+                        <TableRow key={a.symbol} onClick={() => setCalcAssetIdx(i)}
+                          sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'rgba(124,58,237,0.04)' } }}>
+                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? '#1E2035' : 'transparent', py: 1.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                              <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: `${a.color}1A`, color: a.color,
+                                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                                {a.icon}
+                              </Box>
+                              <Box>
+                                <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>{a.symbol}</Typography>
+                                <Typography variant="caption" color="text.secondary">{a.name}</Typography>
+                              </Box>
+                            </Box>
+                          </TableCell>
+                          <TableCell className={flash[SYMBOL_TO_ID[a.symbol]] ? `price-flash-${flash[SYMBOL_TO_ID[a.symbol]]}` : ''}
+                            sx={{ borderColor: i < ASSETS.length - 1 ? '#1E2035' : 'transparent', py: 1.5 }}>
+                            <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500 }}>
+                              {loading ? '…' : `RM ${(p?.myr ?? 0).toLocaleString()}`}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: change >= 0 ? '#22c55e' : '#ef4444' }}>
+                              {change >= 0 ? '+' : ''}{change.toFixed(2)}%
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? '#1E2035' : 'transparent', py: 1.5 }}>
+                            <Typography variant="body2" sx={{ color: '#06B6D4', fontWeight: 600 }}>{a.maxLTV}%</Typography>
+                          </TableCell>
+                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? '#1E2035' : 'transparent', py: 1.5 }}>
+                            <Chip label={`${a.borrowAPR}%`} size="small" sx={{ bgcolor: '#ef444420', color: '#ef4444', fontSize: 11, fontWeight: 600, height: 20 }} />
+                          </TableCell>
+                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? '#1E2035' : 'transparent', py: 1.5 }}>
+                            <Chip label={`${a.supplyAPR}%`} size="small" sx={{ bgcolor: '#22c55e20', color: '#22c55e', fontSize: 11, fontWeight: 600, height: 20 }} />
+                          </TableCell>
+                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? '#1E2035' : 'transparent', py: 1.5 }}>
+                            <Typography variant="caption" color="text.secondary">{a.liquidity}</Typography>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          </Box>
 
-          {/* ── Right (2/5) ── */}
-          <div className="lg:col-span-2 flex flex-col gap-6">
+          {/* ── Right column ── */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
 
-            {/* Active Loans */}
-            <Card>
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-lg font-semibold text-white">My Active Loans</h2>
-                <span className="text-xs px-2.5 py-1 rounded-full font-semibold"
-                  style={{ backgroundColor: isLive ? '#22c55e22' : '#7C3AED22', color: isLive ? '#22c55e' : '#A78BFA' }}>
-                  {isLive ? 'Live' : 'Demo'}
-                </span>
-              </div>
+            {/* My Active Loans */}
+            <Paper sx={cardSx}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                <Typography variant="h6" color="text.primary" sx={{ fontWeight: 600 }}>My Active Loans</Typography>
+                <Chip label={isLive ? 'Live' : 'Demo'} size="small"
+                  sx={{ bgcolor: isLive ? '#22c55e22' : '#7C3AED22', color: isLive ? '#22c55e' : '#A78BFA', fontWeight: 600, fontSize: 11 }} />
+              </Box>
 
               {isLive && wallet.loanInfo && (() => {
                 const { collateral, borrowed, healthFactor: hf, available } = wallet.loanInfo;
@@ -517,322 +585,474 @@ export default function Dashboard() {
                   : '0.0';
                 const hasLoan = collateral > BigInt(0);
                 return hasLoan ? (
-                  <div className="p-4 rounded-xl" style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
-                          style={{ backgroundColor: '#627EEA1A', color: '#627EEA' }}>Ξ</div>
-                        <span className="text-sm font-semibold text-white">ETH → MYR Loan</span>
-                      </div>
-                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                        style={{ backgroundColor: `${hc}1A`, color: hc }}>{hLabel(hf)}</span>
-                    </div>
+                  <Box sx={{ p: 2, bgcolor: '#0D0F1A', border: '1px solid #1E2035', borderRadius: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: '#627EEA1A', color: '#627EEA',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>Ξ</Box>
+                        <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>ETH → MYR Loan</Typography>
+                      </Box>
+                      <Chip label={hLabel(hf)} size="small" sx={{ bgcolor: `${hc}1A`, color: hc, fontWeight: 600, fontSize: 11, height: 20 }} />
+                    </Box>
 
-                    <div className="grid grid-cols-2 gap-3 text-xs mb-3">
-                      <div>
-                        <p style={{ color: '#64748B' }}>Collateral Locked</p>
-                        <p className="font-semibold text-white mt-0.5">{colEth} ETH</p>
-                        <p style={{ color: '#64748B' }}>{rm(wallet.loanInfo.collateralValueMYR)}</p>
-                      </div>
-                      <div>
-                        <p style={{ color: '#64748B' }}>Outstanding Debt</p>
-                        <p className="font-semibold text-white mt-0.5">RM {borMYR}</p>
-                        <p style={{ color: '#64748B' }}>{ltvNow}% LTV · 4.8% APR</p>
-                      </div>
-                    </div>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Collateral Locked</Typography>
+                        <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, my: 0.25 }}>{colEth} ETH</Typography>
+                        <Typography variant="caption" color="text.secondary">{rm(wallet.loanInfo.collateralValueMYR)}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Outstanding Debt</Typography>
+                        <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, my: 0.25 }}>RM {borMYR}</Typography>
+                        <Typography variant="caption" color="text.secondary">{ltvNow}% LTV · 4.8% APR</Typography>
+                      </Box>
+                    </Box>
 
                     {Number(borrowed) > 0 && (
-                      <>
-                        <div className="mb-2">
-                          <div className="flex justify-between text-xs mb-1">
-                            <span style={{ color: '#64748B' }}>Health Factor</span>
-                            <span style={{ color: hc }} className="font-semibold">{isFinite(hf) ? hf.toFixed(2) : '∞'}</span>
-                          </div>
-                          <div className="h-1.5 rounded-full" style={{ backgroundColor: '#1E2035' }}>
-                            <div className="h-full rounded-full"
-                              style={{ width: `${Math.min((isFinite(hf) ? hf : 3) / 3 * 100, 100)}%`, backgroundColor: hc }} />
-                          </div>
-                          <div className="flex justify-between mt-1 text-xs" style={{ color: '#475569' }}>
-                            <span>Liquidation (1.0)</span><span>Safe (2.0+)</span>
-                          </div>
-                        </div>
+                      <Box sx={{ mb: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75 }}>
+                          <Typography variant="caption" color="text.secondary">Health Factor</Typography>
+                          <Typography variant="caption" sx={{ color: hc, fontWeight: 600 }}>{isFinite(hf) ? hf.toFixed(2) : '∞'}</Typography>
+                        </Box>
+                        <LinearProgress variant="determinate" value={Math.min((isFinite(hf) ? hf : 3) / 3 * 100, 100)}
+                          sx={{ height: 6, borderRadius: 1, bgcolor: '#1E2035', '& .MuiLinearProgress-bar': { bgcolor: hc, borderRadius: 1 } }} />
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                          <Typography variant="caption" sx={{ color: '#475569', fontSize: 10 }}>Liquidation (1.0)</Typography>
+                          <Typography variant="caption" sx={{ color: '#475569', fontSize: 10 }}>Safe (2.0+)</Typography>
+                        </Box>
                         {hf < 1.5 && isFinite(hf) && (
-                          <div className="mt-2 p-2.5 rounded-lg text-xs"
-                            style={{ backgroundColor: '#450a0a44', border: '1px solid #ef444433', color: '#ef4444' }}>
-                            ⚠ Risk Alert: Your health factor is below 1.5. Consider repaying or adding collateral to avoid liquidation.
-                          </div>
+                          <Box sx={{ mt: 1.5, p: 1.5, bgcolor: '#450a0a44', border: '1px solid #ef444433', borderRadius: 1.5 }}>
+                            <Typography variant="caption" sx={{ color: '#ef4444' }}>
+                              ⚠ Risk Alert: Your health factor is below 1.5. Consider repaying or adding collateral.
+                            </Typography>
+                          </Box>
                         )}
-                      </>
+                      </Box>
                     )}
 
-                    <div className="text-xs pt-3" style={{ borderTop: '1px solid #1E2035' }}>
-                      <div className="flex justify-between mb-2">
-                        <span style={{ color: '#64748B' }}>Available to borrow</span>
-                        <span style={{ color: '#06B6D4' }} className="font-semibold">RM {avMYR}</span>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => setActiveTab('deposit')}
-                          className="flex-1 py-1.5 rounded-md font-semibold text-center transition-colors"
-                          style={{ backgroundColor: '#7C3AED22', color: '#A78BFA' }}>Add Collateral</button>
-                        <button onClick={() => setActiveTab('repay')}
-                          className="flex-1 py-1.5 rounded-md font-semibold text-center transition-colors"
-                          style={{ backgroundColor: '#06B6D422', color: '#06B6D4' }}>Repay Loan</button>
-                      </div>
-                    </div>
-                  </div>
+                    <Box sx={{ pt: 1.5, borderTop: '1px solid #1E2035' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
+                        <Typography variant="caption" color="text.secondary">Available to borrow</Typography>
+                        <Typography variant="caption" sx={{ color: '#06B6D4', fontWeight: 600 }}>RM {avMYR}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button fullWidth size="small" onClick={() => setActiveTab('deposit')}
+                          sx={{ bgcolor: '#7C3AED22', color: '#A78BFA', fontSize: 11, '&:hover': { bgcolor: '#7C3AED44' } }}>
+                          Add Collateral
+                        </Button>
+                        <Button fullWidth size="small" onClick={() => setActiveTab('repay')}
+                          sx={{ bgcolor: '#06B6D422', color: '#06B6D4', fontSize: 11, '&:hover': { bgcolor: '#06B6D444' } }}>
+                          Repay Loan
+                        </Button>
+                      </Box>
+                    </Box>
+                  </Box>
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-8 rounded-xl text-center"
-                    style={{ backgroundColor: '#0D0F1A', border: '1px dashed #1E2035' }}>
-                    <p className="text-3xl mb-2">🏦</p>
-                    <p className="text-sm font-medium text-white mb-1">No Active Loan</p>
-                    <p className="text-xs mb-3" style={{ color: '#64748B' }}>Deposit ETH collateral to start borrowing MYR</p>
-                    <button onClick={() => setActiveTab('deposit')}
-                      className="px-4 py-2 rounded-lg text-xs font-semibold text-white"
-                      style={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)' }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, textAlign: 'center',
+                              bgcolor: '#0D0F1A', border: '1px dashed #1E2035', borderRadius: 2 }}>
+                    <Typography sx={{ fontSize: 36, mb: 1 }}>🏦</Typography>
+                    <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500, mb: 0.5 }}>No Active Loan</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 2.5 }}>Deposit ETH collateral to start borrowing MYR</Typography>
+                    <Button size="small" variant="contained" onClick={() => setActiveTab('deposit')}
+                      sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white',
+                            '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #0891B2)' } }}>
                       Deposit Collateral
-                    </button>
-                  </div>
+                    </Button>
+                  </Box>
                 );
               })()}
 
               {!isLive && (
-                <div className="space-y-4">
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {DEMO_LOANS.map(loan => {
                     const meta = ASSETS.find(a => a.symbol === loan.collateral)!;
                     const hc   = hColor(loan.hf);
                     return (
-                      <div key={loan.id} className="p-4 rounded-xl"
-                        style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
-                              style={{ backgroundColor: `${meta.color}1A`, color: meta.color }}>{meta.icon}</div>
-                            <span className="text-sm font-semibold text-white">{loan.collateral} → MYR</span>
-                          </div>
-                          <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                            style={{ backgroundColor: `${hc}1A`, color: hc }}>{hLabel(loan.hf)}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 text-xs mb-3">
-                          <div>
-                            <p style={{ color: '#64748B' }}>Collateral</p>
-                            <p className="font-semibold text-white mt-0.5">{loan.colAmt} {loan.collateral}</p>
-                            <p style={{ color: '#64748B' }}>{rm(loan.colVal)}</p>
-                          </div>
-                          <div>
-                            <p style={{ color: '#64748B' }}>Outstanding Debt</p>
-                            <p className="font-semibold text-white mt-0.5">{rm(loan.borrowed)}</p>
-                            <p style={{ color: '#64748B' }}>{loan.apr}% APR · {loan.days}d</p>
-                          </div>
-                        </div>
-                        <div className="text-xs pt-2 flex justify-between" style={{ borderTop: '1px solid #1E2035' }}>
-                          <span style={{ color: '#64748B' }}>Accrued interest</span>
-                          <span style={{ color: '#eab308' }}>
+                      <Box key={loan.id} sx={{ p: 2, bgcolor: '#0D0F1A', border: '1px solid #1E2035', borderRadius: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ width: 28, height: 28, borderRadius: '50%', bgcolor: `${meta.color}1A`, color: meta.color,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>
+                              {meta.icon}
+                            </Box>
+                            <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>{loan.collateral} → MYR</Typography>
+                          </Box>
+                          <Chip label={hLabel(loan.hf)} size="small" sx={{ bgcolor: `${hc}1A`, color: hc, fontWeight: 600, fontSize: 11, height: 20 }} />
+                        </Box>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 1.5 }}>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Collateral</Typography>
+                            <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, my: 0.25 }}>{loan.colAmt} {loan.collateral}</Typography>
+                            <Typography variant="caption" color="text.secondary">{rm(loan.colVal)}</Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Outstanding Debt</Typography>
+                            <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, my: 0.25 }}>{rm(loan.borrowed)}</Typography>
+                            <Typography variant="caption" color="text.secondary">{loan.apr}% APR · {loan.days}d</Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ pt: 1, borderTop: '1px solid #1E2035', display: 'flex', justifyContent: 'space-between' }}>
+                          <Typography variant="caption" color="text.secondary">Accrued interest</Typography>
+                          <Typography variant="caption" sx={{ color: '#eab308' }}>
                             RM {((loan.borrowed * loan.apr / 100) * (loan.days / 365)).toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
+                          </Typography>
+                        </Box>
+                      </Box>
                     );
                   })}
-                  <p className="text-xs text-center pt-1" style={{ color: '#475569' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', pt: 0.5 }}>
                     Connect MetaMask to interact with real contracts
-                  </p>
-                </div>
+                  </Typography>
+                </Box>
               )}
-            </Card>
+            </Paper>
 
             {/* Deposit / Borrow / Repay */}
-            <Card>
-              <div className="flex rounded-lg p-1 mb-5" style={{ backgroundColor: '#0D0F1A' }}>
+            <Paper sx={cardSx}>
+              {/* Tab switcher */}
+              <Box sx={{ display: 'flex', bgcolor: '#0D0F1A', borderRadius: 1.5, p: 0.5, mb: 3 }}>
                 {(['deposit', 'borrow', 'repay'] as const).map(tab => (
-                  <button key={tab} onClick={() => setActiveTab(tab)}
-                    className="flex-1 py-2 rounded-md text-xs font-semibold capitalize transition-all"
-                    style={{ backgroundColor: activeTab === tab ? '#7C3AED' : 'transparent',
-                             color: activeTab === tab ? '#fff' : '#64748B' }}>
-                    {tab === 'deposit' ? 'Deposit' : tab === 'borrow' ? 'Borrow' : 'Repay'}
-                  </button>
+                  <Box key={tab} onClick={() => setActiveTab(tab)}
+                    sx={{ flex: 1, py: 1, textAlign: 'center', borderRadius: 1, cursor: 'pointer', transition: 'all 0.15s',
+                          bgcolor: activeTab === tab ? '#7C3AED' : 'transparent' }}>
+                    <Typography variant="caption" sx={{ color: activeTab === tab ? 'white' : '#64748B', fontWeight: 600 }}>
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </Typography>
+                  </Box>
                 ))}
-              </div>
+              </Box>
 
               {!wallet.isConnected && (
-                <div className="mb-4 p-3 rounded-xl text-center"
-                  style={{ backgroundColor: '#0D0F1A', border: '1px dashed #1E2035' }}>
-                  <p className="text-xs mb-2" style={{ color: '#64748B' }}>Connect MetaMask to use live transactions</p>
-                  <button onClick={wallet.connect}
-                    className="px-4 py-2 rounded-lg text-xs font-semibold text-white"
-                    style={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)' }}>Connect Wallet</button>
-                </div>
+                <Box sx={{ mb: 2.5, p: 2, bgcolor: '#0D0F1A', border: '1px dashed #1E2035', borderRadius: 2, textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                    Connect MetaMask to use live transactions
+                  </Typography>
+                  <Button size="small" variant="contained" onClick={wallet.connect}
+                    sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white', fontSize: 11,
+                          '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #0891B2)' } }}>
+                    Connect Wallet
+                  </Button>
+                </Box>
               )}
 
               {/* DEPOSIT */}
               {activeTab === 'deposit' && (
-                <div className="space-y-4">
-                  <div>
-                    <Lbl>ETH Amount to Deposit</Lbl>
-                    <InputBox>
-                      <span className="text-lg font-bold" style={{ color: '#627EEA' }}>Ξ</span>
-                      <input type="number" min={0} step="0.01" value={depositAmt}
-                        onChange={e => setDepositAmt(e.target.value)}
-                        className="flex-1 bg-transparent outline-none text-white text-lg font-medium" placeholder="0.00" />
-                      <button onClick={() => setDepositAmt(Math.max(0, parseFloat(wallet.ethBalance || '0') - 0.01).toFixed(4))}
-                        className="text-xs px-2 py-1 rounded font-semibold"
-                        style={{ backgroundColor: '#7C3AED22', color: '#A78BFA' }}>MAX</button>
-                    </InputBox>
-                    {wallet.isConnected && <p className="text-xs mt-1" style={{ color: '#64748B' }}>Wallet balance: {wallet.ethBalance} ETH</p>}
-                  </div>
-                  {/* Borrowing Power Breakdown */}
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>ETH Amount to Deposit</Typography>
+                    <Box sx={{ ...rowBoxSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Typography sx={{ fontSize: 18, fontWeight: 700, color: '#627EEA', lineHeight: 1 }}>Ξ</Typography>
+                      <InputBase type="number" value={depositAmt} onChange={e => setDepositAmt(e.target.value)}
+                        placeholder="0.00" sx={{ flex: 1, color: 'text.primary', fontSize: 18, fontWeight: 500 }} />
+                      <Button size="small" onClick={() => setDepositAmt(Math.max(0, parseFloat(wallet.ethBalance || '0') - 0.01).toFixed(4))}
+                        sx={{ bgcolor: '#7C3AED22', color: '#A78BFA', fontSize: 10, minWidth: 'auto', py: 0.25, px: 1 }}>
+                        MAX
+                      </Button>
+                    </Box>
+                    {wallet.isConnected && (
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+                        Wallet balance: {wallet.ethBalance} ETH
+                      </Typography>
+                    )}
+                  </Box>
+
                   {(() => {
-                    const depEth    = parseFloat(depositAmt || '0');
-                    const price     = isLive ? wallet.ethPriceMYR : ethPriceMYR;
+                    const depEth = parseFloat(depositAmt || '0');
+                    const price  = isLive ? wallet.ethPriceMYR : ethPriceMYR;
                     const colValue  = depEth * price;
                     const maxBorrow = colValue * 0.70;
                     const alreadyBorrowed = isLive && wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0;
-                    const totalColAfter   = (isLive && wallet.loanInfo
-                      ? parseFloat(ethers.formatEther(wallet.loanInfo.collateral)) : 0) + depEth;
+                    const totalColAfter   = (isLive && wallet.loanInfo ? parseFloat(ethers.formatEther(wallet.loanInfo.collateral)) : 0) + depEth;
                     const totalColMYR     = totalColAfter * price;
                     const newMaxBorrow    = totalColMYR * 0.70;
                     const newAvailable    = Math.max(0, newMaxBorrow - alreadyBorrowed);
                     return (
-                      <div className="p-3 rounded-xl space-y-2.5" style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
-                        <p className="text-xs font-semibold text-white mb-1">Borrowing Power</p>
-                        <Row label={`ETH Price (on-chain)`}   value={rm(price)} />
+                      <Box sx={{ ...rowBoxSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Typography variant="caption" color="text.primary" sx={{ fontWeight: 600 }}>Borrowing Power</Typography>
+                        <Row label="ETH Price (on-chain)"                                       value={rm(price)} />
                         <Row label={`${depEth.toFixed(4)} ETH × RM ${price.toLocaleString()}`} value={rm(colValue)} />
-                        <Row label="× Max LTV (70%)"          value={`= ${rm(maxBorrow)}`} vc="#06B6D4" />
-                        {isLive && alreadyBorrowed > 0 && <>
-                          <div className="border-t pt-2" style={{ borderColor: '#1E2035' }}>
+                        <Row label="× Max LTV (70%)"                                            value={`= ${rm(maxBorrow)}`} vc="#06B6D4" />
+                        {isLive && alreadyBorrowed > 0 && (
+                          <Box sx={{ pt: 1, borderTop: '1px solid #1E2035', display: 'flex', flexDirection: 'column', gap: 1 }}>
                             <Row label="Total collateral after deposit" value={`${totalColAfter.toFixed(4)} ETH`} />
                             <Row label="New max borrowable"             value={rm(newMaxBorrow)} />
                             <Row label="Already borrowed"               value={`− ${rm(alreadyBorrowed, 2)}`} vc="#eab308" />
-                          </div>
-                        </>}
-                        <div className="border-t pt-2" style={{ borderColor: '#1E2035' }}>
+                          </Box>
+                        )}
+                        <Box sx={{ pt: 1, borderTop: '1px solid #1E2035' }}>
                           <Row
                             label={isLive && alreadyBorrowed > 0 ? 'Available after deposit' : 'Max you can borrow'}
                             value={rm(isLive && alreadyBorrowed > 0 ? newAvailable : maxBorrow, 2) + ' MYR'}
                             vc="#06B6D4" bold />
-                        </div>
-                      </div>
+                        </Box>
+                      </Box>
                     );
                   })()}
-                  <div className="p-3 rounded-lg text-xs" style={{ backgroundColor: '#052e1620', border: '1px solid #22c55e22', color: '#22c55e' }}>
-                    ✓ Your collateral is locked in a non-custodial smart contract. Only you can withdraw it after repaying.
-                  </div>
-                  <button disabled={!isLive || !depositAmt || wallet.txStatus === 'pending'}
+
+                  <Box sx={{ p: 1.5, bgcolor: '#052e1620', border: '1px solid #22c55e22', borderRadius: 1.5 }}>
+                    <Typography variant="caption" sx={{ color: '#22c55e' }}>
+                      ✓ Your collateral is locked in a non-custodial smart contract. Only you can withdraw it after repaying.
+                    </Typography>
+                  </Box>
+
+                  <Button fullWidth variant="contained" disabled={!isLive || !depositAmt || wallet.txStatus === 'pending'}
                     onClick={() => wallet.depositCollateral(depositAmt).then(() => setDepositAmt(''))}
-                    className="w-full py-3 rounded-xl text-white font-bold text-sm disabled:opacity-40"
-                    style={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)' }}>
+                    sx={{ py: 1.5, fontWeight: 700, background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white',
+                          '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #0891B2)' },
+                          '&.Mui-disabled': { background: 'rgba(124,58,237,0.3)', color: 'rgba(255,255,255,0.4)' } }}>
                     {wallet.txStatus === 'pending' ? 'Waiting for confirmation…' : 'Deposit Collateral'}
-                  </button>
-                </div>
+                  </Button>
+                </Box>
               )}
 
               {/* BORROW */}
               {activeTab === 'borrow' && (
-                <div className="space-y-4">
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {isLive && !wallet.kycApproved && (
-                    <div className="p-4 rounded-xl text-center"
-                      style={{ backgroundColor: '#1a0f2e', border: '1px solid #7C3AED55' }}>
-                      <div className="text-3xl mb-2">🪪</div>
-                      <p className="text-sm font-semibold text-white mb-1">KYC Verification Required</p>
-                      <p className="text-xs mb-4" style={{ color: '#94A3B8' }}>
+                    <Box sx={{ p: 3, bgcolor: '#1a0f2e', border: '1px solid #7C3AED55', borderRadius: 2, textAlign: 'center' }}>
+                      <Typography sx={{ fontSize: 36, mb: 1 }}>🪪</Typography>
+                      <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, mb: 0.75 }}>KYC Verification Required</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
                         Complete identity verification before borrowing, as required by Malaysian financial regulations (BNM AML/CFT).
-                      </p>
-                      <button onClick={() => router.push('/kyc')}
-                        className="px-5 py-2 rounded-lg text-sm font-bold text-white"
-                        style={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)' }}>
+                      </Typography>
+                      <Button variant="contained" onClick={() => router.push('/kyc')}
+                        sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white',
+                              '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #0891B2)' } }}>
                         Complete KYC →
-                      </button>
-                    </div>
+                      </Button>
+                    </Box>
                   )}
 
                   {(!isLive || wallet.kycApproved) && (
                     <>
-                      {/* Loan term selector */}
-                      <div>
-                        <Lbl>Loan Term</Lbl>
-                        <div className="grid grid-cols-4 gap-1.5">
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Loan Term</Typography>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1 }}>
                           {LOAN_TERMS.map(t => (
-                            <button key={t.days} onClick={() => setLoanTermDays(t.days)}
-                              className="py-1.5 rounded-lg text-xs font-semibold transition-all"
-                              style={{
-                                backgroundColor: loanTermDays === t.days ? '#7C3AED' : '#0D0F1A',
-                                color: loanTermDays === t.days ? '#fff' : '#64748B',
-                                border: `1px solid ${loanTermDays === t.days ? '#7C3AED' : '#1E2035'}`,
-                              }}>
-                              {t.label}
-                            </button>
+                            <Box key={t.days} onClick={() => setLoanTermDays(t.days)}
+                              sx={{ py: 1, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer',
+                                    bgcolor: loanTermDays === t.days ? '#7C3AED' : '#0D0F1A',
+                                    border: `1px solid ${loanTermDays === t.days ? '#7C3AED' : '#1E2035'}` }}>
+                              <Typography variant="caption" sx={{ color: loanTermDays === t.days ? 'white' : '#64748B', fontWeight: 600 }}>
+                                {t.label}
+                              </Typography>
+                            </Box>
                           ))}
-                        </div>
-                      </div>
+                        </Box>
+                      </Box>
 
-                      <div>
-                        <Lbl>Borrow Amount (MYR)</Lbl>
-                        <InputBox>
-                          <span className="text-sm font-bold" style={{ color: '#06B6D4' }}>RM</span>
-                          <input type="number" min={0} value={borrowAmt} onChange={e => setBorrowAmt(e.target.value)}
-                            className="flex-1 bg-transparent outline-none text-white text-lg font-medium" placeholder="0.00" />
-                          <button onClick={() => isLive && wallet.loanInfo
-                            ? setBorrowAmt((Number(wallet.loanInfo.available) / 1e6).toFixed(2)) : undefined}
-                            className="text-xs px-2 py-1 rounded font-semibold"
-                            style={{ backgroundColor: '#7C3AED22', color: '#A78BFA' }}>MAX</button>
-                        </InputBox>
-                        {isLive && wallet.loanInfo && (
-                          <p className="text-xs mt-1" style={{ color: '#64748B' }}>
-                            Available: RM {(Number(wallet.loanInfo.available) / 1e6).toFixed(2)}
-                          </p>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Borrow Amount (MYR)</Typography>
+                        <Box sx={{ ...rowBoxSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <Typography variant="body2" sx={{ color: '#06B6D4', fontWeight: 700 }}>RM</Typography>
+                          <InputBase type="number" value={borrowAmt} onChange={e => { setBorrowAmt(e.target.value); setTransferResult(null); setTransferError(''); }}
+                            placeholder="0.00" sx={{ flex: 1, color: 'text.primary', fontSize: 18, fontWeight: 500 }} />
+                          <Button size="small" onClick={() => isLive && wallet.loanInfo
+                              ? setBorrowAmt((Number(wallet.loanInfo.available) / 1e6).toFixed(2)) : undefined}
+                            sx={{ bgcolor: '#7C3AED22', color: '#A78BFA', fontSize: 10, minWidth: 'auto', py: 0.25, px: 1 }}>
+                            MAX
+                          </Button>
+                        </Box>
+                        {isLive && wallet.loanInfo && (() => {
+                          const contractAvail = Number(wallet.loanInfo!.available) / 1e6;
+                          const mktAvail = Math.max(0, colEth * mktEthPrice * 0.7 - (Number(wallet.loanInfo!.borrowed) / 1e6));
+                          return (
+                            <Box sx={{ mt: 0.75 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                Available (contract): RM {contractAvail.toFixed(2)}
+                              </Typography>
+                              {hasPriceMismatch && (
+                                <Typography variant="caption" sx={{ display: 'block', color: mktAvail < contractAvail ? '#eab308' : '#94A3B8' }}>
+                                  Available (market price): RM {mktAvail.toFixed(2)}
+                                </Typography>
+                              )}
+                            </Box>
+                          );
+                        })()}
+                      </Box>
+
+                      {/* Delivery method */}
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Receive As</Typography>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                          {([
+                            { key: 'token', icon: '🪙', title: 'MYR Token',    sub: 'MockMYR to your wallet' },
+                            { key: 'bank',  icon: '🏦', title: 'Bank Transfer', sub: 'DuitNow to your account' },
+                          ] as const).map(opt => (
+                            <Box key={opt.key} onClick={() => { setDeliveryMethod(opt.key); setTransferResult(null); setTransferError(''); }}
+                              sx={{ p: 1.5, borderRadius: 1.5, cursor: 'pointer', border: `1px solid ${deliveryMethod === opt.key ? '#06B6D4' : '#1E2035'}`,
+                                    bgcolor: deliveryMethod === opt.key ? 'rgba(6,182,212,0.06)' : '#0D0F1A', transition: 'all 0.15s' }}>
+                              <Typography sx={{ fontSize: 18, mb: 0.25 }}>{opt.icon}</Typography>
+                              <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, color: deliveryMethod === opt.key ? '#06B6D4' : 'text.primary' }}>
+                                {opt.title}
+                              </Typography>
+                              <Typography sx={{ fontSize: 10, color: '#475569' }}>{opt.sub}</Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                        {deliveryMethod === 'bank' && (
+                          <Box sx={{ mt: 1, p: 1.25, bgcolor: 'rgba(6,182,212,0.05)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: 1.5 }}>
+                            <Typography variant="caption" sx={{ color: '#64748B' }}>
+                              ℹ️ Borrowed MYR will be transferred to your registered bank account via DuitNow. No account yet?{' '}
+                              <Box component="span" onClick={() => router.push('/settings')}
+                                sx={{ color: '#06B6D4', cursor: 'pointer', textDecoration: 'underline' }}>
+                                Add one in Settings →
+                              </Box>
+                            </Typography>
+                          </Box>
                         )}
-                      </div>
+                      </Box>
 
-                      {/* Loan breakdown */}
-                      <div className="p-3 rounded-xl space-y-2.5" style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
-                        <Row label="Principal"                   value={borrowMYR > 0 ? rm(borrowMYR, 2) : '—'} />
+                      <Box sx={{ ...rowBoxSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Row label="Principal"                          value={borrowMYR > 0 ? rm(borrowMYR, 2) : '—'} />
                         <Row label={`Interest (${loanTermDays}d · 4.80% APR)`} value={borrowMYR > 0 ? rm(panelInterest, 2) : '—'} vc="#eab308" />
-                        <Row label="Origination Fee (0.10%)"    value={borrowMYR > 0 ? rm(borrowMYR * 0.001, 2) : '—'} />
-                        <Row label="Monthly Payment (est.)"     value={borrowMYR > 0 ? rm(panelMonthly, 2) : '—'} vc="#A78BFA" />
-                        <div className="border-t pt-2" style={{ borderColor: '#1E2035' }}>
-                          <Row label="Total to Repay"           value={borrowMYR > 0 ? rm(panelTotal, 2) : '—'} vc="#06B6D4" bold />
-                        </div>
-                        <Row label="Health Factor After"
-                          value={(() => {
-                            if (!isLive || !wallet.loanInfo || !borrowAmt) return '—';
-                            const colMYR = wallet.loanInfo.collateralValueMYR;
-                            const newBor = Number(wallet.loanInfo.borrowed) / 1e6 + parseFloat(borrowAmt);
-                            if (newBor <= 0) return '∞';
-                            const newHF = (colMYR * 0.8) / newBor;
-                            return newHF.toFixed(2);
-                          })()} vc="#22c55e" />
-                      </div>
+                        <Row label="Origination Fee (0.10%)"           value={borrowMYR > 0 ? rm(borrowMYR * 0.001, 2) : '—'} />
+                        <Row label="Monthly Payment (est.)"            value={borrowMYR > 0 ? rm(panelMonthly, 2) : '—'} vc="#A78BFA" />
+                        <Box sx={{ pt: 1, borderTop: '1px solid #1E2035' }}>
+                          <Row label="Total to Repay"                  value={borrowMYR > 0 ? rm(panelTotal, 2) : '—'} vc="#06B6D4" bold />
+                        </Box>
+                        {(() => {
+                          if (!isLive || !wallet.loanInfo || !borrowAmt) {
+                            return <Row label="Health Factor After" value="—" vc="#22c55e" />;
+                          }
+                          const newBor = Number(wallet.loanInfo.borrowed) / 1e6 + parseFloat(borrowAmt);
+                          if (newBor <= 0) return <Row label="Health Factor After" value="∞" vc="#22c55e" />;
+                          const contractHF = (wallet.loanInfo.collateralValueMYR * 0.8) / newBor;
+                          const mktHFAfter = (colEth * mktEthPrice * 0.8) / newBor;
+                          const saferHF = Math.min(contractHF, mktHFAfter);
+                          const hc = hColor(saferHF);
+                          return (
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <Typography variant="caption" color="text.secondary">Health Factor After</Typography>
+                              <Box sx={{ textAlign: 'right' }}>
+                                <Typography variant="caption" sx={{ color: hColor(contractHF), fontWeight: 600, display: 'block' }}>
+                                  {contractHF.toFixed(2)} (contract)
+                                </Typography>
+                                {hasPriceMismatch && (
+                                  <Typography variant="caption" sx={{ color: hColor(mktHFAfter), fontWeight: 600, display: 'block' }}>
+                                    {mktHFAfter.toFixed(2)} (market) {mktHFAfter < 1.5 ? '⚠️' : ''}
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Box>
+                          );
+                        })()}
+                      </Box>
 
-                      <button disabled={!isLive || !borrowAmt || wallet.txStatus === 'pending'}
-                        onClick={() => wallet.borrow(borrowAmt).then(() => setBorrowAmt(''))}
-                        className="w-full py-3 rounded-xl text-white font-bold text-sm disabled:opacity-40"
-                        style={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)' }}>
-                        {wallet.txStatus === 'pending' ? 'Waiting for confirmation…' : 'Borrow MYR'}
-                      </button>
+                      {transferError && (
+                        <Alert severity="warning" sx={{ bgcolor: '#1a140a', color: '#fbbf24', '& .MuiAlert-icon': { color: '#fbbf24' } }}>
+                          {transferError}
+                        </Alert>
+                      )}
+
+                      {transferResult && (
+                        <Alert severity="success" sx={{ bgcolor: '#052e16', color: '#4ade80', '& .MuiAlert-icon': { color: '#4ade80' } }}>
+                          <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, color: '#4ade80' }}>
+                            {transferResult.refNo === 'ON-CHAIN' ? '✓ On-chain transfer confirmed' : '✓ DuitNow transfer initiated'}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {transferResult.bankName} ****{transferResult.last4}
+                            {transferResult.refNo !== 'ON-CHAIN' && ` · Ref: ${transferResult.refNo}`}
+                          </Typography>
+                        </Alert>
+                      )}
+
+                      <Button fullWidth variant="contained"
+                        disabled={!isLive || !borrowAmt || wallet.txStatus === 'pending' ||
+                          (isLive && wallet.loanInfo != null && parseFloat(borrowAmt) > Number(wallet.loanInfo.available) / 1e6)}
+                        onClick={async () => {
+                          setTransferResult(null);
+                          setTransferError('');
+
+                          // Pre-validate against contract available
+                          const available = wallet.loanInfo ? Number(wallet.loanInfo.available) / 1e6 : 0;
+                          if (parseFloat(borrowAmt) > available) {
+                            setTransferError(`Exceeds available borrowing capacity (RM ${available.toFixed(2)}). Deposit more collateral first.`);
+                            return;
+                          }
+                          // Warn if borrowing more than market price allows (liquidation risk after price sync)
+                          const mktAvail = Math.max(0, colEth * mktEthPrice * 0.7 - (wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0));
+                          if (hasPriceMismatch && parseFloat(borrowAmt) > mktAvail) {
+                            setTransferError(`Warning: At the live market price (${rm(mktEthPrice)}/ETH), your safe borrow limit is RM ${mktAvail.toFixed(2)}. Borrowing more may risk liquidation after a price sync.`);
+                            return;
+                          }
+
+                          const borrowed = await wallet.borrow(borrowAmt);
+                          if (!borrowed) return;
+
+                          if (deliveryMethod === 'bank') {
+                            try {
+                              // Fetch bank account to get on-chain recipient address
+                              const bankRes = await fetch('/api/profile/bank-account');
+                              const bankData = await bankRes.json() as { account?: { recipientAddress?: string; bankName?: string; accountNumber?: string } };
+                              const recipientAddr = bankData.account?.recipientAddress ?? '';
+
+                              if (recipientAddr && /^0x[0-9a-fA-F]{40}$/.test(recipientAddr)) {
+                                // On-chain MockMYR transfer to Hardhat bank wallet
+                                const sent = await wallet.transferMYR(borrowAmt, recipientAddr);
+                                if (sent) {
+                                  const last4 = bankData.account?.accountNumber?.slice(-4) ?? '????';
+                                  setTransferResult({ refNo: 'ON-CHAIN', bankName: bankData.account?.bankName ?? 'Bank', last4 });
+                                } else {
+                                  setTransferError('On-chain transfer failed. MYR tokens remain in your wallet.');
+                                }
+                              } else {
+                                // Fallback: simulated DuitNow transfer
+                                const res  = await fetch('/api/transfers', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ amountMYR: parseFloat(borrowAmt) }),
+                                });
+                                const data = await res.json() as { transfer?: { referenceNo: string; bankName: string; accountLast4: string }; error?: string };
+                                if (res.ok && data.transfer) {
+                                  setTransferResult({ refNo: data.transfer.referenceNo, bankName: data.transfer.bankName, last4: data.transfer.accountLast4 });
+                                } else {
+                                  setTransferError(data.error ?? 'No recipient wallet set. Go to Settings → add a Hardhat address.');
+                                }
+                              }
+                            } catch {
+                              setTransferError('Network error initiating transfer.');
+                            }
+                          }
+                          setBorrowAmt('');
+                        }}
+                        sx={{ py: 1.5, fontWeight: 700, background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white',
+                              '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #0891B2)' },
+                              '&.Mui-disabled': { background: 'rgba(124,58,237,0.3)', color: 'rgba(255,255,255,0.4)' } }}>
+                        {wallet.txStatus === 'pending' ? 'Waiting for confirmation…'
+                          : deliveryMethod === 'bank' ? 'Borrow + Transfer to Bank' : 'Borrow MYR Token'}
+                      </Button>
                     </>
                   )}
-                </div>
+                </Box>
               )}
 
               {/* REPAY */}
               {activeTab === 'repay' && (
-                <div className="space-y-4">
-                  <div>
-                    <Lbl>Repay Amount (MYR)</Lbl>
-                    <InputBox>
-                      <span className="text-sm font-bold" style={{ color: '#06B6D4' }}>RM</span>
-                      <input type="number" min={0} value={repayAmt} onChange={e => setRepayAmt(e.target.value)}
-                        className="flex-1 bg-transparent outline-none text-white text-lg font-medium" placeholder="0.00" />
-                      <button onClick={() => {
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Repay Amount (MYR)</Typography>
+                    <Box sx={{ ...rowBoxSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Typography variant="body2" sx={{ color: '#06B6D4', fontWeight: 700 }}>RM</Typography>
+                      <InputBase type="number" value={repayAmt} onChange={e => setRepayAmt(e.target.value)}
+                        placeholder="0.00" sx={{ flex: 1, color: 'text.primary', fontSize: 18, fontWeight: 500 }} />
+                      <Button size="small" onClick={() => {
                           if (!isLive || !wallet.loanInfo) return;
                           const due = (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6;
                           setRepayAmt(due.toFixed(2));
                         }}
-                        className="text-xs px-2 py-1 rounded font-semibold"
-                        style={{ backgroundColor: '#06B6D422', color: '#06B6D4' }}>FULL</button>
-                    </InputBox>
-                    {isLive && <p className="text-xs mt-1" style={{ color: '#64748B' }}>MYR balance: {wallet.myrBalance}</p>}
-                  </div>
-                  <div className="p-3 rounded-xl space-y-2.5" style={{ backgroundColor: '#0D0F1A', border: '1px solid #1E2035' }}>
+                        sx={{ bgcolor: '#06B6D422', color: '#06B6D4', fontSize: 10, minWidth: 'auto', py: 0.25, px: 1 }}>
+                        FULL
+                      </Button>
+                    </Box>
+                    {isLive && (
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+                        MYR balance: {wallet.myrBalance}
+                      </Typography>
+                    )}
+                  </Box>
+
+                  <Box sx={{ ...rowBoxSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Row label="Outstanding Principal"
                       value={isLive && wallet.loanInfo ? `RM ${(Number(wallet.loanInfo.borrowed)/1e6).toFixed(2)}` : '—'} />
                     <Row label="Accrued Interest"
@@ -841,9 +1061,8 @@ export default function Dashboard() {
                       value={isLive && wallet.loanInfo
                         ? `RM ${((Number(wallet.loanInfo.borrowed)+Number(wallet.loanInfo.accruedInterest))/1e6).toFixed(2)}`
                         : '—'} vc="#06B6D4" />
-                    <Row label="Repaying"
-                      value={repayAmt ? `RM ${parseFloat(repayAmt).toFixed(2)}` : '—'} vc="#22c55e" />
-                    <div className="border-t pt-2" style={{ borderColor: '#1E2035' }}>
+                    <Row label="Repaying" value={repayAmt ? `RM ${parseFloat(repayAmt).toFixed(2)}` : '—'} vc="#22c55e" />
+                    <Box sx={{ pt: 1, borderTop: '1px solid #1E2035' }}>
                       <Row label="New Health Factor"
                         value={(() => {
                           if (!isLive || !wallet.loanInfo || !repayAmt) return '—';
@@ -855,33 +1074,39 @@ export default function Dashboard() {
                           if (rem <= 0) return '∞';
                           return ((wallet.loanInfo.collateralValueMYR * 0.8) / rem).toFixed(2);
                         })()} vc="#22c55e" bold />
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-lg text-xs" style={{ backgroundColor: '#0D1520', border: '1px solid #1E2035', color: '#64748B' }}>
-                    ℹ Two MetaMask confirmations: (1) Approve MYR spend, (2) Repay loan. Full repayment unlocks your collateral.
-                  </div>
-                  <button disabled={!isLive || !repayAmt || wallet.txStatus === 'pending'}
-                    onClick={() => wallet.repay(repayAmt).then(() => setRepayAmt(''))}
-                    className="w-full py-3 rounded-xl text-white font-bold text-sm disabled:opacity-40"
-                    style={{ background: 'linear-gradient(135deg, #06B6D4, #7C3AED)' }}>
-                    {wallet.txStatus === 'pending' ? 'Waiting for confirmation…' : 'Repay Loan'}
-                  </button>
-                </div>
-              )}
-            </Card>
-          </div>
-        </div>
-      </main>
+                    </Box>
+                  </Box>
 
-      <footer className="mt-16 py-8 text-center" style={{ borderTop: '1px solid #1E2035' }}>
-        <p className="text-xs mb-2" style={{ color: '#475569' }}>
+                  <Box sx={{ p: 1.5, bgcolor: '#0D1520', border: '1px solid #1E2035', borderRadius: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      ℹ Two MetaMask confirmations: (1) Approve MYR spend, (2) Repay loan. Full repayment unlocks your collateral.
+                    </Typography>
+                  </Box>
+
+                  <Button fullWidth variant="contained" disabled={!isLive || !repayAmt || wallet.txStatus === 'pending'}
+                    onClick={() => wallet.repay(repayAmt).then(() => setRepayAmt(''))}
+                    sx={{ py: 1.5, fontWeight: 700, background: 'linear-gradient(135deg, #06B6D4, #7C3AED)', color: 'white',
+                          '&:hover': { background: 'linear-gradient(135deg, #0891B2, #6d28d9)' },
+                          '&.Mui-disabled': { background: 'rgba(124,58,237,0.3)', color: 'rgba(255,255,255,0.4)' } }}>
+                    {wallet.txStatus === 'pending' ? 'Waiting for confirmation…' : 'Repay Loan'}
+                  </Button>
+                </Box>
+              )}
+            </Paper>
+          </Box>
+        </Box>
+      </Box>
+
+      {/* Footer */}
+      <Box component="footer" sx={{ mt: 8, py: 4, borderTop: '1px solid #1E2035', textAlign: 'center' }}>
+        <Typography variant="caption" sx={{ color: '#475569', display: 'block', mb: 1 }}>
           CryptoLend © 2026 — Decentralised Crypto-Backed Lending · Hardhat Testnet (Chain ID 31337)
-        </p>
-        <p className="text-xs max-w-xl mx-auto" style={{ color: '#334155' }}>
+        </Typography>
+        <Typography variant="caption" sx={{ color: '#334155', maxWidth: 560, mx: 'auto', display: 'block' }}>
           This is a demonstration application built for educational purposes. All transactions occur on a local test blockchain.
           Not financial advice. Crypto lending carries risk of liquidation.
-        </p>
-      </footer>
-    </div>
+        </Typography>
+      </Box>
+    </Box>
   );
 }

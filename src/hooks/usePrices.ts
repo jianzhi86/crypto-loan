@@ -18,6 +18,7 @@ export interface Prices {
   polkadot:    CoinPrice;
   cardano:     CoinPrice;
   ripple:      CoinPrice;
+  polygon:     CoinPrice;
 }
 
 export type FlashDir = 'up' | 'down';
@@ -33,6 +34,7 @@ const FALLBACK: Prices = {
   polkadot:    { myr:    38,  usd:     8, change24h: -0.4 },
   cardano:     { myr:  2.13,  usd:  0.45, change24h:  1.8 },
   ripple:      { myr:  2.46,  usd:  0.52, change24h:  3.5 },
+  polygon:     { myr:  2.04,  usd:  0.43, change24h: -1.2 },
 };
 
 export function usePrices() {
@@ -95,5 +97,6 @@ export const SYMBOL_TO_ID: Record<string, keyof Prices> = {
   LINK: 'chainlink',
   DOT:  'polkadot',
   ADA:  'cardano',
-  XRP:  'ripple',
+  XRP:   'ripple',
+  MATIC: 'polygon',
 };

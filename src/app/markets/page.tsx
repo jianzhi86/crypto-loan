@@ -2,222 +2,265 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
+import Paper from '@mui/material/Paper';
+import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
+import Chip from '@mui/material/Chip';
+import Table from '@mui/material/Table';
+import TableHead from '@mui/material/TableHead';
+import TableBody from '@mui/material/TableBody';
+import TableRow from '@mui/material/TableRow';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
+import LinearProgress from '@mui/material/LinearProgress';
+import MuiSkeleton from '@mui/material/Skeleton';
 import Navbar from '@/components/Navbar';
-import { Skeleton } from '@/components/Skeleton';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 
 const MARKETS = [
-  { symbol: 'BTC',  name: 'Bitcoin',   icon: '₿', color: '#F7931A', id: 'bitcoin',     supplyAPR: 2.1, borrowAPR: 5.2, maxLTV: 70, liqThresh: 80, liquidity: 'RM 11.2B', totalBorrowed: 'RM 7.8B',  util: 70 },
-  { symbol: 'ETH',  name: 'Ethereum',  icon: 'Ξ', color: '#627EEA', id: 'ethereum',    supplyAPR: 1.8, borrowAPR: 4.8, maxLTV: 75, liqThresh: 85, liquidity: 'RM 8.5B',  totalBorrowed: 'RM 5.3B',  util: 62 },
-  { symbol: 'SOL',  name: 'Solana',    icon: '◎', color: '#9945FF', id: 'solana',      supplyAPR: 3.2, borrowAPR: 6.5, maxLTV: 65, liqThresh: 75, liquidity: 'RM 1.9B',  totalBorrowed: 'RM 1.1B',  util: 58 },
-  { symbol: 'BNB',  name: 'BNB Chain', icon: 'B', color: '#F3BA2F', id: 'binancecoin', supplyAPR: 2.4, borrowAPR: 5.8, maxLTV: 65, liqThresh: 75, liquidity: 'RM 3.1B',  totalBorrowed: 'RM 1.7B',  util: 55 },
-  { symbol: 'XRP',  name: 'XRP',       icon: 'X', color: '#00AAE4', id: 'ripple',      supplyAPR: 4.8, borrowAPR: 7.8, maxLTV: 55, liqThresh: 65, liquidity: 'RM 720M',  totalBorrowed: 'RM 288M',  util: 40 },
-  { symbol: 'AVAX', name: 'Avalanche', icon: 'A', color: '#E84142', id: 'avax',        supplyAPR: 4.1, borrowAPR: 7.2, maxLTV: 60, liqThresh: 70, liquidity: 'RM 840M',  totalBorrowed: 'RM 420M',  util: 50 },
-  { symbol: 'LINK', name: 'Chainlink', icon: 'L', color: '#2A5ADA', id: 'chainlink',   supplyAPR: 4.5, borrowAPR: 7.5, maxLTV: 60, liqThresh: 70, liquidity: 'RM 520M',  totalBorrowed: 'RM 240M',  util: 46 },
-  { symbol: 'DOT',  name: 'Polkadot',  icon: 'D', color: '#E6007A', id: 'polkadot',   supplyAPR: 5.0, borrowAPR: 8.0, maxLTV: 55, liqThresh: 65, liquidity: 'RM 310M',  totalBorrowed: 'RM 130M',  util: 42 },
-  { symbol: 'ADA',  name: 'Cardano',   icon: '₳', color: '#0033AD', id: 'cardano',    supplyAPR: 5.5, borrowAPR: 8.5, maxLTV: 50, liqThresh: 60, liquidity: 'RM 280M',  totalBorrowed: 'RM 108M',  util: 38 },
-  { symbol: 'MATIC', name: 'Polygon',  icon: 'M', color: '#8247E5', id: null,          supplyAPR: 5.2, borrowAPR: 8.5, maxLTV: 55, liqThresh: 65, liquidity: 'RM 445M',  totalBorrowed: 'RM 196M',  util: 44 },
+  { symbol: 'BTC',   name: 'Bitcoin',   icon: '₿', color: '#F7931A', id: 'bitcoin',     supplyAPR: 2.1, borrowAPR: 5.2, maxLTV: 70, liqThresh: 80, liquidity: 'RM 11.2B', totalBorrowed: 'RM 7.8B',  util: 70 },
+  { symbol: 'ETH',   name: 'Ethereum',  icon: 'Ξ', color: '#627EEA', id: 'ethereum',    supplyAPR: 1.8, borrowAPR: 4.8, maxLTV: 75, liqThresh: 85, liquidity: 'RM 8.5B',  totalBorrowed: 'RM 5.3B',  util: 62 },
+  { symbol: 'SOL',   name: 'Solana',    icon: '◎', color: '#9945FF', id: 'solana',      supplyAPR: 3.2, borrowAPR: 6.5, maxLTV: 65, liqThresh: 75, liquidity: 'RM 1.9B',  totalBorrowed: 'RM 1.1B',  util: 58 },
+  { symbol: 'BNB',   name: 'BNB Chain', icon: 'B', color: '#F3BA2F', id: 'binancecoin', supplyAPR: 2.4, borrowAPR: 5.8, maxLTV: 65, liqThresh: 75, liquidity: 'RM 3.1B',  totalBorrowed: 'RM 1.7B',  util: 55 },
+  { symbol: 'XRP',   name: 'XRP',       icon: 'X', color: '#00AAE4', id: 'ripple',      supplyAPR: 4.8, borrowAPR: 7.8, maxLTV: 55, liqThresh: 65, liquidity: 'RM 720M',  totalBorrowed: 'RM 288M',  util: 40 },
+  { symbol: 'AVAX',  name: 'Avalanche', icon: 'A', color: '#E84142', id: 'avax',        supplyAPR: 4.1, borrowAPR: 7.2, maxLTV: 60, liqThresh: 70, liquidity: 'RM 840M',  totalBorrowed: 'RM 420M',  util: 50 },
+  { symbol: 'LINK',  name: 'Chainlink', icon: 'L', color: '#2A5ADA', id: 'chainlink',   supplyAPR: 4.5, borrowAPR: 7.5, maxLTV: 60, liqThresh: 70, liquidity: 'RM 520M',  totalBorrowed: 'RM 240M',  util: 46 },
+  { symbol: 'DOT',   name: 'Polkadot',  icon: 'D', color: '#E6007A', id: 'polkadot',    supplyAPR: 5.0, borrowAPR: 8.0, maxLTV: 55, liqThresh: 65, liquidity: 'RM 310M',  totalBorrowed: 'RM 130M',  util: 42 },
+  { symbol: 'ADA',   name: 'Cardano',   icon: '₳', color: '#0033AD', id: 'cardano',     supplyAPR: 5.5, borrowAPR: 8.5, maxLTV: 50, liqThresh: 60, liquidity: 'RM 280M',  totalBorrowed: 'RM 108M',  util: 38 },
+  { symbol: 'MATIC', name: 'Polygon',   icon: 'M', color: '#8247E5', id: 'polygon',     supplyAPR: 5.2, borrowAPR: 8.5, maxLTV: 55, liqThresh: 65, liquidity: 'RM 445M',  totalBorrowed: 'RM 196M',  util: 44 },
 ];
 
-const MATIC_PRICE = { myr: 4.34, usd: 0.92, change24h: 3.2 };
-
-type FilterKey = 'all' | 'top-yield' | 'lowest-borrow';
+type SortKey = 'price' | 'change' | 'maxLTV' | 'borrowAPR' | 'supplyAPR' | 'util' | null;
+type SortDir = 'asc' | 'desc';
 
 export default function MarketsPage() {
   const { prices, loading, lastUpdated, flash } = usePrices();
-  const [filter, setFilter] = useState<FilterKey>('all');
-  const [search, setSearch]  = useState('');
+  const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>(null);
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const getPrice = (m: typeof MARKETS[0]) => {
-    if (m.id && SYMBOL_TO_ID[m.symbol]) return prices[SYMBOL_TO_ID[m.symbol]];
-    if (m.symbol === 'MATIC') return MATIC_PRICE;
-    return { myr: 0, usd: 0, change24h: 0 };
+    const key = SYMBOL_TO_ID[m.symbol];
+    return key ? prices[key] : { myr: 0, usd: 0, change24h: 0 };
   };
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+
+  const SortIcon = ({ col }: { col: SortKey }) => (
+    <Box component="span" sx={{ ml: 0.5, opacity: sortKey === col ? 1 : 0.3, fontSize: 10 }}>
+      {sortKey === col ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}
+    </Box>
+  );
 
   let displayed = MARKETS.filter(m =>
     m.symbol.toLowerCase().includes(search.toLowerCase()) ||
     m.name.toLowerCase().includes(search.toLowerCase())
   );
-  if (filter === 'top-yield')     displayed = [...displayed].sort((a, b) => b.supplyAPR - a.supplyAPR);
-  if (filter === 'lowest-borrow') displayed = [...displayed].sort((a, b) => a.borrowAPR - b.borrowAPR);
 
-  const totalTVL = 'RM 28.3B';
-  const totalBor = 'RM 17.5B';
+  if (sortKey) {
+    displayed = [...displayed].sort((a, b) => {
+      let va = 0, vb = 0;
+      if (sortKey === 'price')     { va = getPrice(a).myr;   vb = getPrice(b).myr; }
+      if (sortKey === 'change')    { va = getPrice(a).change24h; vb = getPrice(b).change24h; }
+      if (sortKey === 'maxLTV')    { va = a.maxLTV;    vb = b.maxLTV; }
+      if (sortKey === 'borrowAPR') { va = a.borrowAPR; vb = b.borrowAPR; }
+      if (sortKey === 'supplyAPR') { va = a.supplyAPR; vb = b.supplyAPR; }
+      if (sortKey === 'util')      { va = a.util;      vb = b.util; }
+      return sortDir === 'asc' ? va - vb : vb - va;
+    });
+  }
+
+  const thSx = { color: '#64748B', bgcolor: '#131629', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap', userSelect: 'none' };
+  const thBtn = (col: SortKey, label: string) => (
+    <Box onClick={() => handleSort(col)}
+      sx={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', '&:hover': { color: '#94A3B8' } }}>
+      {label}<SortIcon col={col} />
+    </Box>
+  );
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#0D0F1A', color: '#F1F5F9' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#0D0F1A', color: 'text.primary' }}>
       <Navbar />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <Box component="main" sx={{ maxWidth: 1280, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4 }}>
 
         {/* Header */}
-        <div className="flex items-start justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-white mb-2">Markets</h1>
-            <p className="text-sm" style={{ color: '#64748B' }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 4 }}>
+          <Box>
+            <Typography variant="h4" color="text.primary" gutterBottom sx={{ fontWeight: 700 }}>Markets</Typography>
+            <Typography variant="body2" color="text.secondary">
               Borrow MYR against your crypto collateral · Prices in Malaysian Ringgit (RM)
-            </p>
-          </div>
+            </Typography>
+          </Box>
           {loading ? (
-            <Skeleton w="w-36" h="h-3" className="mt-2" />
+            <MuiSkeleton width={144} height={12} sx={{ bgcolor: '#1E2035', mt: 1 }} />
           ) : lastUpdated && (
-            <p className="text-xs mt-1" style={{ color: '#475569' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
               Last updated: {lastUpdated.toLocaleTimeString()}
-            </p>
+            </Typography>
           )}
-        </div>
+        </Box>
 
         {/* Market stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, 1fr)' }, gap: 2, mb: 4 }}>
           {[
-            { label: 'Total Value Locked', value: totalTVL, sub: 'Across all assets', c: '#22c55e' },
-            { label: 'Total Borrowed',     value: totalBor, sub: '61.8% utilisation',  c: '#eab308' },
-            { label: 'Avg Borrow APR',     value: '7.1%',   sub: 'Weighted average',   c: '#ef4444' },
-            { label: 'Avg Supply APR',     value: '3.9%',   sub: 'Weighted average',   c: '#22c55e' },
+            { label: 'Total Value Locked', value: 'RM 28.3B', sub: 'Across all assets', c: '#22c55e' },
+            { label: 'Total Borrowed',     value: 'RM 17.5B', sub: '61.8% utilisation',  c: '#eab308' },
+            { label: 'Avg Borrow APR',     value: '7.1%',      sub: 'Weighted average',   c: '#ef4444' },
+            { label: 'Avg Supply APR',     value: '3.9%',      sub: 'Weighted average',   c: '#22c55e' },
           ].map(s => (
-            <div key={s.label} className="p-4 rounded-xl" style={{ backgroundColor: '#131629', border: '1px solid #1E2035' }}>
-              <p className="text-xs mb-1.5" style={{ color: '#64748B' }}>{s.label}</p>
-              <p className="text-2xl font-bold text-white">{s.value}</p>
-              <p className="text-xs mt-1" style={{ color: s.c }}>{s.sub}</p>
-            </div>
+            <Paper key={s.label} sx={{ p: 2, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2 }}>
+              <Typography variant="caption" color="text.secondary">{s.label}</Typography>
+              <Typography variant="h5" color="text.primary" sx={{ my: 0.5, fontWeight: 700 }}>{s.value}</Typography>
+              <Typography variant="caption" sx={{ color: s.c }}>{s.sub}</Typography>
+            </Paper>
           ))}
-        </div>
+        </Box>
 
-        {/* Filter + search */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-          <div className="flex gap-2">
-            {([['all', 'All Markets'], ['top-yield', 'Top Yield'], ['lowest-borrow', 'Lowest Borrow']] as [FilterKey, string][]).map(([k, l]) => (
-              <button key={k} onClick={() => setFilter(k)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                style={{
-                  backgroundColor: filter === k ? '#7C3AED' : '#131629',
-                  color: filter === k ? '#fff' : '#64748B',
-                  border: `1px solid ${filter === k ? '#7C3AED' : '#1E2035'}`,
-                }}>
-                {l}
-              </button>
-            ))}
-          </div>
-          <input value={search} onChange={e => setSearch(e.target.value)}
+        {/* Search */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, mb: 2.5, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {sortKey && (
+              <Chip
+                label={`Sorted by ${sortKey} ${sortDir === 'asc' ? '▲' : '▼'}`}
+                size="small"
+                onDelete={() => { setSortKey(null); }}
+                sx={{ bgcolor: '#1E2035', color: '#94A3B8', fontSize: 11, height: 24 }}
+              />
+            )}
+            {search && (
+              <Chip
+                label={`"${search}"`}
+                size="small"
+                onDelete={() => setSearch('')}
+                sx={{ bgcolor: '#1E2035', color: '#94A3B8', fontSize: 11, height: 24 }}
+              />
+            )}
+          </Box>
+          <TextField
+            size="small"
             placeholder="Search asset…"
-            className="px-3 py-1.5 rounded-lg text-xs outline-none w-40"
-            style={{ backgroundColor: '#131629', border: '1px solid #1E2035', color: '#F1F5F9' }} />
-        </div>
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            sx={{ width: 180, '& .MuiOutlinedInput-root': { fontSize: 12 } }}
+          />
+        </Box>
 
-        {/* Market table */}
-        <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid #1E2035' }}>
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ backgroundColor: '#131629', borderBottom: '1px solid #1E2035' }}>
-                {['Asset', 'Price (MYR)', '24h', 'Max LTV', 'Liq. Threshold', 'Borrow APR', 'Supply APR', 'Utilisation', 'Actions'].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-medium" style={{ color: '#64748B' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {displayed.map((m, i) => {
-                const p     = getPrice(m);
-                const odd   = i % 2 === 0;
-                const priceKey = m.id ? (m.id as keyof typeof flash) : undefined;
-                const flashDir = priceKey ? flash[priceKey] : undefined;
+        {/* Markets table */}
+        <TableContainer component={Paper} sx={{ bgcolor: 'transparent', border: '1px solid #1E2035', borderRadius: 3, overflowX: 'auto' }}>
+          <Table sx={{ minWidth: 800 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={thSx}>Asset</TableCell>
+                <TableCell sx={thSx}>{thBtn('price', 'Price (MYR)')}</TableCell>
+                <TableCell sx={thSx}>{thBtn('change', '24h')}</TableCell>
+                <TableCell sx={thSx}>{thBtn('maxLTV', 'Max LTV')}</TableCell>
+                <TableCell sx={thSx}>Liq. Threshold</TableCell>
+                <TableCell sx={thSx}>{thBtn('borrowAPR', 'Borrow APR')}</TableCell>
+                <TableCell sx={thSx}>{thBtn('supplyAPR', 'Supply APR')}</TableCell>
+                <TableCell sx={thSx}>{thBtn('util', 'Utilisation')}</TableCell>
+                <TableCell sx={thSx}>Action</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {displayed.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} sx={{ textAlign: 'center', py: 6, color: '#64748B', borderColor: '#1E2035' }}>
+                    No assets match &ldquo;{search}&rdquo;
+                  </TableCell>
+                </TableRow>
+              ) : displayed.map((m, i) => {
+                const p        = getPrice(m);
+                const key      = SYMBOL_TO_ID[m.symbol] as keyof typeof flash | undefined;
+                const flashDir = key ? flash[key] : undefined;
                 return (
-                  <tr key={m.symbol}
-                    style={{ backgroundColor: odd ? '#0D0F1A' : '#0F111D', borderBottom: '1px solid #1E2035' }}>
+                  <TableRow key={m.symbol} sx={{ bgcolor: i % 2 === 0 ? '#0D0F1A' : '#0F111D', '&:hover': { bgcolor: '#131629' } }}>
 
-                    {/* Asset */}
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                          style={{ backgroundColor: `${m.color}1A`, color: m.color }}>{m.icon}</div>
-                        <div>
-                          <p className="font-semibold text-white">{m.symbol}</p>
-                          <p className="text-xs" style={{ color: '#64748B' }}>{m.name}</p>
-                        </div>
-                      </div>
-                    </td>
+                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 14, fontWeight: 700, flexShrink: 0, bgcolor: `${m.color}1A`, color: m.color }}>
+                          {m.icon}
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>{m.symbol}</Typography>
+                          <Typography variant="caption" color="text.secondary">{m.name}</Typography>
+                        </Box>
+                      </Box>
+                    </TableCell>
 
-                    {/* Price */}
-                    <td className={`px-4 py-4 rounded ${flashDir ? `price-flash-${flashDir}` : ''}`}>
-                      {loading && m.id ? (
-                        <>
-                          <Skeleton w="w-24" h="h-4" className="mb-1.5" />
-                          <Skeleton w="w-16" h="h-3" />
-                        </>
+                    <TableCell className={flashDir ? `price-flash-${flashDir}` : ''} sx={{ borderColor: '#1E2035' }}>
+                      {loading ? (
+                        <Box>
+                          <MuiSkeleton width={96} height={16} sx={{ bgcolor: '#1E2035', mb: 0.5 }} />
+                          <MuiSkeleton width={64} height={12} sx={{ bgcolor: '#1E2035' }} />
+                        </Box>
                       ) : (
-                        <>
-                          <p className="font-semibold text-white">
-                            {`RM ${p.myr.toLocaleString('en-MY', { minimumFractionDigits: p.myr < 10 ? 2 : 0, maximumFractionDigits: p.myr < 10 ? 2 : 0 })}`}
-                          </p>
-                          <p className="text-xs" style={{ color: '#64748B' }}>
-                            ${p.usd.toLocaleString('en-US', { minimumFractionDigits: p.usd < 10 ? 2 : 0, maximumFractionDigits: p.usd < 10 ? 2 : 0 })}
-                          </p>
-                        </>
+                        <Box>
+                          <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500 }}>
+                            {`RM ${p.myr.toLocaleString('en-MY', { minimumFractionDigits: p.myr < 10 ? 3 : 0, maximumFractionDigits: p.myr < 10 ? 3 : 0 })}`}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            ${p.usd.toLocaleString('en-US', { minimumFractionDigits: p.usd < 10 ? 3 : 0, maximumFractionDigits: p.usd < 10 ? 3 : 0 })}
+                          </Typography>
+                        </Box>
                       )}
-                    </td>
+                    </TableCell>
 
-                    {/* 24h */}
-                    <td className="px-4 py-4">
-                      {loading && m.id ? (
-                        <Skeleton w="w-14" h="h-5" className="rounded-full" />
+                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                      {loading ? (
+                        <MuiSkeleton width={56} height={20} sx={{ bgcolor: '#1E2035', borderRadius: 999 }} />
                       ) : (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                          style={{
-                            backgroundColor: p.change24h >= 0 ? '#22c55e20' : '#ef444420',
-                            color: p.change24h >= 0 ? '#22c55e' : '#ef4444',
-                          }}>
-                          {p.change24h >= 0 ? '+' : ''}{p.change24h.toFixed(2)}%
-                        </span>
+                        <Chip label={`${p.change24h >= 0 ? '+' : ''}${p.change24h.toFixed(2)}%`} size="small"
+                          sx={{ bgcolor: p.change24h >= 0 ? '#22c55e20' : '#ef444420',
+                                color: p.change24h >= 0 ? '#22c55e' : '#ef4444', fontSize: 11, fontWeight: 600, height: 20 }} />
                       )}
-                    </td>
+                    </TableCell>
 
-                    {/* Max LTV */}
-                    <td className="px-4 py-4 font-semibold" style={{ color: '#06B6D4' }}>{m.maxLTV}%</td>
+                    <TableCell sx={{ borderColor: '#1E2035', color: '#06B6D4', fontWeight: 600 }}>{m.maxLTV}%</TableCell>
+                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                      <Typography variant="caption" color="text.secondary">{m.liqThresh}%</Typography>
+                    </TableCell>
+                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                      <Chip label={`${m.borrowAPR}%`} size="small"
+                        sx={{ bgcolor: '#ef444420', color: '#ef4444', fontSize: 11, fontWeight: 600, height: 20 }} />
+                    </TableCell>
+                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                      <Chip label={`${m.supplyAPR}%`} size="small"
+                        sx={{ bgcolor: '#22c55e20', color: '#22c55e', fontSize: 11, fontWeight: 600, height: 20 }} />
+                    </TableCell>
 
-                    {/* Liq Threshold */}
-                    <td className="px-4 py-4 text-xs" style={{ color: '#94A3B8' }}>{m.liqThresh}%</td>
+                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <LinearProgress variant="determinate" value={m.util}
+                          sx={{ flex: 1, minWidth: 48, height: 6, borderRadius: 1, bgcolor: '#1E2035',
+                                '& .MuiLinearProgress-bar': { borderRadius: 1,
+                                  bgcolor: m.util > 75 ? '#ef4444' : m.util > 50 ? '#eab308' : '#22c55e' } }} />
+                        <Typography variant="caption" color="text.secondary" sx={{ minWidth: 28 }}>{m.util}%</Typography>
+                      </Box>
+                    </TableCell>
 
-                    {/* Borrow APR */}
-                    <td className="px-4 py-4">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold"
-                        style={{ backgroundColor: '#ef444420', color: '#ef4444' }}>{m.borrowAPR}%</span>
-                    </td>
-
-                    {/* Supply APR */}
-                    <td className="px-4 py-4">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold"
-                        style={{ backgroundColor: '#22c55e20', color: '#22c55e' }}>{m.supplyAPR}%</span>
-                    </td>
-
-                    {/* Utilisation */}
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-1.5 rounded-full" style={{ backgroundColor: '#1E2035', minWidth: 48 }}>
-                          <div className="h-full rounded-full"
-                            style={{ width: `${m.util}%`, backgroundColor: m.util > 75 ? '#ef4444' : m.util > 50 ? '#eab308' : '#22c55e' }} />
-                        </div>
-                        <span className="text-xs" style={{ color: '#94A3B8' }}>{m.util}%</span>
-                      </div>
-                    </td>
-
-                    {/* Actions */}
-                    <td className="px-4 py-4">
-                      <Link href={`/?asset=${m.symbol}`}
-                        className="text-xs px-3 py-1.5 rounded-lg font-semibold text-white inline-block"
-                        style={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)' }}>
+                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                      <Button component={Link} href={`/?asset=${m.symbol}`} size="small"
+                        sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white', fontSize: 11, px: 1.5, whiteSpace: 'nowrap' }}>
                         Borrow
-                      </Link>
-                    </td>
-                  </tr>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableContainer>
 
-        {/* Disclaimer */}
-        <p className="text-xs mt-6 text-center" style={{ color: '#334155' }}>
-          Prices sourced from CoinGecko API in real-time · APR rates and LTV limits are protocol parameters set by the smart contract owner · For testnet use only
-        </p>
-      </main>
-    </div>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 3 }}>
+          Prices sourced from CoinGecko API · Click column headers to sort · For testnet use only
+        </Typography>
+      </Box>
+    </Box>
   );
 }

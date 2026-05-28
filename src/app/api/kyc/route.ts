@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import { prisma } from '@/lib/db/prisma';
 
-// POST /api/kyc — save KYC form data (admin approves separately via /api/kyc/approve)
+function saveBase64File(walletDir: string, name: string, dataUri: string | undefined): string {
+  if (!dataUri || !dataUri.startsWith('data:')) return '';
+  const [header, data] = dataUri.split(',');
+  const ext = header.includes('png') ? 'png' : header.includes('pdf') ? 'pdf' : 'jpg';
+  const filename = `${name}.${ext}`;
+  writeFileSync(join(walletDir, filename), Buffer.from(data, 'base64'));
+  return filename;
+}
+
+// POST /api/kyc — save KYC form data + document uploads
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -9,6 +20,7 @@ export async function POST(req: NextRequest) {
       wallet, fullName, icNumber, dob, gender, nationality,
       phone, email, addr1, addr2, postcode, city, state,
       employment, income, purpose, fundSource,
+      icFront, icBack, selfie,
     } = body;
 
     if (!wallet || !fullName || !icNumber || !dob || !gender || !phone || !email ||
@@ -16,19 +28,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
+    // Save uploaded documents to public/uploads/kyc/{wallet}/
+    const walletKey = (wallet as string).toLowerCase();
+    const walletDir = join(process.cwd(), 'public', 'uploads', 'kyc', walletKey);
+    mkdirSync(walletDir, { recursive: true });
+
+    const icFrontPath = saveBase64File(walletDir, 'front',  icFront);
+    const icBackPath  = saveBase64File(walletDir, 'back',   icBack);
+    const selfiePath  = saveBase64File(walletDir, 'selfie', selfie);
+
     const record = await prisma.kycSubmission.upsert({
-      where:  { wallet: wallet.toLowerCase() },
+      where:  { wallet: walletKey },
       update: {
         fullName, icNumber, dob, gender, nationality, phone, email,
         addr1, addr2: addr2 ?? '', postcode, city, state,
         employment, income, purpose, fundSource,
+        ...(icFrontPath && { icFrontPath }),
+        ...(icBackPath  && { icBackPath }),
+        ...(selfiePath  && { selfiePath }),
         status: 'pending',
       },
       create: {
-        wallet: wallet.toLowerCase(),
+        wallet: walletKey,
         fullName, icNumber, dob, gender, nationality, phone, email,
         addr1, addr2: addr2 ?? '', postcode, city, state,
         employment, income, purpose, fundSource,
+        icFrontPath, icBackPath, selfiePath,
         status: 'pending',
       },
     });

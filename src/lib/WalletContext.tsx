@@ -2,6 +2,10 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { ethers } from 'ethers';
+import Backdrop from '@mui/material/Backdrop';
+import CircularProgress from '@mui/material/CircularProgress';
+import Typography from '@mui/material/Typography';
+import Box from '@mui/material/Box';
 import {
   CONTRACT_ADDRESSES,
   CRYPTO_LOAN_ABI,
@@ -45,6 +49,7 @@ export interface WalletState {
   ethPriceMYR: number;
   kycApproved: boolean;
   isRefreshing: boolean;
+  isConnecting: boolean;
   txStatus: TxStatus;
   txMessage: string;
   txStep: number;
@@ -61,6 +66,7 @@ const INIT: WalletState = {
   loanInfo: null, ethPriceMYR: 18000,
   kycApproved: false,
   isRefreshing: false,
+  isConnecting: false,
   txStatus: 'idle', txMessage: '',
   txStep: 1, txTotalSteps: 1,
 };
@@ -76,7 +82,8 @@ interface WalletCtx extends WalletState {
   connect: () => Promise<void>;
   switchToHardhat: () => Promise<void>;
   depositCollateral: (eth: string) => Promise<void>;
-  borrow: (myr: string) => Promise<void>;
+  borrow: (myr: string) => Promise<boolean>;
+  transferMYR: (myr: string, to: string) => Promise<boolean>;
   repay: (myr: string) => Promise<void>;
   withdrawCollateral: (eth: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -106,6 +113,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const setTx = (status: TxStatus, msg: string, step = 1, totalSteps = 1) =>
     setS(p => ({ ...p, txStatus: status, txMessage: msg, txStep: step, txTotalSteps: totalSteps }));
+
+  const saveTxToDB = (wallet: string, type: string, amount: string, receipt: ethers.TransactionReceipt) => {
+    fetch('/api/loan-tx', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wallet, type, amount, txHash: receipt.hash, blockNumber: receipt.blockNumber }),
+    }).catch(() => {});
+  };
 
   const refresh = useCallback(async (address: string) => {
     const provider = getProvider();
@@ -147,15 +162,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const connect = useCallback(async () => {
     if (!window.ethereum) { alert('MetaMask not found. Install it from metamask.io'); return; }
+    setS(p => ({ ...p, isConnecting: true }));
     try {
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' }) as string[];
       const provider = getProvider()!;
       const network  = await provider.getNetwork();
       const chainId  = Number(network.chainId);
       const ok = chainId === HARDHAT_CHAIN_ID;
-      setS(p => ({ ...p, address: accounts[0], isConnected: true, isCorrectNetwork: ok, chainId }));
+      setS(p => ({ ...p, address: accounts[0], isConnected: true, isCorrectNetwork: ok, chainId, isConnecting: false }));
       if (ok) await refresh(accounts[0]);
-    } catch (e) { console.error('connect', e); }
+    } catch (e) { console.error('connect', e); setS(p => ({ ...p, isConnecting: false })); }
   }, [getProvider, refresh]);
 
   const switchToHardhat = useCallback(async () => {
@@ -175,23 +191,40 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setTx('pending', `Depositing ${ethAmt} ETH…`);
     try {
       const tx = await c.loan.depositCollateral({ value: ethers.parseEther(ethAmt) });
-      await tx.wait();
+      const receipt = await tx.wait();
+      if (receipt && s.address) saveTxToDB(s.address, 'CollateralDeposited', ethers.parseEther(ethAmt).toString(), receipt);
       setTx('success', `Deposited ${ethAmt} ETH as collateral`);
       await refresh(s.address);
     } catch { setTx('error', 'Deposit failed'); }
   }, [getContracts, s.address, refresh]);
 
-  const borrow = useCallback(async (myrAmt: string) => {
+  const borrow = useCallback(async (myrAmt: string): Promise<boolean> => {
     const c = await getContracts(true);
-    if (!c || !s.address) return;
+    if (!c || !s.address) return false;
     setTx('pending', `Borrowing RM ${myrAmt}…`);
     try {
       const units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
       const tx = await c.loan.borrow(units);
-      await tx.wait();
+      const receipt = await tx.wait();
+      if (receipt && s.address) saveTxToDB(s.address, 'Borrowed', units.toString(), receipt);
       setTx('success', `Borrowed RM ${myrAmt}`);
       await refresh(s.address);
-    } catch { setTx('error', 'Borrow failed — check LTV or collateral'); }
+      return true;
+    } catch { setTx('error', 'Borrow failed — check LTV or collateral'); return false; }
+  }, [getContracts, s.address, refresh]);
+
+  const transferMYR = useCallback(async (myrAmt: string, to: string): Promise<boolean> => {
+    const c = await getContracts(true);
+    if (!c || !s.address) return false;
+    setTx('pending', `Transferring RM ${myrAmt} to bank…`);
+    try {
+      const units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
+      const tx = await (c.myr.transfer as (to: string, amount: bigint) => Promise<ethers.TransactionResponse>)(to, units);
+      await tx.wait();
+      setTx('success', `RM ${myrAmt} transferred on-chain to bank wallet`);
+      await refresh(s.address);
+      return true;
+    } catch { setTx('error', 'Transfer failed'); return false; }
   }, [getContracts, s.address, refresh]);
 
   const repay = useCallback(async (myrAmt: string) => {
@@ -204,7 +237,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       await approveTx.wait();
       setTx('pending', `Repaying RM ${myrAmt}…`, 2, 2);
       const repayTx = await c.loan.repay(units);
-      await repayTx.wait();
+      const repayReceipt = await repayTx.wait();
+      if (repayReceipt && s.address) saveTxToDB(s.address, 'Repaid', units.toString(), repayReceipt);
       setTx('success', `Repaid RM ${myrAmt}`, 2, 2);
       await refresh(s.address);
     } catch { setTx('error', 'Repay failed', 1, 2); }
@@ -216,11 +250,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setTx('pending', `Withdrawing ${ethAmt} ETH…`);
     try {
       const tx = await c.loan.withdrawCollateral(ethers.parseEther(ethAmt));
-      await tx.wait();
+      const receipt = await tx.wait();
+      if (receipt && s.address) saveTxToDB(s.address, 'CollateralWithdrawn', ethers.parseEther(ethAmt).toString(), receipt);
       setTx('success', `Withdrawn ${ethAmt} ETH`);
       await refresh(s.address);
     } catch { setTx('error', 'Withdraw failed — would violate LTV'); }
   }, [getContracts, s.address, refresh]);
+
+  // Fallback: check DB approval status when wallet connects (covers reset-chain scenarios)
+  useEffect(() => {
+    if (!s.address) return;
+    fetch(`/api/kyc?wallet=${s.address}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.exists && d.status === 'approved') {
+          setS(p => ({ ...p, kycApproved: true }));
+        }
+      })
+      .catch(() => {});
+  }, [s.address]);
 
   // Listen for MetaMask events
   useEffect(() => {
@@ -265,12 +313,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value: WalletCtx = {
     ...s,
     connect, switchToHardhat,
-    depositCollateral, borrow, repay, withdrawCollateral,
+    depositCollateral, borrow, transferMYR, repay, withdrawCollateral,
     refresh: () => s.address ? refresh(s.address) : Promise.resolve(),
     clearTx: () => setS(p => ({ ...p, txStatus: 'idle', txMessage: '' })),
   };
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={value}>
+      {children}
+      <Backdrop open={s.isConnecting} sx={{ zIndex: 1500, bgcolor: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+          <CircularProgress sx={{ color: 'white' }} size={56} thickness={2.5} />
+          <Typography variant="h6" sx={{ color: 'white', fontWeight: 600 }}>Connecting wallet…</Typography>
+          <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>Approve the request in MetaMask</Typography>
+        </Box>
+      </Backdrop>
+    </Ctx.Provider>
+  );
 }
 
 export function useWallet() {

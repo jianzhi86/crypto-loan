@@ -3,8 +3,56 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String        @id @default(cuid())
+  name          String?
+  email         String?       @unique
+  password      String?
+  walletAddress String?       @unique
+  createdAt     DateTime      @default(now())
+  bankAccount   BankAccount?
+  transfers     BankTransfer[]
+}
+
+model BankAccount {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  bankName         String
+  accountNumber    String
+  accountHolder    String
+  recipientAddress String   @default("")
+  createdAt        DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id])
+}
+
+model BankTransfer {
+  id           String    @id @default(cuid())
+  userId       String
+  amountMYR    Float
+  status       String    @default("PENDING")
+  referenceNo  String    @unique
+  bankName     String
+  accountLast4 String
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+  user         User      @relation(fields: [userId], references: [id])
+}
+
+model LoanTransaction {
+  id          String   @id @default(cuid())
+  wallet      String
+  type        String
+  amount      String
+  txHash      String   @unique
+  blockNumber Int
+  createdAt   DateTime @default(now())
+
+  @@index([wallet])
 }
 
 model KycSubmission {
@@ -26,6 +74,9 @@ model KycSubmission {
   income      String
   purpose     String
   fundSource  String
+  icFrontPath  String   @default("")
+  icBackPath   String   @default("")
+  selfiePath   String   @default("")
   status      String   @default("pending")
   submittedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt

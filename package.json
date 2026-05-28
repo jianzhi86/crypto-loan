@@ -12,9 +12,15 @@
     "deploy:local": "cd blockchain && npx hardhat run scripts/deploy.ts --network localhost"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/material": "^9.0.1",
     "@prisma/client": "^5.22.0",
+    "@types/bcryptjs": "^2.4.6",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "ethers": "^6.16.0",
+    "jose": "^6.2.3",
     "next": "16.2.6",
     "prisma": "^5.22.0",
     "react": "19.2.4",

@@ -1,41 +1,41 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import CircularProgress from '@mui/material/CircularProgress';
+import LinearProgress from '@mui/material/LinearProgress';
 import { useWallet } from '@/lib/WalletContext';
-
-function Spinner() {
-  return (
-    <svg className="animate-spin" width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <circle cx="10" cy="10" r="8" stroke="#1E2035" strokeWidth="2.5" />
-      <path d="M10 2a8 8 0 0 1 8 8" stroke="#A78BFA" strokeWidth="2.5" strokeLinecap="round" />
-    </svg>
-  );
-}
 
 function StepDots({ step, total }: { step: number; total: number }) {
   if (total <= 1) return null;
   return (
-    <div className="flex items-center gap-1.5 mt-2">
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
       {Array.from({ length: total }).map((_, i) => (
-        <div key={i} className="transition-all duration-300"
-          style={{
+        <Box
+          key={i}
+          sx={{
             width: i + 1 === step ? 16 : 6,
             height: 6,
-            borderRadius: 3,
-            backgroundColor: i + 1 <= step ? '#A78BFA' : '#1E2035',
-          }} />
+            borderRadius: 1.5,
+            bgcolor: i + 1 <= step ? '#A78BFA' : '#1E2035',
+            transition: 'all 0.3s',
+          }}
+        />
       ))}
-      <span className="text-xs ml-1" style={{ color: '#64748B' }}>
+      <Typography variant="caption" sx={{ color: '#64748B', ml: 0.5 }}>
         Step {step} of {total}
-      </span>
-    </div>
+      </Typography>
+    </Box>
   );
 }
 
 export default function TxToast() {
-  const wallet    = useWallet();
-  const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clearRef  = useRef(wallet.clearTx);
+  const wallet   = useWallet();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearRef = useRef(wallet.clearTx);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
@@ -55,63 +55,84 @@ export default function TxToast() {
   const isSuccess = wallet.txStatus === 'success';
   const isError   = wallet.txStatus === 'error';
 
-  const borderColor = isPending ? '#7C3AED' : isSuccess ? '#22c55e' : '#ef4444';
+  const accentColor = isPending ? '#7C3AED' : isSuccess ? '#22c55e' : '#ef4444';
   const iconBg      = isPending ? '#1a1535' : isSuccess ? '#052e16'  : '#450a0a';
+  const label       = isPending ? 'Transaction Pending' : isSuccess ? 'Transaction Confirmed' : 'Transaction Failed';
 
   return (
-    <div
-      className="fixed bottom-6 right-6 z-50 w-80 rounded-2xl shadow-2xl overflow-hidden"
-      style={{ backgroundColor: '#12152A', border: `1px solid ${borderColor}44` }}
+    <Paper
+      elevation={8}
+      sx={{
+        position: 'fixed',
+        bottom: 24,
+        right: 24,
+        zIndex: 1400,
+        width: 320,
+        bgcolor: '#12152A',
+        border: `1px solid ${accentColor}44`,
+        borderRadius: 3,
+        overflow: 'hidden',
+      }}
     >
-      {/* Top accent bar */}
-      <div className="h-0.5 w-full" style={{ backgroundColor: borderColor }} />
+      <Box sx={{ height: 2, bgcolor: accentColor, width: '100%' }} />
 
-      <div className="p-4">
-        <div className="flex items-start gap-3">
-          {/* Icon */}
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
-            style={{ backgroundColor: iconBg }}>
-            {isPending && <Spinner />}
-            {isSuccess && <span className="text-base">✓</span>}
-            {isError   && <span className="text-base">✕</span>}
-          </div>
+      <Box sx={{ p: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+          <Box
+            sx={{
+              width: 36,
+              height: 36,
+              borderRadius: 2,
+              bgcolor: iconBg,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              mt: 0.25,
+            }}
+          >
+            {isPending && <CircularProgress size={18} sx={{ color: '#A78BFA' }} />}
+            {isSuccess && <Typography sx={{ color: '#22c55e', fontSize: 16 }}>✓</Typography>}
+            {isError   && <Typography sx={{ color: '#ef4444', fontSize: 16 }}>✕</Typography>}
+          </Box>
 
-          {/* Message */}
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold mb-0.5"
-              style={{ color: isPending ? '#A78BFA' : isSuccess ? '#22c55e' : '#ef4444' }}>
-              {isPending ? 'Transaction Pending' : isSuccess ? 'Transaction Confirmed' : 'Transaction Failed'}
-            </p>
-            <p className="text-sm text-white leading-snug">{wallet.txMessage}</p>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: accentColor, display: 'block', mb: 0.25, fontWeight: 600 }}>
+              {label}
+            </Typography>
+            <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.4 }}>
+              {wallet.txMessage}
+            </Typography>
 
-            {isPending && (
-              <StepDots step={wallet.txStep} total={wallet.txTotalSteps} />
-            )}
+            {isPending && <StepDots step={wallet.txStep} total={wallet.txTotalSteps} />}
 
             {isSuccess && (
-              <div className="mt-2 flex items-center gap-1.5">
-                <div className="h-1 flex-1 rounded-full" style={{ backgroundColor: '#22c55e33' }}>
-                  <div className="h-full rounded-full" style={{ backgroundColor: '#22c55e', width: '100%' }} />
-                </div>
-                <span className="text-xs" style={{ color: '#475569' }}>Dismissing…</span>
-              </div>
+              <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <LinearProgress
+                  variant="determinate"
+                  value={100}
+                  sx={{ flex: 1, height: 4, bgcolor: '#22c55e33', '& .MuiLinearProgress-bar': { bgcolor: '#22c55e' } }}
+                />
+                <Typography variant="caption" color="text.secondary">Dismissing…</Typography>
+              </Box>
             )}
-          </div>
+          </Box>
 
-          {/* Close */}
-          <button onClick={wallet.clearTx}
-            className="text-xs w-5 h-5 flex items-center justify-center rounded flex-shrink-0 hover:bg-white/10 transition-colors"
-            style={{ color: '#475569' }}>
-            ✕
-          </button>
-        </div>
+          <IconButton
+            size="small"
+            onClick={wallet.clearTx}
+            sx={{ color: '#475569', width: 20, height: 20, flexShrink: 0, '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}
+          >
+            <Typography sx={{ fontSize: 12, lineHeight: 1 }}>✕</Typography>
+          </IconButton>
+        </Box>
 
         {isPending && (
-          <p className="text-xs mt-3 pt-3 border-t" style={{ color: '#475569', borderColor: '#1E2035' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5, pt: 1.5, borderTop: '1px solid #1E2035' }}>
             Waiting for MetaMask confirmation…
-          </p>
+          </Typography>
         )}
-      </div>
-    </div>
+      </Box>
+    </Paper>
   );
 }

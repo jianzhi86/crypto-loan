@@ -2,8 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import AppBar from '@mui/material/AppBar';
+import Toolbar from '@mui/material/Toolbar';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Typography from '@mui/material/Typography';
+import Chip from '@mui/material/Chip';
+import Alert from '@mui/material/Alert';
+import { useState } from 'react';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
+import { useAuth } from '@/hooks/useAuth';
 
 const NAV = [
   { href: '/',          label: 'Dashboard' },
@@ -11,6 +20,7 @@ const NAV = [
   { href: '/portfolio', label: 'Portfolio' },
   { href: '/docs',      label: 'Docs'      },
   { href: '/kyc',       label: 'KYC'       },
+  { href: '/settings',  label: 'Settings'  },
 ];
 
 const TICKER_COINS = [
@@ -32,88 +42,148 @@ export default function Navbar() {
   const router   = useRouter();
   const wallet   = useWallet();
   const { prices, loading } = usePrices();
-  const isLive   = wallet.isConnected && wallet.isCorrectNetwork;
+  const { user, logout } = useAuth();
+  const [copied, setCopied] = useState(false);
+
+  const copyAddress = () => {
+    if (!wallet.address) return;
+    navigator.clipboard.writeText(wallet.address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  const isLive = wallet.isConnected && wallet.isCorrectNetwork;
 
   return (
     <>
-      {/* ── Sticky wrapper ── */}
-      <div className="sticky top-0 z-50"
-        style={{ backgroundColor: '#0D0F1Acc', backdropFilter: 'blur(12px)' }}>
+      <AppBar position="sticky" sx={{ zIndex: 1200 }}>
+        {/* Main nav bar */}
+        <Toolbar sx={{ maxWidth: 1280, width: '100%', mx: 'auto', px: { xs: 2, sm: 3 }, minHeight: '56px !important' }}>
+          {/* Logo + links */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
+            <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Box sx={{ width: 32, height: 32, borderRadius: 1.5, background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Typography sx={{ color: 'white', fontSize: 14, fontWeight: 700 }}>C</Typography>
+              </Box>
+              <Typography variant="h6" sx={{ color: 'text.primary', letterSpacing: '-0.5px', fontSize: 18, fontWeight: 700 }}>
+                CryptoLend
+              </Typography>
+            </Link>
 
-        {/* ── Main bar ── */}
-        <nav className="px-6 py-3.5" style={{ borderBottom: '1px solid #1E2035' }}>
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-
-            {/* Logo + links */}
-            <div className="flex items-center gap-8">
-              <Link href="/" className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold"
-                  style={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)' }}>C</div>
-                <span className="text-lg font-bold text-white tracking-tight">CryptoLend</span>
-              </Link>
-              <div className="hidden md:flex items-center gap-6">
-                {NAV.map(({ href, label }) => (
-                  <Link key={href} href={href} className="text-sm transition-colors hover:text-white"
-                    style={{ color: pathname === href ? '#06B6D4' : '#64748B' }}>
+            <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 3 }}>
+              {NAV.map(({ href, label }) => (
+                <Link key={href} href={href} style={{ textDecoration: 'none' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color: pathname === href ? '#06B6D4' : '#64748B',
+                      transition: 'color 0.15s',
+                      '&:hover': { color: 'text.primary' },
+                    }}
+                  >
                     {label}
-                  </Link>
-                ))}
-              </div>
-            </div>
+                  </Typography>
+                </Link>
+              ))}
+            </Box>
+          </Box>
 
-            {/* Right side */}
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full"
-                style={{ backgroundColor: '#131629', color: isLive ? '#94A3B8' : '#F59E0B', border: '1px solid #1E2035' }}>
-                <span className="w-1.5 h-1.5 rounded-full inline-block"
-                  style={{ backgroundColor: isLive ? '#22c55e' : wallet.isConnected ? '#F59E0B' : '#475569' }} />
-                {isLive ? 'Hardhat Local' : wallet.isConnected ? 'Wrong Network' : 'Not Connected'}
-              </div>
+          {/* Right side */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            {/* Network status */}
+            <Chip
+              size="small"
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: isLive ? '#22c55e' : wallet.isConnected ? '#F59E0B' : '#475569' }} />
+                  <Typography variant="caption" sx={{ color: isLive ? '#94A3B8' : '#F59E0B' }}>
+                    {isLive ? 'Hardhat Local' : wallet.isConnected ? 'Wrong Network' : 'Not Connected'}
+                  </Typography>
+                </Box>
+              }
+              sx={{ bgcolor: '#131629', border: '1px solid #1E2035', display: { xs: 'none', sm: 'flex' }, height: 28 }}
+            />
 
-              {isLive && (
-                <button onClick={() => router.push('/kyc')}
-                  className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full transition-colors"
-                  style={{
-                    backgroundColor: wallet.kycApproved ? '#052e16' : '#1a0f2e',
-                    color:           wallet.kycApproved ? '#22c55e' : '#A78BFA',
-                    border: `1px solid ${wallet.kycApproved ? '#22c55e44' : '#7C3AED55'}`,
-                  }}>
-                  <span>{wallet.kycApproved ? '✓' : '🪪'}</span>
-                  {wallet.kycApproved ? 'KYC Verified' : 'KYC Required'}
-                </button>
-              )}
+            {/* KYC status */}
+            {isLive && (
+              <Button
+                size="small"
+                onClick={() => router.push('/kyc')}
+                sx={{
+                  display: { xs: 'none', sm: 'flex' },
+                  gap: 0.75,
+                  bgcolor: wallet.kycApproved ? '#052e16' : '#1a0f2e',
+                  color: wallet.kycApproved ? '#22c55e' : '#A78BFA',
+                  border: `1px solid ${wallet.kycApproved ? 'rgba(34,197,94,0.27)' : 'rgba(124,58,237,0.33)'}`,
+                  fontSize: 11,
+                  height: 28,
+                  '&:hover': { bgcolor: wallet.kycApproved ? '#063b1e' : '#23143d' },
+                }}
+              >
+                <span>{wallet.kycApproved ? '✓' : '🪪'}</span>
+                {wallet.kycApproved ? 'KYC Verified' : 'KYC Required'}
+              </Button>
+            )}
 
-              {wallet.isConnected ? (
-                <div className="flex items-center gap-2">
-                  {!wallet.isCorrectNetwork && (
-                    <button onClick={wallet.switchToHardhat}
-                      className="px-3 py-2 rounded-lg text-xs font-semibold"
-                      style={{ backgroundColor: '#F59E0B22', color: '#F59E0B', border: '1px solid #F59E0B44' }}>
-                      Switch to Hardhat
-                    </button>
-                  )}
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
-                    style={{ backgroundColor: '#131629', border: '1px solid #1E2035' }}>
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#22c55e' }} />
-                    <span className="text-white font-mono text-xs">{short(wallet.address!)}</span>
-                    <span style={{ color: '#64748B' }}>·</span>
-                    <span style={{ color: '#94A3B8' }} className="text-xs">{wallet.ethBalance} ETH</span>
-                  </div>
-                </div>
-              ) : (
-                <button onClick={wallet.connect}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
-                  style={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)' }}>
-                  Connect Wallet
-                </button>
-              )}
-            </div>
-          </div>
-        </nav>
+            {/* Logged-in user + logout */}
+            {user && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {user.email && (
+                  <Typography variant="caption" sx={{ color: '#64748B', display: { xs: 'none', md: 'block' } }}>
+                    {user.email}
+                  </Typography>
+                )}
+                <Button
+                  size="small"
+                  onClick={() => { logout(); router.push('/login'); }}
+                  sx={{ color: '#64748B', fontSize: 11, px: 1, minWidth: 'auto', '&:hover': { color: '#ef4444' } }}
+                >
+                  Logout
+                </Button>
+              </Box>
+            )}
 
-        {/* ── Live price ticker ── */}
-        <div className="overflow-hidden" style={{ backgroundColor: '#090B15', borderBottom: '1px solid #1A1C30' }}>
-          <div className="ticker-track py-1.5">
+            {/* Wallet button / address */}
+            {wallet.isConnected ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {!wallet.isCorrectNetwork && (
+                  <Button
+                    size="small"
+                    onClick={wallet.switchToHardhat}
+                    sx={{ bgcolor: 'rgba(245,158,11,0.13)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.27)', fontSize: 11 }}
+                  >
+                    Switch to Hardhat
+                  </Button>
+                )}
+                <Box onClick={copyAddress}
+                  sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75,
+                        bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 1.5,
+                        cursor: 'pointer', transition: 'border-color 0.15s',
+                        '&:hover': { borderColor: copied ? '#22c55e' : '#7C3AED' } }}
+                  title="Click to copy address">
+                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#22c55e' }} />
+                  <Typography variant="caption" sx={{ fontFamily: 'monospace' }} color="text.primary">
+                    {copied ? '✓ Copied' : short(wallet.address!)}
+                  </Typography>
+                  <Typography sx={{ color: '#64748B', fontSize: 12 }}>·</Typography>
+                  <Typography variant="caption" color="text.secondary">{wallet.ethBalance} ETH</Typography>
+                </Box>
+              </Box>
+            ) : (
+              <Button
+                variant="contained"
+                size="small"
+                onClick={wallet.connect}
+                sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white', px: 2 }}
+              >
+                Connect Wallet
+              </Button>
+            )}
+          </Box>
+        </Toolbar>
+
+        {/* Live price ticker */}
+        <Box sx={{ overflow: 'hidden', bgcolor: '#090B15', borderBottom: '1px solid #1A1C30' }}>
+          <Box className="ticker-track" sx={{ py: 0.75 }}>
             {[...TICKER_COINS, ...TICKER_COINS].map((coin, i) => {
               const key    = SYMBOL_TO_ID[coin.symbol];
               const p      = prices[key];
@@ -124,41 +194,45 @@ export default function Navbar() {
                            : myr >= 1      ? `RM ${myr.toFixed(0)}`
                            :                 `RM ${myr.toFixed(2)}`;
               return (
-                <span key={`${coin.symbol}-${i}`} className="inline-flex items-center gap-2 px-5 whitespace-nowrap">
-                  <span className="text-xs font-bold" style={{ color: coin.color }}>{coin.symbol}</span>
-                  <span className="text-xs font-medium text-white">{loading ? '···' : fmt}</span>
+                <Box key={`${coin.symbol}-${i}`} component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, px: 2.5, whiteSpace: 'nowrap' }}>
+                  <Typography component="span" sx={{ fontSize: 11, fontWeight: 700, color: coin.color }}>{coin.symbol}</Typography>
+                  <Typography component="span" sx={{ fontSize: 11, fontWeight: 500, color: 'text.primary' }}>{loading ? '···' : fmt}</Typography>
                   {!loading && (
-                    <span className="text-xs" style={{ color: change >= 0 ? '#22c55e' : '#ef4444' }}>
+                    <Typography component="span" sx={{ fontSize: 11, color: change >= 0 ? '#22c55e' : '#ef4444' }}>
                       {change >= 0 ? '+' : ''}{change.toFixed(2)}%
-                    </span>
+                    </Typography>
                   )}
-                  <span className="text-xs" style={{ color: '#252840' }}>│</span>
-                </span>
+                  <Typography component="span" sx={{ fontSize: 11, color: '#252840' }}>│</Typography>
+                </Box>
               );
             })}
-          </div>
-        </div>
-      </div>
+          </Box>
+        </Box>
+      </AppBar>
 
-      {/* ── Network warning ── */}
+      {/* Network warning */}
       {wallet.isConnected && !wallet.isCorrectNetwork && (
-        <div className="px-6 py-3 text-sm flex items-center justify-between"
-          style={{ backgroundColor: '#431407', color: '#fb923c', borderBottom: '1px solid #7c2d12' }}>
-          <span>⚠ Wrong network. Switch to Hardhat Local (localhost:8545, chain ID 31337).</span>
-          <button onClick={wallet.switchToHardhat}
-            className="text-xs px-3 py-1 rounded font-semibold"
-            style={{ backgroundColor: '#fb923c22', border: '1px solid #fb923c44' }}>
-            Switch Now
-          </button>
-        </div>
+        <Alert
+          severity="warning"
+          action={
+            <Button size="small" onClick={wallet.switchToHardhat} sx={{ color: '#fb923c', fontSize: 11 }}>
+              Switch Now
+            </Button>
+          }
+          sx={{ bgcolor: '#431407', color: '#fb923c', borderRadius: 0, border: 'none', borderBottom: '1px solid #7c2d12', '& .MuiAlert-icon': { color: '#fb923c' } }}
+        >
+          Wrong network. Switch to Hardhat Local (localhost:8545, chain ID 31337).
+        </Alert>
       )}
 
-      {/* ── Contracts not deployed warning ── */}
+      {/* Contracts not deployed warning */}
       {wallet.isConnected && wallet.isCorrectNetwork && !wallet.isDeployed && (
-        <div className="px-6 py-3 text-sm flex items-center justify-between"
-          style={{ backgroundColor: '#1e1b3a', color: '#A78BFA', borderBottom: '1px solid #2e2654' }}>
-          <span>⚠ Contracts not deployed yet. Run <code className="font-mono bg-black/30 px-1 rounded">npm run deploy:local</code> first.</span>
-        </div>
+        <Alert
+          severity="info"
+          sx={{ bgcolor: '#1e1b3a', color: '#A78BFA', borderRadius: 0, border: 'none', borderBottom: '1px solid #2e2654', '& .MuiAlert-icon': { color: '#A78BFA' } }}
+        >
+          Contracts not deployed yet. Run <Box component="code" sx={{ fontFamily: 'monospace', bgcolor: 'rgba(0,0,0,0.3)', px: 0.75, borderRadius: 0.5, fontSize: 12 }}>npm run deploy:local</Box> first.
+        </Alert>
       )}
     </>
   );

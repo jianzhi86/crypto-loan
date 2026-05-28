@@ -1,13 +1,23 @@
-export function Skeleton({ w = 'w-full', h = 'h-4', className = '' }: { w?: string; h?: string; className?: string }) {
-  return <div className={`rounded animate-pulse ${w} ${h} ${className}`} style={{ backgroundColor: '#1E2035' }} />;
+import MuiSkeleton from '@mui/material/Skeleton';
+import Box from '@mui/material/Box';
+
+export function Skeleton({ width = '100%', height = 16 }: { width?: string | number; height?: number }) {
+  return (
+    <MuiSkeleton
+      variant="rectangular"
+      width={width}
+      height={height}
+      sx={{ bgcolor: '#1E2035', borderRadius: 1 }}
+    />
+  );
 }
 
 export function SkeletonCard() {
   return (
-    <div className="p-4 rounded-xl" style={{ backgroundColor: '#131629', border: '1px solid #1E2035' }}>
-      <Skeleton w="w-24" h="h-3" />
-      <Skeleton w="w-32" h="h-7" className="mt-3" />
-      <Skeleton w="w-20" h="h-3" className="mt-2" />
-    </div>
+    <Box sx={{ p: 2, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2 }}>
+      <MuiSkeleton width={96}  height={12} sx={{ bgcolor: '#1E2035' }} />
+      <MuiSkeleton width={128} height={28} sx={{ bgcolor: '#1E2035', mt: 1.5 }} />
+      <MuiSkeleton width={80}  height={12} sx={{ bgcolor: '#1E2035', mt: 1 }} />
+    </Box>
   );
 }

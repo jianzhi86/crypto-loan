@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k,v\\) for k,v in {**d.get\\('dependencies',{}\\),**d.get\\('devDependencies',{}\\)}.items\\(\\)]\")",
+      "PowerShell(Get-Content \"c:\\\\Users\\\\leeji\\\\crypto-loan\\\\package.json\" | ConvertFrom-Json | ForEach-Object { $_.dependencies.PSObject.Properties | Select-Object Name, Value })"
+    ]
+  }
+}
