@@ -91,8 +91,8 @@ export default async function AdminPage() {
             <Typography variant="body2" color="text.secondary">Submit a KYC form from the /kyc page to see records here</Typography>
           </Paper>
         ) : (
-          <TableContainer component={Paper} sx={{ bgcolor: 'transparent', border: '1px solid #1E2035', borderRadius: 3 }}>
-            <Table size="small">
+          <TableContainer component={Paper} sx={{ bgcolor: 'transparent', border: '1px solid #1E2035', borderRadius: 3, overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 1100 }}>
               <TableHead>
                 <TableRow>
                   {['ID','Wallet','Full Name','IC Number','DOB','Phone','City / State','Employment','Purpose','Status','Submitted','Actions','Details'].map(h => (

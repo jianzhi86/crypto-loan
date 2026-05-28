@@ -312,7 +312,7 @@ export default function Dashboard() {
 
               {/* Asset selector */}
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Collateral Asset</Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1, mb: 3 }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(3, 1fr)', sm: 'repeat(5, 1fr)', lg: 'repeat(3, 1fr)', xl: 'repeat(5, 1fr)' }, gap: 1, mb: 3 }}>
                 {ASSETS.map((asset, i) => {
                   const p   = prices[SYMBOL_TO_ID[asset.symbol]];
                   const myr = p?.myr ?? 0;
@@ -325,7 +325,7 @@ export default function Dashboard() {
                       onClick={() => { setCalcAssetIdx(i); setLtv(Math.min(ltv, asset.maxLTV)); }}
                       sx={{
                         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5,
-                        p: 1.5, borderRadius: 2, cursor: 'pointer', transition: 'all 0.15s',
+                        p: 1.5, borderRadius: 2, cursor: 'pointer', transition: 'all 0.15s', minWidth: 0,
                         bgcolor: calcAssetIdx === i ? '#1E1B3A' : '#0D0F1A',
                         border: `1px solid ${calcAssetIdx === i ? '#7C3AED' : '#1E2035'}`,
                         '&:hover': { borderColor: '#7C3AED' },
@@ -368,7 +368,7 @@ export default function Dashboard() {
 
               {/* Loan Term */}
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Loan Term</Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, mb: 3 }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, gap: 1, mb: 3 }}>
                 {LOAN_TERMS.map(t => (
                   <Box key={t.days} onClick={() => setLoanTermDays(t.days)}
                     sx={{
@@ -392,7 +392,7 @@ export default function Dashboard() {
                   </Typography>
                 </Box>
 
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, mb: 2 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, gap: 1, mb: 2 }}>
                   {[
                     { label: 'Flat', mult: 1.0 },
                     { label: '+50%', mult: 1.5 },
@@ -505,8 +505,8 @@ export default function Dashboard() {
             {/* Supported Assets Table */}
             <Paper sx={cardSx}>
               <Typography variant="h6" color="text.primary" sx={{ fontWeight: 600, mb: 3 }}>Supported Assets</Typography>
-              <TableContainer>
-                <Table size="small">
+              <TableContainer sx={{ overflowX: 'auto' }}>
+                <Table size="small" sx={{ minWidth: 480 }}>
                   <TableHead>
                     <TableRow>
                       {['Asset', 'Price (MYR)', 'Max LTV', 'Borrow APR', 'Supply APR', 'Liquidity'].map(h => (
@@ -827,7 +827,7 @@ export default function Dashboard() {
                     <>
                       <Box>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>Loan Term</Typography>
-                        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1 }}>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, gap: 1 }}>
                           {LOAN_TERMS.map(t => (
                             <Box key={t.days} onClick={() => setLoanTermDays(t.days)}
                               sx={{ py: 1, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer',
