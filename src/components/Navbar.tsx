@@ -56,51 +56,77 @@ export default function Navbar() {
   return (
     <>
       <AppBar position="sticky" sx={{ zIndex: 1200 }}>
-        {/* Main nav bar */}
-        <Toolbar sx={{ maxWidth: 1280, width: '100%', mx: 'auto', px: { xs: 2, sm: 3 }, minHeight: '56px !important' }}>
-          {/* Logo + links */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}>
-            <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Box sx={{ width: 32, height: 32, borderRadius: 1.5, background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Typography sx={{ color: 'white', fontSize: 14, fontWeight: 700 }}>C</Typography>
-              </Box>
-              <Typography variant="h6" sx={{ color: 'text.primary', letterSpacing: '-0.5px', fontSize: 18, fontWeight: 700 }}>
-                CryptoLend
-              </Typography>
-            </Link>
-
-            <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 3 }}>
-              {NAV.map(({ href, label }) => (
-                <Link key={href} href={href} style={{ textDecoration: 'none' }}>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      color: pathname === href ? '#06B6D4' : '#64748B',
-                      transition: 'color 0.15s',
-                      '&:hover': { color: 'text.primary' },
-                    }}
-                  >
-                    {label}
-                  </Typography>
-                </Link>
-              ))}
+        {/* Main nav */}
+        <Toolbar sx={{
+          maxWidth: 1320, width: '100%', mx: 'auto',
+          px: { xs: 2, sm: 3 }, minHeight: '64px !important',
+        }}>
+          {/* Logo */}
+          <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, marginRight: 40 }}>
+            <Box sx={{
+              width: 36, height: 36, borderRadius: 2,
+              background: 'linear-gradient(135deg, #00C8A0 0%, #0090D0 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(0,200,160,0.35)',
+            }}>
+              <Typography sx={{ color: '#fff', fontSize: 15, fontWeight: 800, letterSpacing: '-0.5px' }}>C</Typography>
             </Box>
+            <Typography variant="h6" sx={{
+              color: '#E2EBF9', letterSpacing: '-0.5px', fontSize: 18, fontWeight: 800,
+            }}>
+              Crypto<Box component="span" sx={{ color: '#00C8A0' }}>Lend</Box>
+            </Typography>
+          </Link>
+
+          {/* Nav links */}
+          <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 0.5, flex: 1 }}>
+            {NAV.map(({ href, label }) => {
+              const active = pathname === href;
+              return (
+                <Link key={href} href={href} style={{ textDecoration: 'none' }}>
+                  <Box sx={{
+                    px: 1.5, py: 0.75, borderRadius: 2, transition: 'all 0.15s',
+                    bgcolor: active ? 'rgba(0,200,160,0.1)' : 'transparent',
+                    '&:hover': { bgcolor: active ? 'rgba(0,200,160,0.1)' : 'rgba(255,255,255,0.05)' },
+                  }}>
+                    <Typography variant="body2" sx={{
+                      color: active ? '#00C8A0' : '#7A90B6',
+                      fontWeight: active ? 600 : 400,
+                      fontSize: 13.5,
+                      transition: 'color 0.15s',
+                    }}>
+                      {label}
+                    </Typography>
+                  </Box>
+                </Link>
+              );
+            })}
           </Box>
 
           {/* Right side */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            {/* Network status */}
+
+            {/* Network dot */}
             <Chip
               size="small"
               label={
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: isLive ? '#22c55e' : wallet.isConnected ? '#F59E0B' : '#475569' }} />
-                  <Typography variant="caption" sx={{ color: isLive ? '#94A3B8' : '#F59E0B' }}>
+                  <Box sx={{
+                    width: 6, height: 6, borderRadius: '50%',
+                    bgcolor: isLive ? '#00C8A0' : wallet.isConnected ? '#FFB800' : 'rgba(255,255,255,0.2)',
+                    boxShadow: isLive ? '0 0 6px #00C8A0' : 'none',
+                  }} />
+                  <Typography variant="caption" sx={{ color: isLive ? '#7A90B6' : wallet.isConnected ? '#FFB800' : '#7A90B6', fontSize: 11 }}>
                     {isLive ? 'Hardhat Local' : wallet.isConnected ? 'Wrong Network' : 'Not Connected'}
                   </Typography>
                 </Box>
               }
-              sx={{ bgcolor: '#131629', border: '1px solid #1E2035', display: { xs: 'none', sm: 'flex' }, height: 28 }}
+              sx={{
+                bgcolor: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                display: { xs: 'none', sm: 'flex' },
+                height: 30,
+              }}
             />
 
             {/* KYC status */}
@@ -111,61 +137,75 @@ export default function Navbar() {
                 sx={{
                   display: { xs: 'none', sm: 'flex' },
                   gap: 0.75,
-                  bgcolor: wallet.kycApproved ? '#052e16' : '#1a0f2e',
-                  color: wallet.kycApproved ? '#22c55e' : '#A78BFA',
-                  border: `1px solid ${wallet.kycApproved ? 'rgba(34,197,94,0.27)' : 'rgba(124,58,237,0.33)'}`,
-                  fontSize: 11,
-                  height: 28,
-                  '&:hover': { bgcolor: wallet.kycApproved ? '#063b1e' : '#23143d' },
+                  bgcolor: wallet.kycApproved ? 'rgba(0,200,160,0.1)' : 'rgba(255,184,0,0.1)',
+                  color: wallet.kycApproved ? '#00C8A0' : '#FFB800',
+                  border: `1px solid ${wallet.kycApproved ? 'rgba(0,200,160,0.25)' : 'rgba(255,184,0,0.25)'}`,
+                  fontSize: 11, height: 30, borderRadius: 2,
+                  '&:hover': {
+                    bgcolor: wallet.kycApproved ? 'rgba(0,200,160,0.15)' : 'rgba(255,184,0,0.15)',
+                  },
                 }}
               >
-                <span>{wallet.kycApproved ? '✓' : '🪪'}</span>
-                {wallet.kycApproved ? 'KYC Verified' : 'KYC Required'}
+                {wallet.kycApproved ? '✓ KYC Verified' : '⚠ KYC Required'}
               </Button>
             )}
 
-            {/* Logged-in user + logout */}
+            {/* User email + logout */}
             {user && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {user.email && (
-                  <Typography variant="caption" sx={{ color: '#64748B', display: { xs: 'none', md: 'block' } }}>
+                  <Typography variant="caption" sx={{ color: '#7A90B6', display: { xs: 'none', md: 'block' }, fontSize: 12 }}>
                     {user.email}
                   </Typography>
                 )}
                 <Button
                   size="small"
                   onClick={() => { logout(); router.push('/login'); }}
-                  sx={{ color: '#64748B', fontSize: 11, px: 1, minWidth: 'auto', '&:hover': { color: '#ef4444' } }}
+                  sx={{ color: '#7A90B6', fontSize: 11, px: 1, minWidth: 'auto', borderRadius: 2, '&:hover': { color: '#FF4560' } }}
                 >
                   Logout
                 </Button>
               </Box>
             )}
 
-            {/* Wallet button / address */}
+            {/* Wallet */}
             {wallet.isConnected ? (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {!wallet.isCorrectNetwork && (
                   <Button
                     size="small"
                     onClick={wallet.switchToHardhat}
-                    sx={{ bgcolor: 'rgba(245,158,11,0.13)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.27)', fontSize: 11 }}
+                    sx={{
+                      bgcolor: 'rgba(255,184,0,0.1)', color: '#FFB800',
+                      border: '1px solid rgba(255,184,0,0.25)', fontSize: 11, borderRadius: 2,
+                    }}
                   >
-                    Switch to Hardhat
+                    Switch Network
                   </Button>
                 )}
-                <Box onClick={copyAddress}
-                  sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75,
-                        bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 1.5,
-                        cursor: 'pointer', transition: 'border-color 0.15s',
-                        '&:hover': { borderColor: copied ? '#22c55e' : '#7C3AED' } }}
-                  title="Click to copy address">
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#22c55e' }} />
-                  <Typography variant="caption" sx={{ fontFamily: 'monospace' }} color="text.primary">
+                <Box
+                  onClick={copyAddress}
+                  sx={{
+                    display: 'flex', alignItems: 'center', gap: 1.25,
+                    px: 1.75, py: 0.875,
+                    bgcolor: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 2.5, cursor: 'pointer', transition: 'all 0.15s',
+                    '&:hover': { bgcolor: 'rgba(0,200,160,0.07)', borderColor: 'rgba(0,200,160,0.3)' },
+                  }}
+                  title="Click to copy address"
+                >
+                  <Box sx={{
+                    width: 8, height: 8, borderRadius: '50%', bgcolor: '#00C8A0',
+                    boxShadow: '0 0 6px #00C8A0',
+                  }} />
+                  <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#E2EBF9', letterSpacing: 0.5 }}>
                     {copied ? '✓ Copied' : short(wallet.address!)}
                   </Typography>
-                  <Typography sx={{ color: '#64748B', fontSize: 12 }}>·</Typography>
-                  <Typography variant="caption" color="text.secondary">{wallet.ethBalance} ETH</Typography>
+                  <Box sx={{ width: 1, height: 14, bgcolor: 'rgba(255,255,255,0.1)' }} />
+                  <Typography variant="caption" sx={{ color: '#7A90B6', fontSize: 11 }}>
+                    {wallet.ethBalance} ETH
+                  </Typography>
                 </Box>
               </Box>
             ) : (
@@ -173,7 +213,7 @@ export default function Navbar() {
                 variant="contained"
                 size="small"
                 onClick={wallet.connect}
-                sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white', px: 2 }}
+                sx={{ px: 2.5, py: 0.875, fontSize: 13, borderRadius: 2.5, fontWeight: 700 }}
               >
                 Connect Wallet
               </Button>
@@ -182,8 +222,8 @@ export default function Navbar() {
         </Toolbar>
 
         {/* Live price ticker */}
-        <Box sx={{ overflow: 'hidden', bgcolor: '#090B15', borderBottom: '1px solid #1A1C30' }}>
-          <Box className="ticker-track" sx={{ py: 0.75 }}>
+        <Box sx={{ overflow: 'hidden', bgcolor: 'rgba(0,0,0,0.3)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+          <Box className="ticker-track" sx={{ py: 0.875 }}>
             {[...TICKER_COINS, ...TICKER_COINS].map((coin, i) => {
               const key    = SYMBOL_TO_ID[coin.symbol];
               const p      = prices[key];
@@ -194,15 +234,24 @@ export default function Navbar() {
                            : myr >= 1      ? `RM ${myr.toFixed(0)}`
                            :                 `RM ${myr.toFixed(2)}`;
               return (
-                <Box key={`${coin.symbol}-${i}`} component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, px: 2.5, whiteSpace: 'nowrap' }}>
-                  <Typography component="span" sx={{ fontSize: 11, fontWeight: 700, color: coin.color }}>{coin.symbol}</Typography>
-                  <Typography component="span" sx={{ fontSize: 11, fontWeight: 500, color: 'text.primary' }}>{loading ? '···' : fmt}</Typography>
+                <Box key={`${coin.symbol}-${i}`} component="span"
+                  sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, px: 3, whiteSpace: 'nowrap' }}>
+                  <Box sx={{
+                    width: 4, height: 4, borderRadius: '50%', bgcolor: coin.color,
+                    flexShrink: 0,
+                  }} />
+                  <Typography component="span" sx={{ fontSize: 11, fontWeight: 700, color: coin.color }}>
+                    {coin.symbol}
+                  </Typography>
+                  <Typography component="span" sx={{ fontSize: 11, fontWeight: 500, color: '#E2EBF9' }}>
+                    {loading ? '···' : fmt}
+                  </Typography>
                   {!loading && (
-                    <Typography component="span" sx={{ fontSize: 11, color: change >= 0 ? '#22c55e' : '#ef4444' }}>
+                    <Typography component="span" sx={{ fontSize: 11, color: change >= 0 ? '#00C8A0' : '#FF4560' }}>
                       {change >= 0 ? '+' : ''}{change.toFixed(2)}%
                     </Typography>
                   )}
-                  <Typography component="span" sx={{ fontSize: 11, color: '#252840' }}>│</Typography>
+                  <Typography component="span" sx={{ fontSize: 10, color: 'rgba(255,255,255,0.1)' }}>│</Typography>
                 </Box>
               );
             })}
@@ -215,23 +264,36 @@ export default function Navbar() {
         <Alert
           severity="warning"
           action={
-            <Button size="small" onClick={wallet.switchToHardhat} sx={{ color: '#fb923c', fontSize: 11 }}>
+            <Button size="small" onClick={wallet.switchToHardhat}
+              sx={{ color: '#FFB800', fontSize: 11, borderRadius: 2 }}>
               Switch Now
             </Button>
           }
-          sx={{ bgcolor: '#431407', color: '#fb923c', borderRadius: 0, border: 'none', borderBottom: '1px solid #7c2d12', '& .MuiAlert-icon': { color: '#fb923c' } }}
+          sx={{
+            bgcolor: 'rgba(255,184,0,0.08)', color: '#FFB800',
+            borderRadius: 0, border: 'none', borderBottom: '1px solid rgba(255,184,0,0.2)',
+            '& .MuiAlert-icon': { color: '#FFB800' },
+          }}
         >
-          Wrong network. Switch to Hardhat Local (localhost:8545, chain ID 31337).
+          Wrong network detected. Switch to Hardhat Local (localhost:8545, chain ID 31337).
         </Alert>
       )}
 
-      {/* Contracts not deployed warning */}
+      {/* Contract not deployed warning */}
       {wallet.isConnected && wallet.isCorrectNetwork && !wallet.isDeployed && (
         <Alert
           severity="info"
-          sx={{ bgcolor: '#1e1b3a', color: '#A78BFA', borderRadius: 0, border: 'none', borderBottom: '1px solid #2e2654', '& .MuiAlert-icon': { color: '#A78BFA' } }}
+          sx={{
+            bgcolor: 'rgba(0,200,160,0.06)', color: '#00C8A0',
+            borderRadius: 0, border: 'none', borderBottom: '1px solid rgba(0,200,160,0.15)',
+            '& .MuiAlert-icon': { color: '#00C8A0' },
+          }}
         >
-          Contracts not deployed yet. Run <Box component="code" sx={{ fontFamily: 'monospace', bgcolor: 'rgba(0,0,0,0.3)', px: 0.75, borderRadius: 0.5, fontSize: 12 }}>npm run deploy:local</Box> first.
+          Contracts not deployed. Run{' '}
+          <Box component="code" sx={{ fontFamily: 'monospace', bgcolor: 'rgba(0,0,0,0.3)', px: 0.75, borderRadius: 0.5, fontSize: 12 }}>
+            npm run deploy:local
+          </Box>{' '}
+          to get started.
         </Alert>
       )}
     </>
