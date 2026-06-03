@@ -35,6 +35,8 @@ export interface LoanInfo {
   collateralValueMYR: number;
   accruedInterest: bigint;
   startTime: bigint;
+  ltv: number;
+  isLiquidatable: boolean;
 }
 
 export interface WalletState {
@@ -145,13 +147,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         ethBalance: parseFloat(ethers.formatEther(ethBal)).toFixed(4),
         myrBalance: (Number(myrBal) / 1e6).toFixed(2),
         loanInfo: {
-          collateral:        info[0] as bigint,
-          borrowed:          info[1] as bigint,
-          healthFactor:      hf,
-          available:         info[3] as bigint,
+          collateral:         info[0] as bigint,
+          borrowed:           info[1] as bigint,
+          healthFactor:       hf,
+          available:          info[3] as bigint,
           collateralValueMYR: Number(info[4] as bigint),
-          accruedInterest:   info[5] as bigint,
-          startTime:         loanRaw[2] as bigint,
+          accruedInterest:    info[5] as bigint,
+          startTime:          loanRaw[2] as bigint,
+          ltv:                Number(info[6] as bigint),
+          isLiquidatable:     info[7] as boolean,
         },
         ethPriceMYR: Number(price as bigint),
         kycApproved: kyc as boolean,

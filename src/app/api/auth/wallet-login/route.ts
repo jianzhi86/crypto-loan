@@ -21,18 +21,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Signature verification failed' }, { status: 401 });
   }
 
-  let user = await prisma.user.findUnique({ where: { walletAddress: address } });
-  if (!user) {
-    user = await prisma.user.create({
-      data: {
-        walletAddress: address,
-        name: `${address.slice(0, 6)}…${address.slice(-4)}`,
-      },
-    });
+  let user;
+  try {
+    user = await prisma.user.findUnique({ where: { walletAddress: address } });
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          walletAddress: address,
+          name: `${address.slice(0, 6)}…${address.slice(-4)}`,
+        },
+      });
+    }
+  } catch (err) {
+    console.error('[wallet-login] DB error:', err);
+    return NextResponse.json({ error: 'Database error' }, { status: 500 });
   }
 
-  const token = await createToken({ id: user.id, email: user.email, name: user.name, walletAddress: address });
-  await setAuthCookie(token);
+  try {
+    const token = await createToken({ id: user.id, email: user.email, name: user.name, walletAddress: address });
+    await setAuthCookie(token);
+  } catch (err) {
+    console.error('[wallet-login] Token error:', err);
+    return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
+  }
 
   return NextResponse.json({ id: user.id, name: user.name, walletAddress: address });
 }
