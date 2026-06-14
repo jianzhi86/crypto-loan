@@ -3,14 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  // Runtime queries go through Supabase's transaction pooler (port 6543,
-  // pgbouncer=true). IPv4-reachable from Railway and connection-efficient.
-  url       = env("DATABASE_URL")
-  // Migrations / `prisma db push` need a non-pooled (session) connection,
-  // since the transaction pooler can't run schema DDL. Use the session
-  // pooler (port 5432 on ...pooler.supabase.com), also IPv4-reachable.
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  // Single direct connection. On Railway, set this to the Railway Postgres
+  // service URL (reference ${{ Postgres.DATABASE_URL }}). No pooler/directUrl
+  // needed since the DB is reachable directly within the Railway network.
+  url      = env("DATABASE_URL")
 }
 
 model User {
