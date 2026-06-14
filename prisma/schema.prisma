@@ -3,8 +3,14 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Runtime queries go through Supabase's transaction pooler (port 6543,
+  // pgbouncer=true). IPv4-reachable from Railway and connection-efficient.
+  url       = env("DATABASE_URL")
+  // Migrations / `prisma db push` need a non-pooled (session) connection,
+  // since the transaction pooler can't run schema DDL. Use the session
+  // pooler (port 5432 on ...pooler.supabase.com), also IPv4-reachable.
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
