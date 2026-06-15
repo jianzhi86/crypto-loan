@@ -17,11 +17,13 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      wallet, fullName, icNumber, dob, gender, nationality,
+      wallet, fullName, docType, icNumber, dob, gender, nationality,
       phone, email, addr1, addr2, postcode, city, state,
       employment, income, purpose, fundSource,
       icFront, icBack, selfie,
     } = body;
+
+    const dt = docType === 'passport' || docType === 'license' ? docType : 'ic';
 
     if (!wallet || !fullName || !icNumber || !dob || !gender || !phone || !email ||
         !addr1 || !postcode || !city || !state || !employment || !income || !purpose || !fundSource) {
@@ -40,7 +42,7 @@ export async function POST(req: NextRequest) {
     const record = await prisma.kycSubmission.upsert({
       where:  { wallet: walletKey },
       update: {
-        fullName, icNumber, dob, gender, nationality, phone, email,
+        fullName, docType: dt, icNumber, dob, gender, nationality, phone, email,
         addr1, addr2: addr2 ?? '', postcode, city, state,
         employment, income, purpose, fundSource,
         ...(icFrontPath && { icFrontPath }),
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
       },
       create: {
         wallet: walletKey,
-        fullName, icNumber, dob, gender, nationality, phone, email,
+        fullName, docType: dt, icNumber, dob, gender, nationality, phone, email,
         addr1, addr2: addr2 ?? '', postcode, city, state,
         employment, income, purpose, fundSource,
         icFrontPath, icBackPath, selfiePath,

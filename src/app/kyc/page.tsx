@@ -18,6 +18,7 @@ import Step from '@mui/material/Step';
 import StepLabel from '@mui/material/StepLabel';
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
 import Navbar from '@/components/Navbar';
 import { useWallet } from '@/lib/WalletContext';
 
@@ -49,8 +50,16 @@ const FUND_SOURCES = [
 ];
 
 type Step = 1 | 2 | 3 | 4 | 5;
+type DocType = 'ic' | 'passport' | 'license';
+
+const DOC_TYPES: { value: DocType; label: string; numberLabel: string; placeholder: string }[] = [
+  { value: 'ic',       label: 'MyKad / IC',      numberLabel: 'MyKad / IC Number', placeholder: 'e.g. 901231-14-5678' },
+  { value: 'passport', label: 'Passport',         numberLabel: 'Passport Number',   placeholder: 'e.g. A12345678' },
+  { value: 'license',  label: 'Driving License',  numberLabel: 'License Number',    placeholder: 'e.g. 901231145678' },
+];
 
 interface FormData {
+  docType: DocType;
   fullName: string; icNumber: string; dob: string; gender: string;
   nationality: string; phone: string; email: string;
   addr1: string; addr2: string; postcode: string; city: string; state: string;
@@ -59,6 +68,7 @@ interface FormData {
 }
 
 const EMPTY: FormData = {
+  docType:'ic',
   fullName:'', icNumber:'', dob:'', gender:'', nationality:'Malaysian',
   phone:'', email:'', addr1:'', addr2:'', postcode:'', city:'', state:'',
   employment:'', income:'', purpose:'', fundSource:'',
@@ -201,6 +211,8 @@ export default function KYCPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submittedId, setSubmittedId] = useState<number | null>(null);
   const [mounted, setMounted]     = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<{ status: string; reason?: string } | null>(null);
 
   const [files, setFiles] = useState<Record<DocKey, File | null>>({ front: null, back: null, selfie: null });
   const fileRefs: Record<DocKey, React.RefObject<HTMLInputElement | null>> = {
@@ -213,6 +225,8 @@ export default function KYCPage() {
 
   const set = (field: keyof FormData, value: string | boolean) =>
     setForm(p => ({ ...p, [field]: value }));
+
+  const docMeta = DOC_TYPES.find(d => d.value === form.docType) ?? DOC_TYPES[0];
 
   const canProceed = (): boolean => {
     if (step === 1) return !!(form.fullName && form.icNumber && form.dob && form.gender && form.phone && form.email);
@@ -234,51 +248,135 @@ export default function KYCPage() {
     ]);
     const res = await fetch('/api/kyc', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, wallet: wallet.address, icFront, icBack, selfie }),
+      body: JSON.stringify({ ...form, wallet: wallet.address, icFront, icBack, selfie }), // includes docType
     });
     if (!res.ok) { setSubmitting(false); alert('Failed to save KYC data. Please try again.'); return; }
     const data = await res.json();
     setSubmittedId(data.id);
     setSubmitting(false);
+
+    // Auto-verification: OCR the uploaded ID and match it against the form.
+    // Only runs when a document was provided; otherwise it stays for manual review.
+    if (files.front || files.back) {
+      setVerifying(true);
+      try {
+        const vr = await fetch('/api/kyc/auto-verify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wallet: wallet.address, docType: form.docType }),
+        });
+        const vd = await vr.json();
+        setVerifyResult(vr.ok ? { status: vd.status, reason: vd.reason } : { status: 'pending' });
+        if (vd.status === 'approved') wallet.refresh();
+      } catch {
+        setVerifyResult({ status: 'pending' });
+      } finally {
+        setVerifying(false);
+      }
+    }
   };
 
-  // ── Pending Review Screen ─────────────────────────────────────────────────
+  // ── Post-submit Screen (verifying / approved / rejected / pending) ────────
   if (submittedId) {
     const ref = `KYC-${String(submittedId).padStart(6, '0')}`;
+    const outcome = verifying ? 'verifying' : (verifyResult?.status ?? 'pending');
+
+    const theme = {
+      verifying: { icon: null,  ring: '#1E1B3A', accent: '#A78BFA', title: 'Verifying Documents' },
+      approved:  { icon: '✅',  ring: '#052e16', accent: '#22c55e', title: 'KYC Approved' },
+      rejected:  { icon: '❌',  ring: '#450a0a', accent: '#ef4444', title: 'Verification Failed' },
+      pending:   { icon: '⏳',  ring: '#1E1B3A', accent: '#A78BFA', title: 'Application Submitted' },
+    }[outcome] ?? { icon: '⏳', ring: '#1E1B3A', accent: '#A78BFA', title: 'Application Submitted' };
+
     return (
       <Box sx={{ minHeight: '100vh', bgcolor: '#0D0F1A' }}>
         <Navbar />
         <Box component="main" sx={{ maxWidth: 480, mx: 'auto', px: 2, py: 8 }}>
           <Paper sx={{ p: 5, textAlign: 'center', bgcolor: '#12152A', border: '1px solid #1E2035', borderRadius: 3 }}>
-            <Box sx={{ width: 80, height: 80, borderRadius: '50%', bgcolor: '#1E1B3A',
+            <Box sx={{ width: 80, height: 80, borderRadius: '50%', bgcolor: theme.ring,
                        display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2.5 }}>
-              <Typography sx={{ fontSize: 40 }}>⏳</Typography>
+              {outcome === 'verifying'
+                ? <CircularProgress size={40} thickness={2.5} sx={{ color: theme.accent }} />
+                : <Typography sx={{ fontSize: 40 }}>{theme.icon}</Typography>}
             </Box>
-            <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 1 }}>Application Submitted</Typography>
-            <Chip label="● Pending Review" size="small"
-              sx={{ bgcolor: '#1E1B3A', color: '#A78BFA', border: '1px solid #A78BFA33', fontWeight: 600, mb: 3 }} />
+            <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 1 }}>{theme.title}</Typography>
+
+            {outcome === 'approved' && (
+              <Chip label="✓ Identity Verified" size="small"
+                sx={{ bgcolor: '#052e16', color: '#22c55e', border: '1px solid #22c55e44', fontWeight: 600, mb: 3 }} />
+            )}
+            {outcome === 'rejected' && (
+              <Chip label="● Document Mismatch" size="small"
+                sx={{ bgcolor: '#450a0a', color: '#ef4444', border: '1px solid #ef444444', fontWeight: 600, mb: 3 }} />
+            )}
+            {(outcome === 'pending' || outcome === 'verifying') && (
+              <Chip label={outcome === 'verifying' ? '● Checking your document…' : '● Pending Review'} size="small"
+                sx={{ bgcolor: '#1E1B3A', color: '#A78BFA', border: '1px solid #A78BFA33', fontWeight: 600, mb: 3 }} />
+            )}
+
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
               Reference number
             </Typography>
             <Typography variant="h6" color="text.primary" sx={{ fontFamily: 'monospace', fontWeight: 700, mb: 3 }}>
               {ref}
             </Typography>
+
             <Paper sx={{ p: 2, mb: 3, bgcolor: '#0D0F1A', border: '1px solid #1E2035', borderRadius: 2, textAlign: 'left' }}>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                Your KYC application has been received and is currently under review by our compliance team.
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                Estimated processing time:{' '}
-                <Box component="span" sx={{ color: 'text.primary' }}>1–3 business days</Box>
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                You will be notified once your verification is complete.
-              </Typography>
+              {outcome === 'verifying' && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  We&apos;re reading your uploaded document and matching it against your details. This usually takes a few seconds.
+                </Typography>
+              )}
+              {outcome === 'approved' && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  Your document matched your details and your identity has been verified on-chain.
+                  You can now access borrowing services.
+                </Typography>
+              )}
+              {outcome === 'rejected' && (
+                <>
+                  <Typography variant="caption" sx={{ color: '#ef4444', display: 'block', mb: 1, fontWeight: 600 }}>
+                    The uploaded document did not match the information you provided.
+                  </Typography>
+                  {verifyResult?.reason && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                      {verifyResult.reason}.
+                    </Typography>
+                  )}
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    Please make sure your full name, document number, and address exactly match your document, then re-upload a clearer photo.
+                  </Typography>
+                </>
+              )}
+              {outcome === 'pending' && (
+                <>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    Your KYC application has been received and is currently under review by our compliance team.
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    Estimated processing time:{' '}
+                    <Box component="span" sx={{ color: 'text.primary' }}>1–3 business days</Box>
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    You will be notified once your verification is complete.
+                  </Typography>
+                </>
+              )}
             </Paper>
-            <Button fullWidth variant="contained" onClick={() => router.push('/')}
-              sx={{ bgcolor: '#7C3AED', '&:hover': { bgcolor: '#6d28d9' }, py: 1.25 }}>
-              Back to Dashboard
-            </Button>
+
+            {outcome === 'rejected' ? (
+              <Button fullWidth variant="contained" onClick={() => { setSubmittedId(null); setVerifyResult(null); setStep(1); }}
+                sx={{ bgcolor: '#7C3AED', '&:hover': { bgcolor: '#6d28d9' }, py: 1.25 }}>
+                Review & Resubmit
+              </Button>
+            ) : (
+              <Button fullWidth variant="contained" disabled={outcome === 'verifying'}
+                onClick={() => router.push(outcome === 'approved' ? '/?tab=deposit' : '/')}
+                sx={{ background: outcome === 'approved' ? 'linear-gradient(135deg, #7C3AED, #06B6D4)' : undefined,
+                      bgcolor: outcome === 'approved' ? undefined : '#7C3AED', color: 'white', py: 1.25,
+                      '&:hover': { bgcolor: '#6d28d9' }, '&.Mui-disabled': { opacity: 0.4 } }}>
+                {outcome === 'approved' ? 'Start Borrowing →' : 'Back to Dashboard'}
+              </Button>
+            )}
           </Paper>
         </Box>
       </Box>
@@ -373,11 +471,18 @@ export default function KYCPage() {
             <Box>
               <Typography variant="body1" sx={{ color: '#A78BFA', fontWeight: 600, mb: 3 }}>Personal Information</Typography>
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-                <TextField label="Full Name (as per MyKad)" required size="small" fullWidth
+                <FormControl size="small" fullWidth required sx={{ gridColumn: { sm: 'span 2' } }}>
+                  <InputLabel>Document Type</InputLabel>
+                  <Select label="Document Type" value={form.docType}
+                    onChange={e => set('docType', e.target.value)}>
+                    {DOC_TYPES.map(d => <MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                <TextField label={`Full Name (as per ${docMeta.label})`} required size="small" fullWidth
                   placeholder="e.g. Ahmad bin Abdullah"
                   value={form.fullName} onChange={e => set('fullName', e.target.value)} />
-                <TextField label="MyKad / IC Number" required size="small" fullWidth
-                  placeholder="e.g. 901231-14-5678"
+                <TextField label={docMeta.numberLabel} required size="small" fullWidth
+                  placeholder={docMeta.placeholder}
                   value={form.icNumber} onChange={e => set('icNumber', e.target.value)} />
                 <TextField label="Date of Birth" required size="small" fullWidth type="date"
                   slotProps={{ inputLabel: { shrink: true } }}
@@ -550,8 +655,9 @@ export default function KYCPage() {
 
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                 {[
+                  ['Document Type',   docMeta.label],
                   ['Full Name',       form.fullName],
-                  ['IC Number',       form.icNumber],
+                  [docMeta.numberLabel, form.icNumber],
                   ['Date of Birth',   form.dob],
                   ['Gender',          form.gender],
                   ['Nationality',     form.nationality],

@@ -62,6 +62,7 @@ model KycSubmission {
   id          Int      @id @default(autoincrement())
   wallet      String   @unique
   fullName    String
+  docType     String   @default("ic")
   icNumber    String
   dob         String
   gender      String

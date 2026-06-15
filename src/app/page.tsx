@@ -131,6 +131,8 @@ export default function Dashboard() {
   const [repayAmt,         setRepayAmt]          = useState('');
   const [loanTermDays,     setLoanTermDays]      = useState(90);
   const [holdMultiplier,   setHoldMultiplier]    = useState(1.5);
+  const [syncError,        setSyncError]         = useState('');
+  const [syncing,          setSyncing]           = useState(false);
   const [deliveryMethod,   setDeliveryMethod]    = useState<'token' | 'bank'>('token');
   const [transferResult,   setTransferResult]    = useState<{ refNo: string; bankName: string; last4: string } | null>(null);
   const [transferError,    setTransferError]     = useState('');
@@ -307,10 +309,26 @@ export default function Dashboard() {
               '& .MuiAlert-icon': { color: C.gold }, borderRadius: 2,
             }}
             action={
-              <Button size="small"
-                onClick={async () => { await fetch('/api/admin/sync-price', { method: 'POST' }); wallet.refresh(); }}
+              <Button size="small" disabled={syncing}
+                onClick={async () => {
+                  setSyncError('');
+                  setSyncing(true);
+                  try {
+                    const res  = await fetch('/api/admin/sync-price', { method: 'POST' });
+                    const data = await res.json() as { error?: string; steps?: number; newPrice?: number };
+                    if (!res.ok) {
+                      setSyncError(data.error ?? 'Sync failed');
+                    } else {
+                      await wallet.refresh();
+                    }
+                  } catch {
+                    setSyncError('Network error — is the dev server running?');
+                  } finally {
+                    setSyncing(false);
+                  }
+                }}
                 sx={{ color: C.teal, border: '1px solid rgba(0,200,160,0.3)', fontSize: 11, borderRadius: 2, whiteSpace: 'nowrap' }}>
-                ⟳ Sync Price
+                {syncing ? 'Syncing…' : '⟳ Sync Price'}
               </Button>
             }
           >
@@ -320,6 +338,11 @@ export default function Dashboard() {
               {' · '}Live: <b style={{ color: C.gold }}>{rm(mktEthPrice)}/ETH</b>
               {' '}({priceDiffPct.toFixed(1)}% diff)
             </Typography>
+            {syncError && (
+              <Typography variant="caption" sx={{ color: C.red, display: 'block', mt: 0.75, fontWeight: 600 }}>
+                ✗ {syncError}
+              </Typography>
+            )}
           </Alert>
         )}
 

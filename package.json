@@ -4,29 +4,24 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma migrate deploy && next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
-
     "hardhat:install": "cd blockchain && npm install --save-dev hardhat@^2.26.3",
     "hardhat:init": "cd blockchain && npx hardhat init",
     "hardhat:version": "cd blockchain && npx hardhat --version",
     "hardhat:setup": "npm run hardhat:install && npm run hardhat:init",
-
     "chain": "cd blockchain && npx hardhat node",
     "compile": "cd blockchain && npx hardhat compile",
     "test": "cd blockchain && npx hardhat test",
     "test:coverage": "cd blockchain && npx hardhat coverage",
-
     "deploy": "cd blockchain && npx hardhat ignition deploy ./ignition/modules/Lock.ts --reset --network localhost",
     "deploy:local": "cd blockchain && npx hardhat run scripts/deploy.ts --network localhost",
     "deploy:sepolia": "cd blockchain && npx hardhat run scripts/deploy.ts --network sepolia",
     "deploy:mainnet": "cd blockchain && npx hardhat run scripts/deploy.ts --network mainnet",
-
     "verify:sepolia": "cd blockchain && npx hardhat run scripts/verify.ts --network sepolia",
     "verify:mainnet": "cd blockchain && npx hardhat run scripts/verify.ts --network mainnet",
-
     "clean": "cd blockchain && npx hardhat clean",
     "gas-report": "cd blockchain && REPORT_GAS=true npx hardhat test"
   },
@@ -43,7 +38,8 @@
     "next": "16.2.6",
     "prisma": "^5.22.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

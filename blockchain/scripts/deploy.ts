@@ -2,15 +2,36 @@ import { ethers } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 
+async function fetchLiveEthMyr(): Promise<number> {
+  try {
+    const res = await fetch(
+      "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=myr",
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+    const data = await res.json() as { ethereum: { myr: number } };
+    const price = Math.round(data.ethereum.myr);
+    if (price > 0) return price;
+  } catch (e) {
+    console.warn("Could not fetch live price:", e instanceof Error ? e.message : e);
+  }
+  console.warn("Falling back to hardcoded price: RM 18,000");
+  return 18_000;
+}
+
 async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("Deploying with account:", deployer.address);
   console.log("Balance:", ethers.formatEther(await ethers.provider.getBalance(deployer.address)), "ETH\n");
 
+  // Fetch live price so the contract starts in sync with the market
+  console.log("Fetching live ETH/MYR price from CoinGecko…");
+  const ethPrice = await fetchLiveEthMyr();
+  console.log(`Initial ETH price: RM ${ethPrice.toLocaleString()}\n`);
+
   // Deploy CryptoLoan — constructor also deploys MockMYR internally
-  // Initial ETH price: RM 18,000 (approximate MYR value)
   const CryptoLoan = await ethers.getContractFactory("CryptoLoan");
-  const loan = await CryptoLoan.deploy(18000);
+  const loan = await CryptoLoan.deploy(ethPrice);
   await loan.waitForDeployment();
 
   const loanAddress = await loan.getAddress();
@@ -18,7 +39,7 @@ async function main() {
 
   console.log("CryptoLoan deployed to:", loanAddress);
   console.log("MockMYR    deployed to:", myrAddress);
-  console.log("ETH price set to:       RM 18,000\n");
+  console.log(`ETH price set to:       RM ${ethPrice.toLocaleString()}\n`);
 
   // Load ABIs from compiled artifacts
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -33,7 +54,7 @@ async function main() {
 
 export const HARDHAT_CHAIN_ID = 31337;
 export const HARDHAT_RPC_URL  = "http://127.0.0.1:8545";
-export const ETH_PRICE_MYR    = 18000;
+export const ETH_PRICE_MYR    = ${ethPrice};
 
 export const CONTRACT_ADDRESSES = {
   CryptoLoan: "${loanAddress}",

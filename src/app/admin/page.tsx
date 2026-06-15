@@ -22,6 +22,9 @@ const statusColors: Record<string, { bg: string; color: string }> = {
   rejected: { bg: '#450a0a', color: '#ef4444' },
 };
 
+const docTypeLabel = (t: string): string =>
+  ({ ic: 'MyKad / IC', passport: 'Passport', license: 'Driving License' } as Record<string, string>)[t] ?? 'MyKad / IC';
+
 function StatusBadge({ status }: { status: string }) {
   const c = statusColors[status] ?? statusColors.pending;
   return (
@@ -95,7 +98,7 @@ export default async function AdminPage() {
             <Table size="small" sx={{ minWidth: 1100 }}>
               <TableHead>
                 <TableRow>
-                  {['ID','Wallet','Full Name','IC Number','DOB','Phone','City / State','Employment','Purpose','Status','Submitted','Actions','Details'].map(h => (
+                  {['ID','Wallet','Full Name','Type','IC Number','DOB','Phone','City / State','Employment','Purpose','Status','Submitted','Actions','Details'].map(h => (
                     <TableCell key={h} sx={{ color: '#64748B', bgcolor: '#131629', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</TableCell>
                   ))}
                 </TableRow>
@@ -108,6 +111,7 @@ export default async function AdminPage() {
                       {s.wallet.slice(0, 8)}…{s.wallet.slice(-4)}
                     </TableCell>
                     <TableCell sx={{ color: 'text.primary', fontWeight: 500, whiteSpace: 'nowrap', fontSize: 13 }}>{s.fullName}</TableCell>
+                    <TableCell sx={{ color: '#94A3B8', fontSize: 11, whiteSpace: 'nowrap' }}>{docTypeLabel(s.docType)}</TableCell>
                     <TableCell sx={{ color: '#94A3B8', fontFamily: 'monospace', fontSize: 11 }}>{s.icNumber}</TableCell>
                     <TableCell sx={{ color: '#94A3B8', fontSize: 11 }}>{s.dob}</TableCell>
                     <TableCell sx={{ color: '#94A3B8', fontSize: 11 }}>{s.phone}</TableCell>
@@ -123,7 +127,7 @@ export default async function AdminPage() {
                     </TableCell>
                     <TableCell>
                       <AdminKycDetail record={{
-                        id: s.id, wallet: s.wallet, fullName: s.fullName, icNumber: s.icNumber,
+                        id: s.id, wallet: s.wallet, fullName: s.fullName, docType: s.docType, icNumber: s.icNumber,
                         dob: s.dob, gender: s.gender, nationality: s.nationality,
                         phone: s.phone, email: s.email, addr1: s.addr1, addr2: s.addr2,
                         postcode: s.postcode, city: s.city, state: s.state,

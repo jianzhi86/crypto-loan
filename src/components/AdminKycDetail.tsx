@@ -13,6 +13,7 @@ export interface KycRecord {
   id: number;
   wallet: string;
   fullName: string;
+  docType: string;
   icNumber: string;
   dob: string;
   gender: string;
@@ -71,6 +72,7 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
   const address = [record.addr1, record.addr2, record.postcode, record.city, record.state]
     .filter(Boolean).join(', ');
   const sc = statusColors[record.status] ?? statusColors.pending;
+  const docLabel = ({ ic: 'MyKad / IC', passport: 'Passport', license: 'Driving License' } as Record<string, string>)[record.docType] ?? 'MyKad / IC';
 
   return (
     <>
@@ -99,7 +101,7 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
         <DialogContent sx={{ p: 3 }}>
           {/* IC Number highlight */}
           <Box sx={{ p: 2, mb: 2.5, background: 'linear-gradient(135deg, #1E1B3A, #0D1020)', border: '1px solid rgba(124,58,237,0.33)', borderRadius: 2 }}>
-            <Typography variant="caption" sx={{ color: '#A78BFA', display: 'block', mb: 0.5 }}>MyKad / IC Number</Typography>
+            <Typography variant="caption" sx={{ color: '#A78BFA', display: 'block', mb: 0.5 }}>{docLabel} Number</Typography>
             <Typography variant="h5" sx={{ fontWeight: 700, fontFamily: 'monospace', letterSpacing: 2, color: 'text.primary' }}>
               {record.icNumber}
             </Typography>
