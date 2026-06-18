@@ -2,14 +2,14 @@
 // Re-run: npm run deploy:ico
 
 export const ICO_ADDRESSES = {
-  RinggitToken: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
-  ICO:          "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+  RinggitToken: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  ICO:          "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
 } as const;
 
-export const ICO_PRICE_WEI = "138927479855515";
+export const ICO_PRICE_WEI = "141502759303806";
 
 // ETH/MYR rate used at deploy time (1 MYR token = RM 1).
-export const ICO_ETH_MYR = 7198;
+export const ICO_ETH_MYR = 7067;
 
 export const RINGGIT_TOKEN_ABI = [
   {

@@ -3,11 +3,11 @@
 
 export const HARDHAT_CHAIN_ID = 31337;
 export const HARDHAT_RPC_URL  = "http://127.0.0.1:8545";
-export const ETH_PRICE_MYR    = 6965;
+export const ETH_PRICE_MYR    = 7062;
 
 export const CONTRACT_ADDRESSES = {
-  CryptoLoan: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-  MockMYR:    "0xa16E02E87b7454126E5E10d957A927A7F5B5d2be",
+  CryptoLoan: "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+  MockMYR:    "0xd8058efe0198ae9dD7D563e1b4938Dcbc86A1F81",
 } as const;
 
 export const CRYPTO_LOAN_ABI = [
