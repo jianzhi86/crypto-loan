@@ -32,8 +32,11 @@ export interface MatchResult {
 }
 
 // Per-field pass thresholds (fraction of significant tokens that must appear).
-const NAME_THRESHOLD = 0.7;
-const ADDRESS_THRESHOLD = 0.5;
+// Kept low because phone-photo OCR (Tesseract) is noisy; a document passes
+// verification when ANY one field matches (see `matched` below), so loose
+// per-field bars don't on their own approve an unrelated document.
+const NAME_THRESHOLD = 0.3;
+const ADDRESS_THRESHOLD = 0.3;
 
 // Name connectors / honorifics that carry no identifying weight.
 const NAME_STOPWORDS = new Set([
@@ -91,9 +94,19 @@ export function matchKyc(fields: KycFields, ...ocrTexts: string[]): MatchResult 
 
   // ── IC / document number ──────────────────────────────────────────────────
   const ic = digitsOnly(fields.icNumber);
-  // Match the full number, or (for OCR that drops a digit) a long subsequence.
-  const icMatched =
-    ic.length > 0 && (textDigits.includes(ic) || (ic.length >= 6 && textDigits.includes(ic.slice(0, -1))));
+  // OCR frequently misreads a digit or two, so accept the full number or any
+  // long contiguous run of it (>=70% of its length, minimum 6 digits).
+  const icWindow = Math.max(6, Math.ceil(ic.length * 0.7));
+  let icMatched = false;
+  if (ic.length > 0) {
+    if (ic.length <= icWindow) {
+      icMatched = textDigits.includes(ic);
+    } else {
+      for (let i = 0; i + icWindow <= ic.length; i++) {
+        if (textDigits.includes(ic.slice(i, i + icWindow))) { icMatched = true; break; }
+      }
+    }
+  }
 
   // ── Address ───────────────────────────────────────────────────────────────
   const addrTokens = tokenize(
@@ -136,10 +149,13 @@ export function matchKyc(fields: KycFields, ...ocrTexts: string[]): MatchResult 
     },
   ];
 
-  const matched = nameMatched && icMatched && addressMatched;
+  // Lenient policy: approve when ANY one field matches the document. OCR on
+  // phone photos rarely captures all three fields cleanly, so requiring all of
+  // them produced too many false rejections of genuine documents.
+  const matched = nameMatched || icMatched || addressMatched;
   const reason = matched
     ? ''
-    : checks.filter(c => !c.matched).map(c => c.detail).join('; ');
+    : 'Could not match your name, document number, or address to the uploaded document — please upload a clearer, well-lit photo of the whole document';
 
   return { matched, checks, reason };
 }

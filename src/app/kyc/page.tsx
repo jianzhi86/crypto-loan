@@ -80,7 +80,6 @@ const STEP_LABELS = ['Personal Info', 'Address', 'Financial', 'Documents', 'Revi
 const DOC_SLOTS = [
   { key: 'front',  label: 'MyKad (Front)',     hint: 'Clear photo showing your name, IC number, and photo' },
   { key: 'back',   label: 'MyKad (Back)',       hint: 'Clear photo showing your address and thumbprint' },
-  { key: 'selfie', label: 'Selfie with MyKad',  hint: 'Hold your MyKad next to your face' },
 ] as const;
 
 type DocKey = typeof DOC_SLOTS[number]['key'];
@@ -108,29 +107,27 @@ function compressImage(file: File, maxPx = 1200, quality = 0.82): Promise<string
 }
 
 function DocUploadPanel({ wallet }: { wallet: string }) {
-  const [docFiles, setDocFiles] = useState<Record<DocKey, File | null>>({ front: null, back: null, selfie: null });
+  const [docFiles, setDocFiles] = useState<Record<DocKey, File | null>>({ front: null, back: null });
   const refs: Record<DocKey, React.RefObject<HTMLInputElement | null>> = {
     front:  useRef<HTMLInputElement>(null),
     back:   useRef<HTMLInputElement>(null),
-    selfie: useRef<HTMLInputElement>(null),
   };
   const [uploading, setUploading] = useState(false);
   const [done, setDone]   = useState(false);
   const [err,  setErr]    = useState('');
 
   const upload = async () => {
-    if (!docFiles.front && !docFiles.back && !docFiles.selfie) { setErr('Please select at least one document.'); return; }
+    if (!docFiles.front && !docFiles.back) { setErr('Please select at least one document.'); return; }
     if (!wallet) { setErr('Wallet not connected.'); return; }
     setUploading(true); setErr('');
     try {
-      const [icFront, icBack, selfie] = await Promise.all([
+      const [icFront, icBack] = await Promise.all([
         docFiles.front  ? compressImage(docFiles.front)  : Promise.resolve(''),
         docFiles.back   ? compressImage(docFiles.back)   : Promise.resolve(''),
-        docFiles.selfie ? compressImage(docFiles.selfie) : Promise.resolve(''),
       ]);
       const res = await fetch('/api/kyc/documents', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet, icFront, icBack, selfie }),
+        body: JSON.stringify({ wallet, icFront, icBack }),
       });
       const d = await res.json();
       if (res.ok) setDone(true);
@@ -148,7 +145,7 @@ function DocUploadPanel({ wallet }: { wallet: string }) {
         Upload Identity Documents
       </Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2.5 }}>
-        Attach your MyKad photos and selfie so the admin can verify your identity visually.
+        Attach your MyKad photos so the admin can verify your identity visually.
       </Typography>
 
       {done ? (
@@ -214,11 +211,10 @@ export default function KYCPage() {
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<{ status: string; reason?: string } | null>(null);
 
-  const [files, setFiles] = useState<Record<DocKey, File | null>>({ front: null, back: null, selfie: null });
+  const [files, setFiles] = useState<Record<DocKey, File | null>>({ front: null, back: null });
   const fileRefs: Record<DocKey, React.RefObject<HTMLInputElement | null>> = {
     front:  useRef<HTMLInputElement>(null),
     back:   useRef<HTMLInputElement>(null),
-    selfie: useRef<HTMLInputElement>(null),
   };
 
   useEffect(() => { setMounted(true); }, []);
@@ -241,14 +237,13 @@ export default function KYCPage() {
     if (!wallet.isConnected) { alert('Please connect your wallet first'); return; }
     if (!wallet.address) return;
     setSubmitting(true);
-    const [icFront, icBack, selfie] = await Promise.all([
+    const [icFront, icBack] = await Promise.all([
       files.front  ? compressImage(files.front)  : Promise.resolve(''),
       files.back   ? compressImage(files.back)   : Promise.resolve(''),
-      files.selfie ? compressImage(files.selfie) : Promise.resolve(''),
     ]);
     const res = await fetch('/api/kyc', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, wallet: wallet.address, icFront, icBack, selfie }), // includes docType
+      body: JSON.stringify({ ...form, wallet: wallet.address, icFront, icBack }), // includes docType
     });
     if (!res.ok) { setSubmitting(false); alert('Failed to save KYC data. Please try again.'); return; }
     const data = await res.json();
@@ -580,7 +575,7 @@ export default function KYCPage() {
             <Box>
               <Typography variant="body1" sx={{ color: '#A78BFA', fontWeight: 600, mb: 0.5 }}>Document Upload</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 3 }}>
-                Upload clear photos of your MyKad and a selfie. Images are compressed and saved securely.
+                Upload clear photos of your MyKad. Images are compressed and saved securely.
               </Typography>
 
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

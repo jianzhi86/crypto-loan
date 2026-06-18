@@ -94,6 +94,26 @@ function StatCardSkeleton() {
 const cardSx = { p: 3, bgcolor: C.card, border: `1px solid ${C.border}`, borderRadius: 3 };
 const innerSx = { p: 2, bgcolor: C.inner, border: `1px solid ${C.border}`, borderRadius: 2 };
 
+// KYC gate shown in place of the Deposit / Borrow / Repay forms until verified.
+function KycRequiredCard({ onStart, action }: { onStart: () => void; action: string }) {
+  return (
+    <Box sx={{ p: 3, bgcolor: `${C.gold}08`, border: `1px solid ${C.gold}30`, borderRadius: 2.5, textAlign: 'center' }}>
+      <Box sx={{
+        width: 48, height: 48, borderRadius: '50%', bgcolor: `${C.gold}15`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, mx: 'auto', mb: 1.5,
+      }}>🪪</Box>
+      <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.75 }}>KYC Verification Required</Typography>
+      <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 2, lineHeight: 1.6 }}>
+        Complete identity verification before {action}, as required by Malaysian regulations (BNM AML/CFT).
+      </Typography>
+      <Button variant="contained" onClick={onStart}
+        sx={{ background: `linear-gradient(135deg, ${C.gold} 0%, #FF8C00 100%)`, boxShadow: `0 4px 14px ${C.gold}40` }}>
+        Complete KYC →
+      </Button>
+    </Box>
+  );
+}
+
 // Reusable small label+value block
 function InfoBlock({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
@@ -948,6 +968,11 @@ export default function Dashboard() {
               {/* DEPOSIT */}
               {activeTab === 'deposit' && (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {isLive && !wallet.kycApproved && (
+                    <KycRequiredCard onStart={() => router.push('/kyc')} action="depositing collateral" />
+                  )}
+                  {(!isLive || wallet.kycApproved) && (
+                  <>
                   <Box>
                     <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
                       ETH Amount to Deposit
@@ -1015,6 +1040,8 @@ export default function Dashboard() {
                     sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
                     {wallet.txStatus === 'pending' ? 'Waiting for confirmation…' : 'Deposit Collateral'}
                   </Button>
+                  </>
+                  )}
                 </Box>
               )}
 
@@ -1022,20 +1049,7 @@ export default function Dashboard() {
               {activeTab === 'borrow' && (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {isLive && !wallet.kycApproved && (
-                    <Box sx={{ p: 3, bgcolor: `${C.gold}08`, border: `1px solid ${C.gold}30`, borderRadius: 2.5, textAlign: 'center' }}>
-                      <Box sx={{
-                        width: 48, height: 48, borderRadius: '50%', bgcolor: `${C.gold}15`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, mx: 'auto', mb: 1.5,
-                      }}>🪪</Box>
-                      <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.75 }}>KYC Verification Required</Typography>
-                      <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 2, lineHeight: 1.6 }}>
-                        Complete identity verification before borrowing, as required by Malaysian regulations (BNM AML/CFT).
-                      </Typography>
-                      <Button variant="contained" onClick={() => router.push('/kyc')}
-                        sx={{ background: `linear-gradient(135deg, ${C.gold} 0%, #FF8C00 100%)`, boxShadow: `0 4px 14px ${C.gold}40` }}>
-                        Complete KYC →
-                      </Button>
-                    </Box>
+                    <KycRequiredCard onStart={() => router.push('/kyc')} action="borrowing" />
                   )}
 
                   {(!isLive || wallet.kycApproved) && (
@@ -1251,6 +1265,11 @@ export default function Dashboard() {
               {/* REPAY */}
               {activeTab === 'repay' && (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {isLive && !wallet.kycApproved && (
+                    <KycRequiredCard onStart={() => router.push('/kyc')} action="repaying your loan" />
+                  )}
+                  {(!isLive || wallet.kycApproved) && (
+                  <>
                   <Box>
                     <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
                       Repay Amount (MYR)
@@ -1314,6 +1333,8 @@ export default function Dashboard() {
                     sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
                     {wallet.txStatus === 'pending' ? 'Waiting for confirmation…' : 'Repay Loan'}
                   </Button>
+                  </>
+                  )}
                 </Box>
               )}
             </Paper>
