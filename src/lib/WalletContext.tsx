@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { ethers } from 'ethers';
 import Backdrop from '@mui/material/Backdrop';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -50,6 +50,17 @@ export interface WalletState {
   loanInfo: LoanInfo | null;
   ethPriceMYR: number;
   kycApproved: boolean;
+  // DB-side KYC approval (from /api/kyc). Tracked separately so an on-chain
+  // refresh — which reads `false` after a chain redeploy/reset — can't clobber
+  // an approval that still stands in the database. Effective approval is
+  // (on-chain || db).
+  kycApprovedDb: boolean;
+  // Raw on-chain KYC flag (loan.kycApproved). Used to detect a DB↔chain mismatch
+  // after a redeploy so it can be auto-resynced.
+  kycApprovedChain: boolean;
+  // Whether the current MockMYR token has already been imported into MetaMask
+  // for this account (remembered locally). Lets the UI hide the "Add MYR" button.
+  myrTokenAdded: boolean;
   isRefreshing: boolean;
   isConnecting: boolean;
   txStatus: TxStatus;
@@ -67,6 +78,9 @@ const INIT: WalletState = {
   chainId: null, ethBalance: '0', myrBalance: '0',
   loanInfo: null, ethPriceMYR: 18000,
   kycApproved: false,
+  kycApprovedDb: false,
+  kycApprovedChain: false,
+  myrTokenAdded: false,
   isRefreshing: false,
   isConnecting: false,
   txStatus: 'idle', txMessage: '',
@@ -142,6 +156,39 @@ function readCachedPosition(addr: string): CachedPosition | null {
       savedAt: Number(d.savedAt) || 0,
     };
   } catch { return null; }
+}
+
+// ── "MYR token imported" memory ──────────────────────────────────────────────
+// MetaMask offers no way to query which tokens an account has imported, so we
+// remember locally that we've added MYR for a given (account, token-address)
+// pair. Keying on the token address means a redeploy to a new MockMYR address
+// correctly resets it — the new token genuinely needs importing.
+const MYR_ADDED_KEY = (addr: string) =>
+  `cryptolend:myradded:${addr.toLowerCase()}:${CONTRACT_ADDRESSES.MockMYR.toLowerCase()}`;
+
+function readMyrAdded(addr: string): boolean {
+  if (typeof window === 'undefined' || !addr) return false;
+  try { return localStorage.getItem(MYR_ADDED_KEY(addr)) === '1'; } catch { return false; }
+}
+
+function writeMyrAdded(addr: string) {
+  if (typeof window === 'undefined' || !addr) return;
+  try { localStorage.setItem(MYR_ADDED_KEY(addr), '1'); } catch { /* unavailable */ }
+}
+
+// Pull a human-readable revert reason out of an ethers v6 error so the UI can
+// show *why* a transaction failed (e.g. "KYC required") instead of a guess.
+function revertReason(err: unknown): string | null {
+  const e = err as {
+    reason?: string; shortMessage?: string;
+    info?: { error?: { message?: string } };
+    data?: { message?: string };
+  };
+  const raw = e?.reason || e?.info?.error?.message || e?.shortMessage || e?.data?.message;
+  if (!raw) return null;
+  // Strip ethers' "execution reverted: " / "...: reverted: " prefixes.
+  const m = raw.match(/reverted(?: with reason string)?:?\s*"?([^"]+)"?/i);
+  return (m?.[1] ?? raw).trim();
 }
 
 interface WalletCtx extends WalletState {
@@ -237,12 +284,39 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         myrBalance,
         loanInfo,
         ethPriceMYR,
-        kycApproved: kyc as boolean,
+        // On-chain approval OR a standing DB approval. Never downgrade a
+        // DB-approved wallet just because the chain was redeployed.
+        kycApproved: (kyc as boolean) || p.kycApprovedDb,
+        kycApprovedChain: kyc as boolean,
         isDeployed: true,
         isRefreshing: false,
       }));
     } catch (e) { console.error('refresh', e); setS(p => ({ ...p, isRefreshing: false })); }
   }, [getProvider, getContracts]);
+
+  // Guards against re-attempting an on-chain KYC re-sync in a loop for the same
+  // wallet (one in-flight attempt per address).
+  const resyncingKyc = useRef<string | null>(null);
+
+  // DB says approved but the contract doesn't (e.g. after a redeploy that wiped
+  // on-chain state). Ask the server — which holds the owner key — to re-set the
+  // on-chain flag, then refresh so borrow/repay unlock.
+  const resyncKyc = useCallback(async (address: string) => {
+    if (resyncingKyc.current === address.toLowerCase()) return;
+    resyncingKyc.current = address.toLowerCase();
+    try {
+      const r = await fetch('/api/kyc/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet: address }),
+      });
+      if (r.ok) await refresh(address);
+    } catch (e) {
+      console.error('resyncKyc', e);
+    } finally {
+      resyncingKyc.current = null;
+    }
+  }, [refresh]);
 
   const connect = useCallback(async () => {
     if (!window.ethereum) { alert('MetaMask not found. Install it from metamask.io'); return; }
@@ -283,7 +357,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (receipt && s.address) saveTxToDB(s.address, 'CollateralDeposited', ethers.parseEther(ethAmt).toString(), receipt);
       setTx('success', `Deposited ${ethAmt} ETH as collateral`);
       await refresh(s.address);
-    } catch { setTx('error', 'Deposit failed'); }
+    } catch (e) {
+      const reason = revertReason(e);
+      setTx('error', reason ? `Deposit failed: ${reason}` : 'Deposit failed');
+    }
   }, [getContracts, s.address, refresh]);
 
   const borrow = useCallback(async (myrAmt: string): Promise<boolean> => {
@@ -298,8 +375,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setTx('success', `Borrowed RM ${myrAmt}`);
       await refresh(s.address);
       return true;
-    } catch { setTx('error', 'Borrow failed — check LTV or collateral'); return false; }
-  }, [getContracts, s.address, refresh]);
+    } catch (e) {
+      const reason = revertReason(e);
+      // "KYC required" means on-chain KYC was lost (e.g. contract redeploy) even
+      // though the DB shows approved — point the user at re-verifying on-chain.
+      const msg = reason === 'KYC required'
+        ? 'On-chain KYC is out of sync — re-syncing. Try again in a moment.'
+        : reason
+          ? `Borrow failed: ${reason}`
+          : 'Borrow failed — check LTV or collateral';
+      setTx('error', msg);
+      if (reason === 'KYC required' && s.address) void resyncKyc(s.address);
+      return false;
+    }
+  }, [getContracts, s.address, refresh, resyncKyc]);
 
   const transferMYR = useCallback(async (myrAmt: string, to: string): Promise<boolean> => {
     const c = await getContracts(true);
@@ -342,15 +431,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (receipt && s.address) saveTxToDB(s.address, 'CollateralWithdrawn', ethers.parseEther(ethAmt).toString(), receipt);
       setTx('success', `Withdrawn ${ethAmt} ETH`);
       await refresh(s.address);
-    } catch { setTx('error', 'Withdraw failed — would violate LTV'); }
+    } catch (e) {
+      const reason = revertReason(e);
+      setTx('error', reason ? `Withdraw failed: ${reason}` : 'Withdraw failed — would violate LTV');
+    }
   }, [getContracts, s.address, refresh]);
 
   // Prompt MetaMask to import the MockMYR token so the borrowed balance is
   // visible in the wallet (ERC-20s don't show up automatically).
   const addTokenToWallet = useCallback(async () => {
     if (!window.ethereum) { alert('MetaMask not found.'); return; }
+    // Already imported for this account — nothing to do.
+    if (s.address && readMyrAdded(s.address)) {
+      setS(p => ({ ...p, myrTokenAdded: true }));
+      return;
+    }
     try {
-      await window.ethereum.request({
+      const added = await window.ethereum.request({
         method: 'wallet_watchAsset',
         params: {
           type: 'ERC20',
@@ -361,21 +458,49 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           },
         },
       } as unknown as { method: string; params?: unknown[] });
+      // MetaMask returns true once the token is tracked (added now, or already
+      // present). Remember it so we don't prompt again.
+      if (added && s.address) {
+        writeMyrAdded(s.address);
+        setS(p => ({ ...p, myrTokenAdded: true }));
+      }
     } catch (e) { console.error('watchAsset', e); }
-  }, []);
+  }, [s.address]);
 
   // Fallback: check DB approval status when wallet connects (covers reset-chain scenarios)
   useEffect(() => {
     if (!s.address) return;
-    fetch(`/api/kyc?wallet=${s.address}`)
+    const wallet = s.address;
+    fetch(`/api/kyc?wallet=${wallet}`)
       .then(r => r.json())
       .then(d => {
-        if (d.exists && d.status === 'approved') {
-          setS(p => ({ ...p, kycApproved: true }));
-        }
+        const approved = !!(d.exists && d.status === 'approved');
+        // Ignore a stale response if the user switched accounts mid-flight.
+        setS(p => (p.address !== wallet ? p : {
+          ...p,
+          kycApprovedDb: approved,
+          kycApproved: p.kycApproved || approved,
+        }));
       })
       .catch(() => {});
   }, [s.address]);
+
+  // Reflect whether the current account has already imported the MYR token, so
+  // the "Add MYR" button only appears when it's actually needed.
+  useEffect(() => {
+    setS(p => ({ ...p, myrTokenAdded: s.address ? readMyrAdded(s.address) : false }));
+  }, [s.address]);
+
+  // Auto-heal a DB↔chain KYC mismatch: if the database has the wallet approved
+  // but the contract doesn't (typically after a redeploy), re-set it on-chain so
+  // borrowing works without the user having to re-submit KYC. Runs once the
+  // on-chain read has completed (loanInfo present) to avoid a premature attempt.
+  useEffect(() => {
+    if (s.address && s.isCorrectNetwork && s.isDeployed &&
+        s.kycApprovedDb && !s.kycApprovedChain && s.loanInfo) {
+      void resyncKyc(s.address);
+    }
+  }, [s.address, s.isCorrectNetwork, s.isDeployed, s.kycApprovedDb, s.kycApprovedChain, s.loanInfo, resyncKyc]);
 
   // Listen for MetaMask events
   useEffect(() => {
@@ -390,6 +515,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           loanInfo: cached?.info ?? null,
           ethBalance: cached?.ethBalance ?? '0',
           myrBalance: cached?.myrBalance ?? '0',
+          // New account — clear the prior wallet's KYC until re-checked.
+          kycApproved: false,
+          kycApprovedDb: false,
+          kycApprovedChain: false,
         }));
         refresh(list[0]);
       }
