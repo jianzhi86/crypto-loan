@@ -24,6 +24,28 @@ async function main() {
   console.log("Deploying with account:", deployer.address);
   console.log("Balance:", ethers.formatEther(await ethers.provider.getBalance(deployer.address)), "ETH\n");
 
+  // Contract addresses are derived from (deployer, nonce). Deploying on a node
+  // that already has transactions advances the nonce, so CryptoLoan — and the
+  // MockMYR it creates in its constructor — land at *new* addresses every time.
+  // MetaMask keys tokens by address, so each such redeploy adds yet another
+  // duplicate "MYR" token to the user's wallet. Requiring a fresh node (nonce 0)
+  // keeps both addresses constant across redeploys, so there is only ever one MYR.
+  const nonce = await ethers.provider.getTransactionCount(deployer.address);
+  if (nonce !== 0 && process.env.FORCE_DEPLOY !== "1") {
+    console.error(
+      `\n✗ Node is not fresh — deployer nonce is ${nonce}, expected 0.\n` +
+      `  Redeploying now would place MockMYR at a NEW address and add another\n` +
+      `  duplicate "MYR" token in MetaMask.\n\n` +
+      `  Fix: restart the Hardhat node, then deploy as the first action:\n` +
+      `    1) Stop the running node, then:  npm run chain\n` +
+      `    2) In a second terminal:         npm run deploy:local\n\n` +
+      `  This keeps the MYR address constant. To deploy anyway (and accept a new\n` +
+      `  token address), re-run with FORCE_DEPLOY=1.\n`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   // Fetch live price so the contract starts in sync with the market
   console.log("Fetching live ETH/MYR price from CoinGecko…");
   const ethPrice = await fetchLiveEthMyr();
