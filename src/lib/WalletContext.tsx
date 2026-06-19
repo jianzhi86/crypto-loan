@@ -80,6 +80,70 @@ const HN_PARAMS = {
   rpcUrls: [HARDHAT_RPC_URL],
 };
 
+// ── Last-known position cache ────────────────────────────────────────────────
+// The position is authoritative on-chain, but caching it per-address lets the UI
+// remember a user's collateral/borrowed across a disconnect or reload and show it
+// instantly on reconnect (the chain read then refreshes it). Keyed by address so
+// switching accounts never mixes positions.
+const LS_KEY = (addr: string) => `cryptolend:loan:${addr.toLowerCase()}`;
+
+interface CachedPosition {
+  info: LoanInfo;
+  ethBalance: string;
+  myrBalance: string;
+  ethPriceMYR: number;
+  savedAt: number;
+}
+
+function cachePosition(addr: string, p: Omit<CachedPosition, 'savedAt'>) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(LS_KEY(addr), JSON.stringify({
+      info: {
+        collateral:         p.info.collateral.toString(),
+        borrowed:           p.info.borrowed.toString(),
+        available:          p.info.available.toString(),
+        accruedInterest:    p.info.accruedInterest.toString(),
+        startTime:          p.info.startTime.toString(),
+        healthFactor:       p.info.healthFactor === Infinity ? 'Infinity' : p.info.healthFactor,
+        collateralValueMYR: p.info.collateralValueMYR,
+        ltv:                p.info.ltv,
+        isLiquidatable:     p.info.isLiquidatable,
+      },
+      ethBalance: p.ethBalance,
+      myrBalance: p.myrBalance,
+      ethPriceMYR: p.ethPriceMYR,
+      savedAt: Date.now(),
+    }));
+  } catch { /* storage full / unavailable */ }
+}
+
+function readCachedPosition(addr: string): CachedPosition | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(LS_KEY(addr));
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return {
+      info: {
+        collateral:         BigInt(d.info.collateral),
+        borrowed:           BigInt(d.info.borrowed),
+        available:          BigInt(d.info.available),
+        accruedInterest:    BigInt(d.info.accruedInterest),
+        startTime:          BigInt(d.info.startTime),
+        healthFactor:       d.info.healthFactor === 'Infinity' ? Infinity : Number(d.info.healthFactor),
+        collateralValueMYR: Number(d.info.collateralValueMYR),
+        ltv:                Number(d.info.ltv),
+        isLiquidatable:     Boolean(d.info.isLiquidatable),
+      },
+      ethBalance: d.ethBalance ?? '0',
+      myrBalance: d.myrBalance ?? '0',
+      ethPriceMYR: Number(d.ethPriceMYR) || 18000,
+      savedAt: Number(d.savedAt) || 0,
+    };
+  } catch { return null; }
+}
+
 interface WalletCtx extends WalletState {
   connect: () => Promise<void>;
   switchToHardhat: () => Promise<void>;
@@ -88,6 +152,7 @@ interface WalletCtx extends WalletState {
   transferMYR: (myr: string, to: string) => Promise<boolean>;
   repay: (myr: string) => Promise<void>;
   withdrawCollateral: (eth: string) => Promise<void>;
+  addTokenToWallet: () => Promise<void>;
   refresh: () => Promise<void>;
   clearTx: () => void;
 }
@@ -131,6 +196,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const c = await getContracts(false);
       if (!c) { setS(p => ({ ...p, isRefreshing: false })); return; }
+      // Verify a contract is actually deployed at the configured address on this
+      // network — a fresh/restarted Hardhat node has no bytecode there, and calling
+      // it would return "0x" and throw a BAD_DATA decode error.
+      const code = await provider.getCode(LOAN_ADDR);
+      if (code === '0x') {
+        setS(p => ({ ...p, isDeployed: false, isRefreshing: false }));
+        return;
+      }
       const [ethBal, myrBal, info, price, kyc, loanRaw] = await Promise.all([
         provider.getBalance(address),
         c.myr.balanceOf(address),
@@ -142,23 +215,30 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const MAX_U = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
       const hfRaw = info[2] as bigint;
       const hf = hfRaw === MAX_U ? Infinity : Number(hfRaw) / 1e18;
+      const loanInfo: LoanInfo = {
+        collateral:         info[0] as bigint,
+        borrowed:           info[1] as bigint,
+        healthFactor:       hf,
+        available:          info[3] as bigint,
+        collateralValueMYR: Number(info[4] as bigint),
+        accruedInterest:    info[5] as bigint,
+        startTime:          loanRaw[2] as bigint,
+        ltv:                Number(info[6] as bigint),
+        isLiquidatable:     info[7] as boolean,
+      };
+      const ethBalance = parseFloat(ethers.formatEther(ethBal)).toFixed(4);
+      const myrBalance = (Number(myrBal) / 1e6).toFixed(2);
+      const ethPriceMYR = Number(price as bigint);
+      // Remember this position so it survives a disconnect / reload.
+      cachePosition(address, { info: loanInfo, ethBalance, myrBalance, ethPriceMYR });
       setS(p => ({
         ...p,
-        ethBalance: parseFloat(ethers.formatEther(ethBal)).toFixed(4),
-        myrBalance: (Number(myrBal) / 1e6).toFixed(2),
-        loanInfo: {
-          collateral:         info[0] as bigint,
-          borrowed:           info[1] as bigint,
-          healthFactor:       hf,
-          available:          info[3] as bigint,
-          collateralValueMYR: Number(info[4] as bigint),
-          accruedInterest:    info[5] as bigint,
-          startTime:          loanRaw[2] as bigint,
-          ltv:                Number(info[6] as bigint),
-          isLiquidatable:     info[7] as boolean,
-        },
-        ethPriceMYR: Number(price as bigint),
+        ethBalance,
+        myrBalance,
+        loanInfo,
+        ethPriceMYR,
         kycApproved: kyc as boolean,
+        isDeployed: true,
         isRefreshing: false,
       }));
     } catch (e) { console.error('refresh', e); setS(p => ({ ...p, isRefreshing: false })); }
@@ -173,7 +253,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const network  = await provider.getNetwork();
       const chainId  = Number(network.chainId);
       const ok = chainId === HARDHAT_CHAIN_ID;
-      setS(p => ({ ...p, address: accounts[0], isConnected: true, isCorrectNetwork: ok, chainId, isConnecting: false }));
+      const cached = readCachedPosition(accounts[0]);
+      setS(p => ({
+        ...p, address: accounts[0], isConnected: true, isCorrectNetwork: ok, chainId, isConnecting: false,
+        ...(cached ? { loanInfo: cached.info, ethBalance: cached.ethBalance, myrBalance: cached.myrBalance, ethPriceMYR: cached.ethPriceMYR } : {}),
+      }));
       if (ok) await refresh(accounts[0]);
     } catch (e) { console.error('connect', e); setS(p => ({ ...p, isConnecting: false })); }
   }, [getProvider, refresh]);
@@ -261,6 +345,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     } catch { setTx('error', 'Withdraw failed — would violate LTV'); }
   }, [getContracts, s.address, refresh]);
 
+  // Prompt MetaMask to import the MockMYR token so the borrowed balance is
+  // visible in the wallet (ERC-20s don't show up automatically).
+  const addTokenToWallet = useCallback(async () => {
+    if (!window.ethereum) { alert('MetaMask not found.'); return; }
+    try {
+      await window.ethereum.request({
+        method: 'wallet_watchAsset',
+        params: {
+          type: 'ERC20',
+          options: {
+            address: CONTRACT_ADDRESSES.MockMYR,
+            symbol: 'MYR',
+            decimals: 6,
+          },
+        },
+      } as unknown as { method: string; params?: unknown[] });
+    } catch (e) { console.error('watchAsset', e); }
+  }, []);
+
   // Fallback: check DB approval status when wallet connects (covers reset-chain scenarios)
   useEffect(() => {
     if (!s.address) return;
@@ -280,7 +383,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const onAccounts = (a: unknown) => {
       const list = a as string[];
       if (list.length === 0) setS(INIT);
-      else { setS(p => ({ ...p, address: list[0] })); refresh(list[0]); }
+      else {
+        const cached = readCachedPosition(list[0]);
+        setS(p => ({
+          ...p, address: list[0],
+          loanInfo: cached?.info ?? null,
+          ethBalance: cached?.ethBalance ?? '0',
+          myrBalance: cached?.myrBalance ?? '0',
+        }));
+        refresh(list[0]);
+      }
     };
     const onChain = (hex: unknown) => {
       const id = parseInt(hex as string, 16);
@@ -307,7 +419,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const network  = await provider.getNetwork();
         const chainId  = Number(network.chainId);
         const ok = chainId === HARDHAT_CHAIN_ID;
-        setS(p => ({ ...p, address: accounts[0], isConnected: true, isCorrectNetwork: ok, chainId }));
+        const cached = readCachedPosition(accounts[0]);
+        setS(p => ({
+          ...p, address: accounts[0], isConnected: true, isCorrectNetwork: ok, chainId,
+          ...(cached ? { loanInfo: cached.info, ethBalance: cached.ethBalance, myrBalance: cached.myrBalance, ethPriceMYR: cached.ethPriceMYR } : {}),
+        }));
         if (ok) await refresh(accounts[0]);
       } catch { /* not connected */ }
     })();
@@ -318,6 +434,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     ...s,
     connect, switchToHardhat,
     depositCollateral, borrow, transferMYR, repay, withdrawCollateral,
+    addTokenToWallet,
     refresh: () => s.address ? refresh(s.address) : Promise.resolve(),
     clearTx: () => setS(p => ({ ...p, txStatus: 'idle', txMessage: '' })),
   };

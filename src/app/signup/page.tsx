@@ -22,12 +22,12 @@ function passwordStrength(pwd: string): { score: number; label: string; color: s
   if (/[0-9]/.test(pwd)) score++;
   if (/[^A-Za-z0-9]/.test(pwd)) score++;
   const map = [
-    { label: '', color: '#1E2035' },
+    { label: '', color: '#E2E7EE' },
     { label: 'Very weak', color: '#ef4444' },
     { label: 'Weak',      color: '#f97316' },
     { label: 'Fair',      color: '#eab308' },
     { label: 'Strong',    color: '#22c55e' },
-    { label: 'Very strong', color: '#06B6D4' },
+    { label: 'Very strong', color: '#2A3FD6' },
   ];
   return { score, ...map[score] };
 }
@@ -92,7 +92,7 @@ export default function SignupPage() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#0A0C18', display: 'flex' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', display: 'flex' }}>
 
       {/* Left panel */}
       <Box sx={{
@@ -101,27 +101,27 @@ export default function SignupPage() {
         justifyContent: 'center',
         px: 8,
         flex: '0 0 480px',
-        background: 'linear-gradient(160deg, #0D0F1A 0%, #12152A 50%, #0D1130 100%)',
-        borderRight: '1px solid #1E2035',
+        background: 'linear-gradient(160deg, #FFFFFF 0%, #F4F6F8 50%, #EEF1F5 100%)',
+        borderRight: '1px solid #E2E7EE',
         position: 'relative',
         overflow: 'hidden',
       }}>
         <Box sx={{ position: 'absolute', top: '20%', right: '-80px', width: 360, height: 360,
-                    borderRadius: '50%', background: 'radial-gradient(circle, rgba(6,182,212,0.1) 0%, transparent 70%)', pointerEvents: 'none' }} />
+                    borderRadius: '50%', background: 'radial-gradient(circle, rgba(14,159,110,0.1) 0%, transparent 70%)', pointerEvents: 'none' }} />
         <Box sx={{ position: 'absolute', bottom: '25%', left: '-60px', width: 280, height: 280,
-                    borderRadius: '50%', background: 'radial-gradient(circle, rgba(124,58,237,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
+                    borderRadius: '50%', background: 'radial-gradient(circle, rgba(42,63,214,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 6 }}>
-          <Box sx={{ width: 44, height: 44, borderRadius: 2, background: 'linear-gradient(135deg, #7C3AED, #06B6D4)',
+          <Box sx={{ width: 44, height: 44, borderRadius: 2, background: 'linear-gradient(135deg, #2A3FD6, #2A3FD6)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Typography sx={{ color: 'white', fontSize: 20, fontWeight: 700 }}>C</Typography>
           </Box>
-          <Typography variant="h5" sx={{ color: 'white', fontWeight: 700, letterSpacing: '-0.5px' }}>CryptoLend</Typography>
+          <Typography variant="h5" sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#10151C', fontWeight: 700, letterSpacing: '-0.3px' }}>CryptoLend</Typography>
         </Box>
 
         <Typography variant="h3" color="text.primary" sx={{ fontWeight: 800, lineHeight: 1.2, mb: 2, letterSpacing: '-1px' }}>
           Join thousands of{' '}
-          <Box component="span" sx={{ background: 'linear-gradient(135deg, #A78BFA, #06B6D4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          <Box component="span" sx={{ background: 'linear-gradient(135deg, #2A3FD6, #2A3FD6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             smart borrowers.
           </Box>
         </Typography>
@@ -138,10 +138,10 @@ export default function SignupPage() {
           ].map(s => (
             <Box key={s.n} sx={{ display: 'flex', gap: 2 }}>
               <Box sx={{ width: 36, height: 36, borderRadius: 1.5, flexShrink: 0, mt: 0.25,
-                          background: 'linear-gradient(135deg, rgba(124,58,237,0.2), rgba(6,182,212,0.2))',
-                          border: '1px solid rgba(124,58,237,0.3)',
+                          background: 'linear-gradient(135deg, rgba(42,63,214,0.2), rgba(14,159,110,0.2))',
+                          border: '1px solid rgba(42,63,214,0.3)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Typography variant="caption" sx={{ color: '#A78BFA', fontWeight: 700 }}>{s.n}</Typography>
+                <Typography variant="caption" sx={{ color: '#2A3FD6', fontWeight: 700 }}>{s.n}</Typography>
               </Box>
               <Box>
                 <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>{s.title}</Typography>
@@ -162,7 +162,7 @@ export default function SignupPage() {
 
           {/* Mobile logo */}
           <Box sx={{ display: { xs: 'flex', lg: 'none' }, alignItems: 'center', gap: 1.5, mb: 5, justifyContent: 'center' }}>
-            <Box sx={{ width: 40, height: 40, borderRadius: 2, background: 'linear-gradient(135deg, #7C3AED, #06B6D4)',
+            <Box sx={{ width: 40, height: 40, borderRadius: 2, background: 'linear-gradient(135deg, #2A3FD6, #2A3FD6)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Typography sx={{ color: 'white', fontSize: 18, fontWeight: 700 }}>C</Typography>
             </Box>
@@ -175,8 +175,8 @@ export default function SignupPage() {
           </Typography>
 
           {error && (
-            <Alert severity="error" sx={{ mb: 2.5, bgcolor: '#450a0a20', color: '#ef4444',
-              border: '1px solid #ef444433', '& .MuiAlert-icon': { color: '#ef4444' } }}>
+            <Alert severity="error" sx={{ mb: 2.5, bgcolor: '#FEF2F2', color: '#B42318',
+              border: '1px solid #FECDCA', '& .MuiAlert-icon': { color: '#E5484D' } }}>
               {error}
             </Alert>
           )}
@@ -213,7 +213,7 @@ export default function SignupPage() {
               {password.length > 0 && (
                 <Box sx={{ mt: 0.75, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <LinearProgress variant="determinate" value={(pwdStrength.score / 5) * 100}
-                    sx={{ flex: 1, height: 4, bgcolor: '#1E2035', borderRadius: 2,
+                    sx={{ flex: 1, height: 4, bgcolor: '#E2E7EE', borderRadius: 2,
                           '& .MuiLinearProgress-bar': { bgcolor: pwdStrength.color, borderRadius: 2 } }} />
                   <Typography variant="caption" sx={{ color: pwdStrength.color, minWidth: 64, textAlign: 'right', fontSize: 10 }}>
                     {pwdStrength.label}
@@ -233,27 +233,27 @@ export default function SignupPage() {
               disabled={loading || !email || !password || !confirm || pwdMismatch}
               sx={{
                 py: 1.25, fontWeight: 600, mt: 0.5,
-                background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white',
-                '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #0891B2)' },
-                '&.Mui-disabled': { background: 'rgba(124,58,237,0.3)', color: 'rgba(255,255,255,0.4)' },
+                background: '#2A3FD6', color: 'white',
+                '&:hover': { background: '#1E2FA8' },
+                '&.Mui-disabled': { background: 'rgba(42,63,214,0.3)', color: 'rgba(255,255,255,0.4)' },
               }}>
               {loading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : 'Create Account'}
             </Button>
           </Box>
 
-          <Divider sx={{ my: 3, '&::before, &::after': { borderColor: '#1E2035' } }}>
+          <Divider sx={{ my: 3, '&::before, &::after': { borderColor: '#E2E7EE' } }}>
             <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>or sign up with</Typography>
           </Divider>
 
           <Button fullWidth variant="outlined" onClick={handleWalletSignup} disabled={walletLoading}
             sx={{
-              py: 1.25, borderColor: '#1E2035', color: 'text.primary', gap: 1.5,
-              bgcolor: '#131629',
-              '&:hover': { borderColor: '#7C3AED', bgcolor: 'rgba(124,58,237,0.08)' },
+              py: 1.25, borderColor: '#E2E7EE', color: 'text.primary', gap: 1.5,
+              bgcolor: '#FFFFFF',
+              '&:hover': { borderColor: '#2A3FD6', bgcolor: 'rgba(42,63,214,0.08)' },
               '&.Mui-disabled': { opacity: 0.5 },
             }}>
             {walletLoading ? (
-              <CircularProgress size={20} sx={{ color: '#A78BFA' }} />
+              <CircularProgress size={20} sx={{ color: '#2A3FD6' }} />
             ) : (
               <>
                 <Typography sx={{ fontSize: 20, lineHeight: 1 }}>🦊</Typography>
@@ -264,15 +264,15 @@ export default function SignupPage() {
 
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 2 }}>
             By creating an account, you agree to our{' '}
-            <Box component="span" sx={{ color: '#A78BFA', cursor: 'pointer' }}>Terms of Service</Box>
+            <Box component="span" sx={{ color: '#2A3FD6', cursor: 'pointer' }}>Terms of Service</Box>
             {' '}and{' '}
-            <Box component="span" sx={{ color: '#A78BFA', cursor: 'pointer' }}>Privacy Policy</Box>.
+            <Box component="span" sx={{ color: '#2A3FD6', cursor: 'pointer' }}>Privacy Policy</Box>.
           </Typography>
 
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 2.5 }}>
             Already have an account?{' '}
             <Box component={Link} href="/login"
-              sx={{ color: '#A78BFA', textDecoration: 'none', fontWeight: 500, '&:hover': { textDecoration: 'underline' } }}>
+              sx={{ color: '#2A3FD6', textDecoration: 'none', fontWeight: 500, '&:hover': { textDecoration: 'underline' } }}>
               Sign in
             </Box>
           </Typography>

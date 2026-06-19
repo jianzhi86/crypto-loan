@@ -140,7 +140,7 @@ function DocUploadPanel({ wallet }: { wallet: string }) {
   };
 
   return (
-    <Paper sx={{ p: 3, bgcolor: '#12152A', border: '1px solid #1E2035', borderRadius: 3 }}>
+    <Paper sx={{ p: 3, bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 3 }}>
       <Typography variant="body1" color="text.primary" sx={{ fontWeight: 600, mb: 0.5 }}>
         Upload Identity Documents
       </Typography>
@@ -149,9 +149,9 @@ function DocUploadPanel({ wallet }: { wallet: string }) {
       </Typography>
 
       {done ? (
-        <Box sx={{ p: 2.5, textAlign: 'center', bgcolor: '#052e16', border: '1px solid #22c55e44', borderRadius: 2 }}>
+        <Box sx={{ p: 2.5, textAlign: 'center', bgcolor: '#ECFDF3', border: '1px solid #0E9F6E44', borderRadius: 2 }}>
           <Typography sx={{ fontSize: 28, mb: 0.5 }}>✅</Typography>
-          <Typography variant="body2" sx={{ color: '#22c55e', fontWeight: 600 }}>Documents uploaded successfully</Typography>
+          <Typography variant="body2" sx={{ color: '#0E9F6E', fontWeight: 600 }}>Documents uploaded successfully</Typography>
           <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
             Admin can now view your photos in the KYC panel.
           </Typography>
@@ -168,9 +168,9 @@ function DocUploadPanel({ wallet }: { wallet: string }) {
                   sx={{
                     display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5, borderRadius: 2,
                     cursor: 'pointer', transition: 'all 0.15s',
-                    bgcolor: docFiles[doc.key] ? '#052e1620' : '#0D0F1A',
-                    border: `1px solid ${docFiles[doc.key] ? '#22c55e55' : '#1E2035'}`,
-                    '&:hover': { borderColor: '#7C3AED' },
+                    bgcolor: docFiles[doc.key] ? '#ECFDF3' : '#F4F6F8',
+                    border: `1px solid ${docFiles[doc.key] ? '#0E9F6E55' : '#E2E7EE'}`,
+                    '&:hover': { borderColor: '#2A3FD6' },
                   }}>
                   <Typography sx={{ fontSize: 20 }}>{docFiles[doc.key] ? '✅' : '📄'}</Typography>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -179,7 +179,7 @@ function DocUploadPanel({ wallet }: { wallet: string }) {
                       {docFiles[doc.key] ? docFiles[doc.key]!.name : doc.hint}
                     </Typography>
                   </Box>
-                  <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, bgcolor: '#1E2035' }}>
+                  <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, bgcolor: '#E2E7EE' }}>
                     <Typography variant="caption" color="text.secondary">{docFiles[doc.key] ? 'Change' : 'Choose'}</Typography>
                   </Box>
                 </Box>
@@ -187,11 +187,11 @@ function DocUploadPanel({ wallet }: { wallet: string }) {
             ))}
           </Box>
 
-          {err && <Typography variant="caption" sx={{ color: '#ef4444', display: 'block', mb: 1.5 }}>{err}</Typography>}
+          {err && <Typography variant="caption" sx={{ color: '#E5484D', display: 'block', mb: 1.5 }}>{err}</Typography>}
 
           <Button fullWidth variant="contained" onClick={upload} disabled={uploading}
-            sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white', py: 1.25,
-                  '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #0891B2)' } }}>
+            sx={{ background: 'linear-gradient(135deg, #2A3FD6, #2A3FD6)', color: 'white', py: 1.25,
+                  '&:hover': { background: 'linear-gradient(135deg, #1E2FA8, #1E2FA8)' } }}>
             {uploading ? 'Uploading…' : 'Upload Documents'}
           </Button>
         </>
@@ -276,17 +276,17 @@ export default function KYCPage() {
     const outcome = verifying ? 'verifying' : (verifyResult?.status ?? 'pending');
 
     const theme = {
-      verifying: { icon: null,  ring: '#1E1B3A', accent: '#A78BFA', title: 'Verifying Documents' },
-      approved:  { icon: '✅',  ring: '#052e16', accent: '#22c55e', title: 'KYC Approved' },
-      rejected:  { icon: '❌',  ring: '#450a0a', accent: '#ef4444', title: 'Verification Failed' },
-      pending:   { icon: '⏳',  ring: '#1E1B3A', accent: '#A78BFA', title: 'Application Submitted' },
-    }[outcome] ?? { icon: '⏳', ring: '#1E1B3A', accent: '#A78BFA', title: 'Application Submitted' };
+      verifying: { icon: null,  ring: '#E7EAFF', accent: '#2A3FD6', title: 'Verifying Documents' },
+      approved:  { icon: '✅',  ring: '#ECFDF3', accent: '#0E9F6E', title: 'KYC Approved' },
+      rejected:  { icon: '❌',  ring: '#FEF2F2', accent: '#E5484D', title: 'Verification Failed' },
+      pending:   { icon: '⏳',  ring: '#E7EAFF', accent: '#2A3FD6', title: 'Application Submitted' },
+    }[outcome] ?? { icon: '⏳', ring: '#E7EAFF', accent: '#2A3FD6', title: 'Application Submitted' };
 
     return (
-      <Box sx={{ minHeight: '100vh', bgcolor: '#0D0F1A' }}>
+      <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
         <Navbar />
         <Box component="main" sx={{ maxWidth: 480, mx: 'auto', px: 2, py: 8 }}>
-          <Paper sx={{ p: 5, textAlign: 'center', bgcolor: '#12152A', border: '1px solid #1E2035', borderRadius: 3 }}>
+          <Paper sx={{ p: 5, textAlign: 'center', bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 3 }}>
             <Box sx={{ width: 80, height: 80, borderRadius: '50%', bgcolor: theme.ring,
                        display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2.5 }}>
               {outcome === 'verifying'
@@ -297,15 +297,15 @@ export default function KYCPage() {
 
             {outcome === 'approved' && (
               <Chip label="✓ Identity Verified" size="small"
-                sx={{ bgcolor: '#052e16', color: '#22c55e', border: '1px solid #22c55e44', fontWeight: 600, mb: 3 }} />
+                sx={{ bgcolor: '#ECFDF3', color: '#0E9F6E', border: '1px solid #0E9F6E44', fontWeight: 600, mb: 3 }} />
             )}
             {outcome === 'rejected' && (
               <Chip label="● Document Mismatch" size="small"
-                sx={{ bgcolor: '#450a0a', color: '#ef4444', border: '1px solid #ef444444', fontWeight: 600, mb: 3 }} />
+                sx={{ bgcolor: '#FEF2F2', color: '#E5484D', border: '1px solid #E5484D44', fontWeight: 600, mb: 3 }} />
             )}
             {(outcome === 'pending' || outcome === 'verifying') && (
               <Chip label={outcome === 'verifying' ? '● Checking your document…' : '● Pending Review'} size="small"
-                sx={{ bgcolor: '#1E1B3A', color: '#A78BFA', border: '1px solid #A78BFA33', fontWeight: 600, mb: 3 }} />
+                sx={{ bgcolor: '#E7EAFF', color: '#2A3FD6', border: '1px solid #2A3FD633', fontWeight: 600, mb: 3 }} />
             )}
 
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
@@ -315,7 +315,7 @@ export default function KYCPage() {
               {ref}
             </Typography>
 
-            <Paper sx={{ p: 2, mb: 3, bgcolor: '#0D0F1A', border: '1px solid #1E2035', borderRadius: 2, textAlign: 'left' }}>
+            <Paper sx={{ p: 2, mb: 3, bgcolor: '#F4F6F8', border: '1px solid #E2E7EE', borderRadius: 2, textAlign: 'left' }}>
               {outcome === 'verifying' && (
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                   We&apos;re reading your uploaded document and matching it against your details. This usually takes a few seconds.
@@ -329,7 +329,7 @@ export default function KYCPage() {
               )}
               {outcome === 'rejected' && (
                 <>
-                  <Typography variant="caption" sx={{ color: '#ef4444', display: 'block', mb: 1, fontWeight: 600 }}>
+                  <Typography variant="caption" sx={{ color: '#E5484D', display: 'block', mb: 1, fontWeight: 600 }}>
                     The uploaded document did not match the information you provided.
                   </Typography>
                   {verifyResult?.reason && (
@@ -360,15 +360,15 @@ export default function KYCPage() {
 
             {outcome === 'rejected' ? (
               <Button fullWidth variant="contained" onClick={() => { setSubmittedId(null); setVerifyResult(null); setStep(1); }}
-                sx={{ bgcolor: '#7C3AED', '&:hover': { bgcolor: '#6d28d9' }, py: 1.25 }}>
+                sx={{ bgcolor: '#2A3FD6', '&:hover': { bgcolor: '#1E2FA8' }, py: 1.25 }}>
                 Review & Resubmit
               </Button>
             ) : (
               <Button fullWidth variant="contained" disabled={outcome === 'verifying'}
                 onClick={() => router.push(outcome === 'approved' ? '/?tab=deposit' : '/')}
-                sx={{ background: outcome === 'approved' ? 'linear-gradient(135deg, #7C3AED, #06B6D4)' : undefined,
-                      bgcolor: outcome === 'approved' ? undefined : '#7C3AED', color: 'white', py: 1.25,
-                      '&:hover': { bgcolor: '#6d28d9' }, '&.Mui-disabled': { opacity: 0.4 } }}>
+                sx={{ background: outcome === 'approved' ? 'linear-gradient(135deg, #2A3FD6, #2A3FD6)' : undefined,
+                      bgcolor: outcome === 'approved' ? undefined : '#2A3FD6', color: 'white', py: 1.25,
+                      '&:hover': { bgcolor: '#1E2FA8' }, '&.Mui-disabled': { opacity: 0.4 } }}>
                 {outcome === 'approved' ? 'Start Borrowing →' : 'Back to Dashboard'}
               </Button>
             )}
@@ -381,30 +381,30 @@ export default function KYCPage() {
   // ── Already Verified Screen ───────────────────────────────────────────────
   if (mounted && wallet.kycApproved && !submittedId) {
     return (
-      <Box sx={{ minHeight: '100vh', bgcolor: '#0D0F1A' }}>
+      <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
         <Navbar />
         <Box component="main" sx={{ maxWidth: 480, mx: 'auto', px: 2, py: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Paper sx={{ p: 4, textAlign: 'center', bgcolor: '#12152A', border: '1px solid #1E2035', borderRadius: 3 }}>
+          <Paper sx={{ p: 4, textAlign: 'center', bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 3 }}>
             <Box sx={{
               width: 64, height: 64, borderRadius: '50%', mx: 'auto', mb: 2,
-              background: 'linear-gradient(135deg, #05140a, #052e16)',
-              border: '2px solid #22c55e44',
+              background: 'linear-gradient(135deg, #ECFDF3, #ECFDF3)',
+              border: '2px solid #0E9F6E44',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
               <Typography sx={{ fontSize: 30 }}>✅</Typography>
             </Box>
             <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 1 }}>KYC Verified</Typography>
             <Chip label="✓ Identity Confirmed" size="small"
-              sx={{ bgcolor: '#052e16', color: '#22c55e', border: '1px solid #22c55e44', fontWeight: 600, mb: 3 }} />
+              sx={{ bgcolor: '#ECFDF3', color: '#0E9F6E', border: '1px solid #0E9F6E44', fontWeight: 600, mb: 3 }} />
 
-            <Paper sx={{ p: 2, mb: 3, bgcolor: '#0D0F1A', border: '1px solid #1E2035', borderRadius: 2, textAlign: 'left' }}>
+            <Paper sx={{ p: 2, mb: 3, bgcolor: '#F4F6F8', border: '1px solid #E2E7EE', borderRadius: 2, textAlign: 'left' }}>
               {[
                 { label: 'Wallet', value: wallet.address ? `${wallet.address.slice(0,10)}…${wallet.address.slice(-6)}` : '—' },
-                { label: 'Status', value: 'Approved', vc: '#22c55e' },
+                { label: 'Status', value: 'Approved', vc: '#0E9F6E' },
                 { label: 'Verification', value: 'On-chain (Hardhat)' },
-                { label: 'Borrowing', value: 'Enabled', vc: '#22c55e' },
+                { label: 'Borrowing', value: 'Enabled', vc: '#0E9F6E' },
               ].map(r => (
-                <Box key={r.label} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.75, borderBottom: '1px solid #1E2035', '&:last-child': { borderBottom: 'none' } }}>
+                <Box key={r.label} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.75, borderBottom: '1px solid #E2E7EE', '&:last-child': { borderBottom: 'none' } }}>
                   <Typography variant="caption" color="text.secondary">{r.label}</Typography>
                   <Typography variant="caption" sx={{ color: (r as { vc?: string }).vc ?? 'text.primary', fontWeight: 500 }}>{r.value}</Typography>
                 </Box>
@@ -412,8 +412,8 @@ export default function KYCPage() {
             </Paper>
 
             <Button fullWidth variant="contained" onClick={() => router.push('/?tab=deposit')}
-              sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white', py: 1.25,
-                    '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #0891B2)' } }}>
+              sx={{ background: 'linear-gradient(135deg, #2A3FD6, #2A3FD6)', color: 'white', py: 1.25,
+                    '&:hover': { background: 'linear-gradient(135deg, #1E2FA8, #1E2FA8)' } }}>
               Start Borrowing →
             </Button>
           </Paper>
@@ -426,7 +426,7 @@ export default function KYCPage() {
 
   // ── KYC Form ─────────────────────────────────────────────────────────────
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#0D0F1A' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
       <Navbar />
       <Box component="main" sx={{ maxWidth: 672, mx: 'auto', px: 2, py: 5 }}>
 
@@ -438,8 +438,8 @@ export default function KYCPage() {
         </Box>
 
         {!wallet.isConnected && (
-          <Alert severity="warning" sx={{ mb: 3, bgcolor: 'rgba(161,98,7,0.15)', color: '#fde68a',
-            border: '1px solid rgba(234,179,8,0.3)', '& .MuiAlert-icon': { color: '#fde68a' } }}>
+          <Alert severity="warning" sx={{ mb: 3, bgcolor: '#FFF8EB', color: '#B54708',
+            border: '1px solid #FCEFC7', '& .MuiAlert-icon': { color: '#C77700' } }}>
             Connect your MetaMask wallet to complete KYC verification.
           </Alert>
         )}
@@ -449,9 +449,9 @@ export default function KYCPage() {
           {STEP_LABELS.map((label) => (
             <Step key={label}>
               <StepLabel sx={{
-                '& .MuiStepLabel-label': { fontSize: 11, color: '#64748B' },
-                '& .MuiStepLabel-label.Mui-active': { color: '#A78BFA' },
-                '& .MuiStepLabel-label.Mui-completed': { color: '#A78BFA' },
+                '& .MuiStepLabel-label': { fontSize: 11, color: '#5A6675' },
+                '& .MuiStepLabel-label.Mui-active': { color: '#2A3FD6' },
+                '& .MuiStepLabel-label.Mui-completed': { color: '#2A3FD6' },
               }}>
                 {label}
               </StepLabel>
@@ -459,12 +459,12 @@ export default function KYCPage() {
           ))}
         </Stepper>
 
-        <Paper sx={{ p: 3, bgcolor: '#12152A', border: '1px solid #1E2035', borderRadius: 3 }}>
+        <Paper sx={{ p: 3, bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 3 }}>
 
           {/* Step 1 — Personal Info */}
           {step === 1 && (
             <Box>
-              <Typography variant="body1" sx={{ color: '#A78BFA', fontWeight: 600, mb: 3 }}>Personal Information</Typography>
+              <Typography variant="body1" sx={{ color: '#2A3FD6', fontWeight: 600, mb: 3 }}>Personal Information</Typography>
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
                 <FormControl size="small" fullWidth required sx={{ gridColumn: { sm: 'span 2' } }}>
                   <InputLabel>Document Type</InputLabel>
@@ -511,7 +511,7 @@ export default function KYCPage() {
           {/* Step 2 — Address */}
           {step === 2 && (
             <Box>
-              <Typography variant="body1" sx={{ color: '#A78BFA', fontWeight: 600, mb: 3 }}>Residential Address</Typography>
+              <Typography variant="body1" sx={{ color: '#2A3FD6', fontWeight: 600, mb: 3 }}>Residential Address</Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <TextField label="Address Line 1" required size="small" fullWidth
                   placeholder="House/Unit No., Street"
@@ -540,7 +540,7 @@ export default function KYCPage() {
           {/* Step 3 — Financial */}
           {step === 3 && (
             <Box>
-              <Typography variant="body1" sx={{ color: '#A78BFA', fontWeight: 600, mb: 3 }}>Financial Declaration</Typography>
+              <Typography variant="body1" sx={{ color: '#2A3FD6', fontWeight: 600, mb: 3 }}>Financial Declaration</Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <FormControl size="small" fullWidth required>
                   <InputLabel>Employment Status</InputLabel>
@@ -573,7 +573,7 @@ export default function KYCPage() {
           {/* Step 4 — Documents */}
           {step === 4 && (
             <Box>
-              <Typography variant="body1" sx={{ color: '#A78BFA', fontWeight: 600, mb: 0.5 }}>Document Upload</Typography>
+              <Typography variant="body1" sx={{ color: '#2A3FD6', fontWeight: 600, mb: 0.5 }}>Document Upload</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 3 }}>
                 Upload clear photos of your MyKad. Images are compressed and saved securely.
               </Typography>
@@ -590,22 +590,22 @@ export default function KYCPage() {
                       <Box onClick={() => fileRefs[doc.key].current?.click()}
                         sx={{
                           borderRadius: 2, overflow: 'hidden', cursor: 'pointer', transition: 'all 0.15s',
-                          border: `2px solid ${file ? '#22c55e' : '#374151'}`,
-                          bgcolor: '#0D0F1A',
-                          '&:hover': { borderColor: file ? '#22c55e' : '#7C3AED' },
+                          border: `2px solid ${file ? '#0E9F6E' : '#E2E7EE'}`,
+                          bgcolor: '#F4F6F8',
+                          '&:hover': { borderColor: file ? '#0E9F6E' : '#2A3FD6' },
                         }}>
                         {file && preview ? (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5 }}>
                             <Box component="img" src={preview} alt={doc.label}
                               sx={{ width: 80, height: 56, objectFit: 'cover', borderRadius: 1.5,
-                                    border: '1px solid #22c55e44', flexShrink: 0 }} />
+                                    border: '1px solid #0E9F6E44', flexShrink: 0 }} />
                             <Box sx={{ flex: 1, minWidth: 0 }}>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                                 <Typography sx={{ fontSize: 14 }}>✅</Typography>
-                                <Typography variant="body2" sx={{ color: '#22c55e', fontWeight: 600 }}>{doc.label}</Typography>
+                                <Typography variant="body2" sx={{ color: '#0E9F6E', fontWeight: 600 }}>{doc.label}</Typography>
                               </Box>
                               <Typography variant="caption" color="text.secondary" noWrap>{file.name}</Typography>
-                              <Typography variant="caption" sx={{ color: '#475569', display: 'block', mt: 0.25 }}>
+                              <Typography variant="caption" sx={{ color: '#8B96A5', display: 'block', mt: 0.25 }}>
                                 {(file.size / 1024).toFixed(0)} KB · tap to replace
                               </Typography>
                             </Box>
@@ -613,7 +613,7 @@ export default function KYCPage() {
                         ) : (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 2 }}>
                             <Box sx={{ width: 80, height: 56, borderRadius: 1.5, flexShrink: 0,
-                                        bgcolor: '#131629', border: '1px dashed #374151',
+                                        bgcolor: '#EEF1F5', border: '1px dashed #E2E7EE',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>
                               📄
                             </Box>
@@ -621,8 +621,8 @@ export default function KYCPage() {
                               <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, mb: 0.5 }}>{doc.label}</Typography>
                               <Typography variant="caption" color="text.secondary">{doc.hint}</Typography>
                               <Box sx={{ display: 'inline-block', mt: 1, px: 1.5, py: 0.5, borderRadius: 999,
-                                          bgcolor: '#7C3AED22', border: '1px solid #7C3AED44' }}>
-                                <Typography variant="caption" sx={{ color: '#A78BFA' }}>Choose file</Typography>
+                                          bgcolor: '#2A3FD622', border: '1px solid #2A3FD644' }}>
+                                <Typography variant="caption" sx={{ color: '#2A3FD6' }}>Choose file</Typography>
                               </Box>
                             </Box>
                           </Box>
@@ -634,7 +634,7 @@ export default function KYCPage() {
               </Box>
 
               <Box sx={{ mt: 2.5, p: 1.5, display: 'flex', alignItems: 'flex-start', gap: 1,
-                          bgcolor: '#0D1020', border: '1px solid #1E2035', borderRadius: 1.5 }}>
+                          bgcolor: '#F4F6F8', border: '1px solid #E2E7EE', borderRadius: 1.5 }}>
                 <Typography sx={{ fontSize: 14, mt: 0.25 }}>ℹ️</Typography>
                 <Typography variant="caption" color="text.secondary">
                   Photos are compressed client-side before upload. Accepted formats: JPG, PNG, WEBP.
@@ -646,7 +646,7 @@ export default function KYCPage() {
           {/* Step 5 — Review */}
           {step === 5 && (
             <Box>
-              <Typography variant="body1" sx={{ color: '#A78BFA', fontWeight: 600, mb: 3 }}>Review & Submit</Typography>
+              <Typography variant="body1" sx={{ color: '#2A3FD6', fontWeight: 600, mb: 3 }}>Review & Submit</Typography>
 
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
                 {[
@@ -664,27 +664,27 @@ export default function KYCPage() {
                   ['Loan Purpose',    form.purpose],
                   ['Source of Funds', form.fundSource],
                 ].map(([k, v]) => (
-                  <Box key={k} sx={{ display: 'flex', justifyContent: 'space-between', py: 1, borderBottom: '1px solid #1E2035' }}>
+                  <Box key={k} sx={{ display: 'flex', justifyContent: 'space-between', py: 1, borderBottom: '1px solid #E2E7EE' }}>
                     <Typography variant="caption" color="text.secondary">{k}</Typography>
-                    <Typography variant="caption" sx={{ color: '#e2e8f0', textAlign: 'right', maxWidth: '55%' }}>
+                    <Typography variant="caption" sx={{ color: '#10151C', textAlign: 'right', maxWidth: '55%' }}>
                       {v || '—'}
                     </Typography>
                   </Box>
                 ))}
               </Box>
 
-              <Box sx={{ mt: 3, p: 2.5, bgcolor: '#1a1d2e', borderRadius: 2 }}>
+              <Box sx={{ mt: 3, p: 2.5, bgcolor: '#EEF1F5', borderRadius: 2 }}>
                 <FormControlLabel
                   control={
                     <Checkbox checked={form.agreeTerms} onChange={e => set('agreeTerms', e.target.checked)}
-                      sx={{ color: '#64748B', '&.Mui-checked': { color: '#7C3AED' }, mt: -0.25 }} />
+                      sx={{ color: '#5A6675', '&.Mui-checked': { color: '#2A3FD6' }, mt: -0.25 }} />
                   }
                   label={
                     <Typography variant="body2" color="text.secondary">
                       I agree to the{' '}
-                      <Box component="span" sx={{ color: '#A78BFA' }}>Terms of Service</Box>
+                      <Box component="span" sx={{ color: '#2A3FD6' }}>Terms of Service</Box>
                       {' '}and{' '}
-                      <Box component="span" sx={{ color: '#A78BFA' }}>Privacy Policy</Box>
+                      <Box component="span" sx={{ color: '#2A3FD6' }}>Privacy Policy</Box>
                       , and consent to the processing of my personal data for KYC/AML purposes.
                     </Typography>
                   }
@@ -693,7 +693,7 @@ export default function KYCPage() {
                 <FormControlLabel
                   control={
                     <Checkbox checked={form.agreeDeclaration} onChange={e => set('agreeDeclaration', e.target.checked)}
-                      sx={{ color: '#64748B', '&.Mui-checked': { color: '#7C3AED' }, mt: -0.25 }} />
+                      sx={{ color: '#5A6675', '&.Mui-checked': { color: '#2A3FD6' }, mt: -0.25 }} />
                   }
                   label={
                     <Typography variant="body2" color="text.secondary">
@@ -705,8 +705,8 @@ export default function KYCPage() {
                 />
               </Box>
 
-              <Alert severity="info" sx={{ mt: 2.5, bgcolor: 'rgba(124,58,237,0.1)', color: '#A78BFA',
-                border: '1px solid rgba(124,58,237,0.3)', '& .MuiAlert-icon': { color: '#A78BFA' } }}>
+              <Alert severity="info" sx={{ mt: 2.5, bgcolor: 'rgba(42,63,214,0.1)', color: '#2A3FD6',
+                border: '1px solid rgba(42,63,214,0.3)', '& .MuiAlert-icon': { color: '#2A3FD6' } }}>
                 No MetaMask signature required. Your application will be reviewed by the compliance team
                 and approved within 1–3 business days.
               </Alert>
@@ -717,20 +717,20 @@ export default function KYCPage() {
         {/* Navigation buttons */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
           <Button variant="outlined" onClick={() => setStep(p => (p > 1 ? (p - 1) as Step : p))} disabled={step === 1}
-            sx={{ borderColor: '#374151', color: '#64748B', '&:hover': { bgcolor: '#1a1d2e', borderColor: '#4B5563' },
+            sx={{ borderColor: '#E2E7EE', color: '#5A6675', '&:hover': { bgcolor: '#EEF1F5', borderColor: '#CBD3DD' },
                   '&.Mui-disabled': { opacity: 0.3 } }}>
             ← Back
           </Button>
 
           {step < 5 ? (
             <Button variant="contained" onClick={() => setStep(p => (p + 1) as Step)} disabled={!canProceed()}
-              sx={{ bgcolor: '#7C3AED', '&:hover': { bgcolor: '#6d28d9' }, '&.Mui-disabled': { opacity: 0.4 } }}>
+              sx={{ bgcolor: '#2A3FD6', '&:hover': { bgcolor: '#1E2FA8' }, '&.Mui-disabled': { opacity: 0.4 } }}>
               Continue →
             </Button>
           ) : (
             <Button variant="contained" onClick={handleSubmit} disabled={!canProceed() || submitting}
-              sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white',
-                    '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #0891B2)' },
+              sx={{ background: 'linear-gradient(135deg, #2A3FD6, #2A3FD6)', color: 'white',
+                    '&:hover': { background: 'linear-gradient(135deg, #1E2FA8, #1E2FA8)' },
                     '&.Mui-disabled': { opacity: 0.4 } }}>
               {submitting ? 'Submitting…' : 'Submit KYC'}
             </Button>

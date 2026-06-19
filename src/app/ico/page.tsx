@@ -15,7 +15,7 @@ import { useWallet } from '@/lib/WalletContext';
 import { ICO_ADDRESSES, ICO_ETH_MYR, ICO_ABI, RINGGIT_TOKEN_ABI } from '@/lib/icoConfig';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
-const C = { bg: '#060D1F', card: '#0B1628', inner: '#0F1E38', border: 'rgba(255,255,255,0.08)', teal: '#00C8A0', tp: '#E2EBF9', ts: '#7A90B6', red: '#FF4560' };
+const C = { bg: '#F4F6F8', card: '#FFFFFF', inner: '#EEF1F5', border: '#E2E7EE', teal: '#0E9F6E', tp: '#10151C', ts: '#5A6675', red: '#E5484D' };
 
 export default function ICOPage() {
   const wallet = useWallet();

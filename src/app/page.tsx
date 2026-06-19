@@ -25,16 +25,16 @@ import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 
 // ── Color tokens ────────────────────────────────────────────────────────────
 const C = {
-  bg:     '#060D1F',
-  card:   '#0B1628',
-  inner:  '#0F1E38',
-  border: 'rgba(255,255,255,0.08)',
-  teal:   '#00C8A0',
-  gold:   '#FFB800',
-  red:    '#FF4560',
-  blue:   '#2E7EFF',
-  tp:     '#E2EBF9',
-  ts:     '#7A90B6',
+  bg:     '#F4F6F8',   // cool paper
+  card:   '#FFFFFF',   // white cards
+  inner:  '#EEF1F5',   // inset panels
+  border: '#E2E7EE',   // hairline
+  teal:   '#0E9F6E',   // status: gain / safe / live
+  gold:   '#C77700',   // status: caution / interest / moderate
+  red:    '#E5484D',   // status: loss / risk / liquidation
+  blue:   '#2A3FD6',   // brand: indigo
+  tp:     '#10151C',   // ink
+  ts:     '#5A6675',   // slate
 };
 
 const ASSETS = [
@@ -214,8 +214,8 @@ export default function Dashboard() {
           display: 'grid',
           gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, 1fr)' },
           gap: { xs: 2, sm: 4 },
-          background: 'linear-gradient(135deg, #0B1E3A 0%, #07111F 100%)',
-          border: '1px solid rgba(0,200,160,0.15)',
+          background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F7FB 100%)',
+          border: '1px solid rgba(42,63,214,0.18)',
           borderRadius: 3,
           position: 'relative', overflow: 'hidden',
         }}>
@@ -223,14 +223,14 @@ export default function Dashboard() {
           <Box sx={{
             position: 'absolute', top: -60, right: -60,
             width: 200, height: 200, borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(0,200,160,0.12) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(42,63,214,0.1) 0%, transparent 70%)',
             pointerEvents: 'none',
           }} />
           {[
             { label: 'Total Value Locked', value: 'RM 892M',   sub: '+3.2% this week',   color: C.teal },
             { label: 'Active Loans',       value: '2,847',     sub: 'Across all assets',  color: C.blue },
             { label: 'Total Borrowed',     value: 'RM 534M',   sub: '59.9% utilisation',  color: C.gold },
-            { label: 'Base Borrow Rate',   value: '4.80% APR', sub: 'ETH collateral',     color: '#A78BFA' },
+            { label: 'Base Borrow Rate',   value: '4.80% APR', sub: 'ETH collateral',     color: C.gold },
           ].map(s => (
             <InfoBlock key={s.label} label={s.label} value={s.value} sub={s.sub} color={s.color} />
           ))}
@@ -245,10 +245,10 @@ export default function Dashboard() {
               {/* Collateral */}
               <Paper sx={{
                 p: 3, bgcolor: C.card, borderRadius: 3,
-                border: '1px solid rgba(0,200,160,0.2)',
+                border: '1px solid rgba(14,159,110,0.3)',
                 position: 'relative', overflow: 'hidden',
               }}>
-                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #00C8A0, transparent)' }} />
+                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #0E9F6E, transparent)' }} />
                 <InfoBlock
                   label="My Collateral"
                   value={isLive && liveColMktMYR !== null ? rm(liveColMktMYR) : 'RM 233,838'}
@@ -265,16 +265,34 @@ export default function Dashboard() {
               {/* Debt */}
               <Paper sx={{
                 p: 3, bgcolor: C.card, borderRadius: 3,
-                border: '1px solid rgba(255,184,0,0.2)',
+                border: '1px solid rgba(199,119,0,0.2)',
                 position: 'relative', overflow: 'hidden',
               }}>
-                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #FFB800, transparent)' }} />
+                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #C77700, transparent)' }} />
                 <InfoBlock
                   label="Outstanding Debt"
                   value={isLive && liveBorMYR !== null ? rm(liveBorMYR, 2) : 'RM 129,000'}
                   sub={isLive ? `${wallet.myrBalance} MYR balance` : '55.2% utilisation'}
                   color={C.tp}
                 />
+                {isLive && (
+                  <Button
+                    size="small"
+                    onClick={() => wallet.addTokenToWallet()}
+                    sx={{
+                      mt: 1.5, px: 1.25, py: 0.25, minWidth: 0,
+                      fontSize: 11, fontWeight: 600,
+                      color: C.gold,
+                      bgcolor: 'rgba(199,119,0,0.1)',
+                      border: '1px solid rgba(199,119,0,0.25)',
+                      borderRadius: 2,
+                      '&:hover': { bgcolor: 'rgba(199,119,0,0.18)' },
+                    }}
+                    title="Import the MYR token into MetaMask so the balance shows in your wallet"
+                  >
+                    + Add MYR to MetaMask
+                  </Button>
+                )}
               </Paper>
 
               {/* Net Position */}
@@ -283,7 +301,7 @@ export default function Dashboard() {
                 border: `1px solid ${C.border}`,
                 position: 'relative', overflow: 'hidden',
               }}>
-                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #2E7EFF, transparent)' }} />
+                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #2A3FD6, transparent)' }} />
                 <InfoBlock
                   label="Net Position"
                   value={isLive && mktNetPos !== null ? rm(mktNetPos) : 'RM 104,838'}
@@ -324,8 +342,8 @@ export default function Dashboard() {
             severity="warning"
             icon={<Typography sx={{ fontSize: 16 }}>⚠️</Typography>}
             sx={{
-              mb: 3, bgcolor: 'rgba(255,184,0,0.08)', color: C.gold,
-              border: '1px solid rgba(255,184,0,0.25)',
+              mb: 3, bgcolor: 'rgba(199,119,0,0.08)', color: C.gold,
+              border: '1px solid rgba(199,119,0,0.25)',
               '& .MuiAlert-icon': { color: C.gold }, borderRadius: 2,
             }}
             action={
@@ -347,13 +365,13 @@ export default function Dashboard() {
                     setSyncing(false);
                   }
                 }}
-                sx={{ color: C.teal, border: '1px solid rgba(0,200,160,0.3)', fontSize: 11, borderRadius: 2, whiteSpace: 'nowrap' }}>
+                sx={{ color: C.teal, border: '1px solid rgba(14,159,110,0.3)', fontSize: 11, borderRadius: 2, whiteSpace: 'nowrap' }}>
                 {syncing ? 'Syncing…' : '⟳ Sync Price'}
               </Button>
             }
           >
             <Typography variant="body2" sx={{ fontWeight: 700, color: C.gold }}>On-chain price differs from live market</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,184,0,0.7)', display: 'block', mt: 0.5 }}>
+            <Typography variant="caption" sx={{ color: 'rgba(199,119,0,0.7)', display: 'block', mt: 0.5 }}>
               Contract: <b style={{ color: C.gold }}>{rm(onChainPrice)}/ETH</b>
               {' · '}Live: <b style={{ color: C.gold }}>{rm(mktEthPrice)}/ETH</b>
               {' '}({priceDiffPct.toFixed(1)}% diff)
@@ -417,7 +435,7 @@ export default function Dashboard() {
                   label={loading ? 'Loading prices…' : '● Live MYR'}
                   size="small"
                   sx={{
-                    bgcolor: loading ? 'rgba(255,255,255,0.05)' : `${C.teal}15`,
+                    bgcolor: loading ? 'rgba(16,21,28,0.04)' : `${C.teal}15`,
                     color: loading ? C.ts : C.teal,
                     border: `1px solid ${loading ? C.border : C.teal + '40'}`,
                     fontSize: 11, fontWeight: 600,
@@ -528,7 +546,7 @@ export default function Dashboard() {
                 {/* Header */}
                 <Box sx={{
                   p: 2, mb: 2, borderRadius: 2.5,
-                  background: 'linear-gradient(135deg, rgba(0,200,160,0.08) 0%, rgba(46,126,255,0.08) 100%)',
+                  background: 'linear-gradient(135deg, rgba(14,159,110,0.08) 0%, rgba(42,63,214,0.08) 100%)',
                   border: `1px solid ${C.teal}25`,
                 }}>
                   <Typography variant="body2" sx={{ color: C.teal, fontWeight: 700, mb: 0.5 }}>
@@ -611,8 +629,8 @@ export default function Dashboard() {
                 <Box sx={{
                   mt: 1.5, p: 2, borderRadius: 2.5,
                   background: netAdvantage >= 0
-                    ? 'linear-gradient(135deg, rgba(0,200,160,0.08), rgba(0,200,160,0.04))'
-                    : 'linear-gradient(135deg, rgba(255,69,96,0.08), rgba(255,69,96,0.04))',
+                    ? 'linear-gradient(135deg, rgba(14,159,110,0.08), rgba(14,159,110,0.06))'
+                    : 'linear-gradient(135deg, rgba(229,72,77,0.08), rgba(229,72,77,0.04))',
                   border: `1px solid ${netAdvantage >= 0 ? C.teal + '30' : C.red + '30'}`,
                 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -648,7 +666,7 @@ export default function Dashboard() {
               {/* Calculator result */}
               <Box sx={{
                 p: 3, borderRadius: 2.5,
-                background: 'linear-gradient(135deg, #0B1E3A 0%, #071120 100%)',
+                background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F7FB 100%)',
                 border: `1px solid ${C.teal}25`,
               }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2.5 }}>
@@ -670,7 +688,7 @@ export default function Dashboard() {
                   <Row label="Interest Rate"                        value={`${calcAsset.borrowAPR}% APR`} />
                   <Row label={`Interest (${loanTermDays}d)`}        value={rm(calcInterest, 2)} vc={C.gold} />
                   <Row label="Origination Fee (0.1%)"               value={rm(originationFee, 2)} />
-                  <Row label="Monthly Payment"                      value={rm(calcMonthly, 2)} vc="#A78BFA" />
+                  <Row label="Monthly Payment"                      value={rm(calcMonthly, 2)} vc={C.blue} />
                   <Box sx={{ pt: 1, borderTop: `1px solid ${C.teal}15` }}>
                     <Row label="Total Repayment"                    value={rm(calcTotal, 2)} vc={C.teal} bold />
                   </Box>
@@ -708,7 +726,7 @@ export default function Dashboard() {
                       const change = p?.change24h ?? 0;
                       return (
                         <TableRow key={a.symbol} onClick={() => setCalcAssetIdx(i)}
-                          sx={{ cursor: 'pointer', transition: 'background 0.15s', '&:hover': { bgcolor: 'rgba(0,200,160,0.04)' } }}>
+                          sx={{ cursor: 'pointer', transition: 'background 0.15s', '&:hover': { bgcolor: 'rgba(14,159,110,0.06)' } }}>
                           <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                               <Box sx={{
@@ -767,7 +785,7 @@ export default function Dashboard() {
                   label={isLive ? '● Live' : 'Demo'}
                   size="small"
                   sx={{
-                    bgcolor: isLive ? `${C.teal}15` : 'rgba(255,255,255,0.05)',
+                    bgcolor: isLive ? `${C.teal}15` : 'rgba(16,21,28,0.04)',
                     color: isLive ? C.teal : C.ts,
                     border: `1px solid ${isLive ? C.teal + '40' : C.border}`,
                     fontSize: 11, fontWeight: 700,
@@ -830,7 +848,7 @@ export default function Dashboard() {
                           value={Math.min((isFinite(hf) ? hf : 3) / 3 * 100, 100)}
                           sx={{
                             height: 8, borderRadius: 999,
-                            bgcolor: 'rgba(255,255,255,0.07)',
+                            bgcolor: '#E7EBF1',
                             '& .MuiLinearProgress-bar': { bgcolor: hc, borderRadius: 999, boxShadow: `0 0 8px ${hc}60` },
                           }}
                         />
@@ -856,8 +874,8 @@ export default function Dashboard() {
                       </Box>
                       <Box sx={{ display: 'flex', gap: 1 }}>
                         <Button fullWidth size="small" onClick={() => setActiveTab('deposit')}
-                          sx={{ bgcolor: `rgba(255,255,255,0.05)`, color: C.tp, border: `1px solid ${C.border}`, fontSize: 12, borderRadius: 2,
-                                '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
+                          sx={{ bgcolor: `rgba(16,21,28,0.04)`, color: C.tp, border: `1px solid ${C.border}`, fontSize: 12, borderRadius: 2,
+                                '&:hover': { bgcolor: 'rgba(16,21,28,0.07)' } }}>
                           + Collateral
                         </Button>
                         <Button fullWidth size="small" variant="contained" onClick={() => setActiveTab('repay')}
@@ -1156,7 +1174,7 @@ export default function Dashboard() {
                         <Row label="Principal"                               value={borrowMYR > 0 ? rm(borrowMYR, 2) : '—'} />
                         <Row label={`Interest (${loanTermDays}d · 4.80%)`}  value={borrowMYR > 0 ? rm(panelInterest, 2) : '—'} vc={C.gold} />
                         <Row label="Origination Fee (0.10%)"                value={borrowMYR > 0 ? rm(borrowMYR * 0.001, 2) : '—'} />
-                        <Row label="Monthly Payment (est.)"                 value={borrowMYR > 0 ? rm(panelMonthly, 2) : '—'} vc="#A78BFA" />
+                        <Row label="Monthly Payment (est.)"                 value={borrowMYR > 0 ? rm(panelMonthly, 2) : '—'} vc={C.blue} />
                         <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
                           <Row label="Total to Repay"                       value={borrowMYR > 0 ? rm(panelTotal, 2) : '—'} vc={C.teal} bold />
                         </Box>
@@ -1349,7 +1367,7 @@ export default function Dashboard() {
         }}>
           <Box sx={{
             width: 28, height: 28, borderRadius: 1.5,
-            background: 'linear-gradient(135deg, #00C8A0 0%, #0090D0 100%)',
+            background: '#2A3FD6',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
             <Typography sx={{ color: '#fff', fontSize: 12, fontWeight: 800 }}>C</Typography>
@@ -1357,10 +1375,10 @@ export default function Dashboard() {
           <Typography variant="body2" sx={{ color: C.ts, fontWeight: 600 }}>
             Crypto<Box component="span" sx={{ color: C.teal }}>Lend</Box>
           </Typography>
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.15)' }}>·</Typography>
+          <Typography variant="caption" sx={{ color: 'rgba(16,21,28,0.25)' }}>·</Typography>
           <Typography variant="caption" sx={{ color: C.ts }}>© 2026</Typography>
         </Box>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.2)', maxWidth: 520, mx: 'auto', display: 'block', lineHeight: 1.8 }}>
+        <Typography variant="caption" sx={{ color: '#8B96A5', maxWidth: 520, mx: 'auto', display: 'block', lineHeight: 1.8 }}>
           Decentralised Crypto-Backed Lending · Hardhat Testnet (Chain ID 31337)
           <br />
           Demonstration app for educational purposes. Not financial advice. Crypto lending carries liquidation risk.

@@ -1,46 +1,56 @@
 import { createTheme } from '@mui/material/styles';
+import { PALETTE } from '@/lib/tokens';
 
-// Nexo-inspired palette: deep navy + teal-green + amber
+// Passbook light-neobank theme: cool paper ground, white cards, indigo brand,
+// reserved green/red status colours. See lib/tokens.ts for the rationale.
 const N = {
-  bg:       '#060D1F',
-  paper:    '#0B1628',
-  card:     '#0F1E38',
-  border:   'rgba(255,255,255,0.08)',
-  teal:     '#00C8A0',
-  tealLt:   '#33D4B2',
-  tealDk:   '#009E80',
-  gold:     '#FFB800',
-  blue:     '#2E7EFF',
-  red:      '#FF4560',
-  textPri:  '#E2EBF9',
-  textSec:  '#7A90B6',
-  divider:  'rgba(255,255,255,0.07)',
+  bg:        PALETTE.bg,
+  paper:     PALETTE.surface,
+  card:      PALETTE.surface,
+  inner:     PALETTE.raised,
+  border:    PALETTE.line,
+  rule:      PALETTE.rule,
+  indigo:    PALETTE.indigo,
+  indigoHi:  PALETTE.indigoHi,
+  indigoDeep:PALETTE.indigoDeep,
+  up:        PALETTE.up,
+  down:      PALETTE.down,
+  amber:     PALETTE.amber,
+  textPri:   PALETTE.text,
+  textSec:   PALETTE.textDim,
+  divider:   PALETTE.line,
 };
 
 const theme = createTheme({
   palette: {
-    mode: 'dark',
+    mode: 'light',
     background: { default: N.bg, paper: N.paper },
-    primary:   { main: N.teal,  light: N.tealLt, dark: N.tealDk },
-    secondary: { main: N.gold,  dark: '#E6A600'  },
-    success:   { main: N.teal  },
-    warning:   { main: N.gold  },
-    error:     { main: N.red   },
+    primary:   { main: N.indigo, light: N.indigoHi, dark: N.indigoDeep, contrastText: '#FFFFFF' },
+    secondary: { main: N.up, dark: '#0B7E58' },
+    success:   { main: N.up },
+    warning:   { main: N.amber },
+    error:     { main: N.down },
     text:      { primary: N.textPri, secondary: N.textSec },
     divider:   N.divider,
   },
-  shape: { borderRadius: 16 },
+  shape: { borderRadius: 14 },
   typography: {
     fontFamily: 'var(--font-geist-sans), system-ui, -apple-system, sans-serif',
+    // Display headings wear the Hanken Grotesk — the passbook voice.
+    h1: { fontFamily: 'var(--font-display), system-ui, sans-serif', fontWeight: 700, letterSpacing: '-0.5px' },
+    h2: { fontFamily: 'var(--font-display), system-ui, sans-serif', fontWeight: 700, letterSpacing: '-0.5px' },
+    h3: { fontFamily: 'var(--font-display), system-ui, sans-serif', fontWeight: 700 },
+    h4: { fontFamily: 'var(--font-display), system-ui, sans-serif', fontWeight: 700 },
     button: { textTransform: 'none' as const, fontWeight: 600 },
   },
   components: {
     MuiCard: {
       styleOverrides: {
         root: {
-          backgroundColor: N.paper,
+          backgroundColor: N.card,
           border: `1px solid ${N.border}`,
           backgroundImage: 'none',
+          boxShadow: '0 1px 2px rgba(16,21,28,0.04)',
         },
       },
     },
@@ -53,35 +63,41 @@ const theme = createTheme({
       styleOverrides: {
         root: { textTransform: 'none', fontWeight: 600, borderRadius: 10 },
         contained: {
-          background: `linear-gradient(135deg, ${N.teal} 0%, #0090D0 100%)`,
-          color: '#fff',
-          boxShadow: `0 4px 14px rgba(0,200,160,0.25)`,
+          backgroundColor: N.indigo,
+          backgroundImage: 'none',
+          color: '#FFFFFF',
+          boxShadow: '0 1px 2px rgba(16,21,28,0.08)',
           '&:hover': {
-            background: `linear-gradient(135deg, ${N.tealLt} 0%, #2E7EFF 100%)`,
-            boxShadow: `0 6px 20px rgba(0,200,160,0.35)`,
+            backgroundColor: N.indigoDeep,
+            boxShadow: '0 4px 14px rgba(42,63,214,0.28)',
           },
           '&.Mui-disabled': {
-            background: 'rgba(255,255,255,0.06)',
-            color: 'rgba(255,255,255,0.3)',
+            backgroundColor: '#E2E7EE',
+            color: '#A9B4C2',
           },
+        },
+        outlined: {
+          borderColor: N.border,
+          color: N.textPri,
+          '&:hover': { borderColor: N.indigo, backgroundColor: 'rgba(42,63,214,0.04)' },
         },
       },
     },
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          backgroundColor: N.card,
+          backgroundColor: N.paper,
           borderRadius: 10,
           '& fieldset': { borderColor: N.border },
-          '&:hover fieldset': { borderColor: N.teal },
-          '&.Mui-focused fieldset': { borderColor: N.teal },
+          '&:hover fieldset': { borderColor: N.indigo },
+          '&.Mui-focused fieldset': { borderColor: N.indigo },
         },
         input: { color: N.textPri },
       },
     },
     MuiInputLabel: {
       styleOverrides: {
-        root: { color: N.textSec, '&.Mui-focused': { color: N.teal } },
+        root: { color: N.textSec, '&.Mui-focused': { color: N.indigo } },
       },
     },
     MuiSelect: {
@@ -89,15 +105,15 @@ const theme = createTheme({
     },
     MuiMenu: {
       styleOverrides: {
-        paper: { backgroundColor: N.card, border: `1px solid ${N.border}`, borderRadius: 12 },
+        paper: { backgroundColor: N.paper, border: `1px solid ${N.border}`, borderRadius: 12 },
       },
     },
     MuiMenuItem: {
       styleOverrides: {
         root: {
-          '&:hover': { backgroundColor: 'rgba(255,255,255,0.05)' },
-          '&.Mui-selected': { backgroundColor: `${N.teal}22` },
-          '&.Mui-selected:hover': { backgroundColor: `${N.teal}33` },
+          '&:hover': { backgroundColor: 'rgba(42,63,214,0.06)' },
+          '&.Mui-selected': { backgroundColor: 'rgba(42,63,214,0.1)' },
+          '&.Mui-selected:hover': { backgroundColor: 'rgba(42,63,214,0.16)' },
         },
       },
     },
@@ -115,16 +131,16 @@ const theme = createTheme({
     },
     MuiLinearProgress: {
       styleOverrides: {
-        root: { backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 999, height: 6 },
+        root: { backgroundColor: '#E7EBF1', borderRadius: 999, height: 6 },
         bar:  { borderRadius: 999 },
       },
     },
     MuiSkeleton: {
-      styleOverrides: { root: { backgroundColor: 'rgba(255,255,255,0.06)' } },
+      styleOverrides: { root: { backgroundColor: 'rgba(16,21,28,0.07)' } },
     },
     MuiDialog: {
       styleOverrides: {
-        paper: { backgroundColor: N.paper, border: `1px solid ${N.border}`, backgroundImage: 'none', borderRadius: 20 },
+        paper: { backgroundColor: N.paper, border: `1px solid ${N.border}`, backgroundImage: 'none', borderRadius: 18 },
       },
     },
     MuiTab: {
@@ -133,26 +149,26 @@ const theme = createTheme({
           textTransform: 'none',
           color: N.textSec,
           fontWeight: 600,
-          '&.Mui-selected': { color: N.teal },
+          '&.Mui-selected': { color: N.indigo },
         },
       },
     },
     MuiTabs: {
-      styleOverrides: { indicator: { backgroundColor: N.teal, height: 3, borderRadius: 999 } },
+      styleOverrides: { indicator: { backgroundColor: N.indigo, height: 3, borderRadius: 999 } },
     },
     MuiSlider: {
       styleOverrides: {
-        root: { color: N.teal },
-        rail: { backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 999 },
-        thumb: { boxShadow: `0 0 0 6px ${N.teal}22` },
+        root: { color: N.indigo },
+        rail: { backgroundColor: '#D7DEE6', borderRadius: 999, opacity: 1 },
+        thumb: { boxShadow: '0 0 0 6px rgba(42,63,214,0.16)' },
       },
     },
     MuiStepIcon: {
       styleOverrides: {
         root: {
-          color: 'rgba(255,255,255,0.1)',
-          '&.Mui-active':    { color: N.teal },
-          '&.Mui-completed': { color: N.tealDk },
+          color: '#D7DEE6',
+          '&.Mui-active':    { color: N.indigo },
+          '&.Mui-completed': { color: N.indigoDeep },
         },
       },
     },
@@ -160,26 +176,27 @@ const theme = createTheme({
       styleOverrides: {
         label: {
           color: N.textSec,
-          '&.Mui-active':    { color: N.tealLt },
-          '&.Mui-completed': { color: N.teal },
+          '&.Mui-active':    { color: N.indigo },
+          '&.Mui-completed': { color: N.textPri },
         },
       },
     },
     MuiStepConnector: {
-      styleOverrides: { line: { borderColor: 'rgba(255,255,255,0.1)' } },
+      styleOverrides: { line: { borderColor: '#D7DEE6' } },
     },
     MuiCheckbox: {
       styleOverrides: {
-        root: { color: N.textSec, '&.Mui-checked': { color: N.teal } },
+        root: { color: N.textSec, '&.Mui-checked': { color: N.indigo } },
       },
     },
     MuiAppBar: {
       defaultProps: { elevation: 0 },
       styleOverrides: {
         root: {
-          backgroundColor: 'rgba(6,13,31,0.85)',
+          backgroundColor: 'rgba(244,246,248,0.85)',
           backdropFilter: 'blur(20px)',
           borderBottom: `1px solid ${N.border}`,
+          color: N.textPri,
         },
       },
     },
@@ -189,12 +206,12 @@ const theme = createTheme({
     MuiTooltip: {
       styleOverrides: {
         tooltip: {
-          backgroundColor: N.card,
-          border: `1px solid ${N.border}`,
-          color: N.textPri,
+          backgroundColor: '#10151C',
+          color: '#FFFFFF',
           fontSize: 12,
           borderRadius: 8,
         },
+        arrow: { color: '#10151C' },
       },
     },
   },

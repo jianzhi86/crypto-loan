@@ -15,7 +15,10 @@ async function isValidToken(token: string): Promise<boolean> {
   }
 }
 
-const PUBLIC_PATHS = ['/login', '/signup'];
+// Paths reachable without authentication.
+const PUBLIC_PATHS = ['/login', '/signup', '/home'];
+// Auth-only paths that an already-authenticated user should be redirected away from.
+const AUTH_PATHS = ['/login', '/signup'];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -23,6 +26,7 @@ export async function proxy(request: NextRequest) {
   const authenticated = token ? await isValidToken(token) : false;
 
   const isPublic = PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'));
+  const isAuthPath = AUTH_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'));
 
   if (!authenticated && !isPublic) {
     const loginUrl = new URL('/login', request.url);
@@ -30,7 +34,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (authenticated && isPublic) {
+  if (authenticated && isAuthPath) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 

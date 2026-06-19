@@ -75,7 +75,7 @@ function LoginForm() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#0A0C18', display: 'flex' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', display: 'flex' }}>
 
       {/* Left panel — branding */}
       <Box sx={{
@@ -84,32 +84,38 @@ function LoginForm() {
         justifyContent: 'center',
         px: 8,
         flex: '0 0 480px',
-        background: 'linear-gradient(160deg, #0D0F1A 0%, #12152A 50%, #0D1130 100%)',
-        borderRight: '1px solid #1E2035',
+        background: 'linear-gradient(160deg, #FFFFFF 0%, #F4F6F8 55%, #EEF1F5 100%)',
+        borderRight: '1px solid #E2E7EE',
         position: 'relative',
         overflow: 'hidden',
       }}>
         {/* Decorative glow */}
         <Box sx={{ position: 'absolute', top: '25%', left: '-80px', width: 320, height: 320,
-                    borderRadius: '50%', background: 'radial-gradient(circle, rgba(124,58,237,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
+                    borderRadius: '50%', background: 'radial-gradient(circle, rgba(42,63,214,0.1) 0%, transparent 70%)', pointerEvents: 'none' }} />
         <Box sx={{ position: 'absolute', bottom: '20%', right: '-60px', width: 240, height: 240,
-                    borderRadius: '50%', background: 'radial-gradient(circle, rgba(6,182,212,0.1) 0%, transparent 70%)', pointerEvents: 'none' }} />
+                    borderRadius: '50%', background: 'radial-gradient(circle, rgba(14,159,110,0.08) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
         {/* Logo */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 6 }}>
-          <Box sx={{ width: 44, height: 44, borderRadius: 2, background: 'linear-gradient(135deg, #7C3AED, #06B6D4)',
+          <Box sx={{ width: 44, height: 44, borderRadius: 3,
+                      bgcolor: '#2A3FD6',
+                      boxShadow: '0 2px 10px rgba(42,63,214,0.3)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Typography sx={{ color: 'white', fontSize: 20, fontWeight: 700 }}>C</Typography>
+            <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#fff', fontSize: 22, fontWeight: 700, lineHeight: 1 }}>C</Typography>
           </Box>
-          <Typography variant="h5" sx={{ color: 'white', fontWeight: 700, letterSpacing: '-0.5px' }}>CryptoLend</Typography>
+          <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#10151C', fontSize: 24, fontWeight: 600, letterSpacing: '-0.3px' }}>
+            Crypto<Box component="span" sx={{ color: '#2A3FD6' }}>Lend</Box>
+          </Typography>
         </Box>
 
-        <Typography variant="h3" color="text.primary" sx={{ fontWeight: 800, lineHeight: 1.2, mb: 2, letterSpacing: '-1px' }}>
+        <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#10151C', fontSize: 44, fontWeight: 600, lineHeight: 1.12, mb: 2.5, letterSpacing: '-1px' }}>
           Borrow smarter.<br />
-          <Box component="span" sx={{ background: 'linear-gradient(135deg, #A78BFA, #06B6D4)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          <Box component="span" sx={{ color: '#2A3FD6' }}>
             Keep your crypto.
           </Box>
         </Typography>
+        {/* Signature: indigo seam */}
+        <Box sx={{ width: 72, height: '2px', mb: 3, background: 'linear-gradient(90deg, #2A3FD6, #4458E8, transparent)' }} />
         <Typography variant="body1" color="text.secondary" sx={{ mb: 5, lineHeight: 1.7 }}>
           The crypto-backed lending platform built on Ethereum. Get MYR liquidity without selling your assets.
         </Typography>
@@ -117,7 +123,8 @@ function LoginForm() {
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {FEATURES.map(f => (
             <Box key={f.text} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: 'rgba(124,58,237,0.15)',
+              <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: 'rgba(42,63,214,0.08)',
+                          border: '1px solid rgba(42,63,214,0.15)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
                 {f.icon}
               </Box>
@@ -137,21 +144,25 @@ function LoginForm() {
 
           {/* Mobile logo */}
           <Box sx={{ display: { xs: 'flex', lg: 'none' }, alignItems: 'center', gap: 1.5, mb: 5, justifyContent: 'center' }}>
-            <Box sx={{ width: 40, height: 40, borderRadius: 2, background: 'linear-gradient(135deg, #7C3AED, #06B6D4)',
+            <Box sx={{ width: 40, height: 40, borderRadius: 2.5,
+                        bgcolor: '#2A3FD6',
+                        boxShadow: '0 2px 8px rgba(42,63,214,0.3)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Typography sx={{ color: 'white', fontSize: 18, fontWeight: 700 }}>C</Typography>
+              <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#fff', fontSize: 19, fontWeight: 700 }}>C</Typography>
             </Box>
-            <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 700 }}>CryptoLend</Typography>
+            <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: 'text.primary', fontSize: 21, fontWeight: 600 }}>
+              Crypto<Box component="span" sx={{ color: '#2A3FD6' }}>Lend</Box>
+            </Typography>
           </Box>
 
-          <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 0.5 }}>Welcome back</Typography>
+          <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: 'text.primary', fontSize: 30, fontWeight: 600, mb: 0.5, letterSpacing: '-0.3px' }}>Welcome back</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3.5 }}>
             Sign in to your account to continue
           </Typography>
 
           {error && (
-            <Alert severity="error" sx={{ mb: 2.5, bgcolor: '#450a0a20', color: '#ef4444',
-              border: '1px solid #ef444433', '& .MuiAlert-icon': { color: '#ef4444' } }}>
+            <Alert severity="error" sx={{ mb: 2.5, bgcolor: '#FEF2F2', color: '#B42318',
+              border: '1px solid #FECDCA', '& .MuiAlert-icon': { color: '#E5484D' } }}>
               {error}
             </Alert>
           )}
@@ -182,7 +193,7 @@ function LoginForm() {
             />
 
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -0.5 }}>
-              <Typography variant="caption" sx={{ color: '#A78BFA', cursor: 'pointer',
+              <Typography variant="caption" sx={{ color: '#2A3FD6', cursor: 'pointer',
                 '&:hover': { textDecoration: 'underline' } }}>
                 Forgot password?
               </Typography>
@@ -190,29 +201,30 @@ function LoginForm() {
 
             <Button type="submit" fullWidth variant="contained" disabled={loading || !email || !password}
               sx={{
-                py: 1.25, fontWeight: 600,
-                background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white',
-                '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #0891B2)' },
-                '&.Mui-disabled': { background: 'rgba(124,58,237,0.3)', color: 'rgba(255,255,255,0.4)' },
+                py: 1.25, fontWeight: 700,
+                background: '#2A3FD6', color: '#fff',
+                boxShadow: '0 2px 8px rgba(42,63,214,0.25)',
+                '&:hover': { background: '#1E2FA8' },
+                '&.Mui-disabled': { background: '#E2E7EE', color: '#A9B4C2' },
               }}>
-              {loading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : 'Sign In'}
+              {loading ? <CircularProgress size={20} sx={{ color: '#fff' }} /> : 'Sign in'}
             </Button>
           </Box>
 
-          <Divider sx={{ my: 3, '&::before, &::after': { borderColor: '#1E2035' } }}>
+          <Divider sx={{ my: 3, '&::before, &::after': { borderColor: '#E2E7EE' } }}>
             <Typography variant="caption" color="text.secondary" sx={{ px: 1 }}>or continue with</Typography>
           </Divider>
 
           {/* MetaMask button */}
           <Button fullWidth variant="outlined" onClick={handleWalletLogin} disabled={walletLoading}
             sx={{
-              py: 1.25, borderColor: '#1E2035', color: 'text.primary', gap: 1.5,
-              bgcolor: '#131629',
-              '&:hover': { borderColor: '#7C3AED', bgcolor: 'rgba(124,58,237,0.08)' },
+              py: 1.25, borderColor: '#E2E7EE', color: 'text.primary', gap: 1.5,
+              bgcolor: '#FFFFFF',
+              '&:hover': { borderColor: '#2A3FD6', bgcolor: 'rgba(42,63,214,0.05)' },
               '&.Mui-disabled': { opacity: 0.5 },
             }}>
             {walletLoading ? (
-              <CircularProgress size={20} sx={{ color: '#A78BFA' }} />
+              <CircularProgress size={20} sx={{ color: '#2A3FD6' }} />
             ) : (
               <>
                 <Typography sx={{ fontSize: 20, lineHeight: 1 }}>🦊</Typography>
@@ -224,7 +236,7 @@ function LoginForm() {
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mt: 3.5 }}>
             {"Don't have an account? "}
             <Box component={Link} href="/signup"
-              sx={{ color: '#A78BFA', textDecoration: 'none', fontWeight: 500, '&:hover': { textDecoration: 'underline' } }}>
+              sx={{ color: '#2A3FD6', textDecoration: 'none', fontWeight: 600, '&:hover': { textDecoration: 'underline' } }}>
               Create account
             </Box>
           </Typography>
