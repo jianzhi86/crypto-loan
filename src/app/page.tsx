@@ -140,13 +140,14 @@ export default function Dashboard() {
   });
   const [collAmt,          setCollAmt]          = useState('1');
   const [ltv,              setLtv]              = useState(50);
-  const [activeTab,        setActiveTab]         = useState<'deposit' | 'borrow' | 'repay'>(() => {
+  const [activeTab,        setActiveTab]         = useState<'deposit' | 'withdraw' | 'borrow' | 'repay'>(() => {
     if (typeof window === 'undefined') return 'deposit';
     const tab = new URLSearchParams(window.location.search).get('tab');
-    if (tab === 'borrow' || tab === 'repay') return tab;
+    if (tab === 'withdraw' || tab === 'borrow' || tab === 'repay') return tab;
     return 'deposit';
   });
   const [depositAmt,       setDepositAmt]        = useState('');
+  const [withdrawAmt,      setWithdrawAmt]       = useState('');
   const [borrowAmt,        setBorrowAmt]         = useState('');
   const [repayAmt,         setRepayAmt]          = useState('');
   const [loanTermDays,     setLoanTermDays]      = useState(90);
@@ -275,7 +276,7 @@ export default function Dashboard() {
                   sub={isLive ? `${wallet.myrBalance} MYR balance` : '55.2% utilisation'}
                   color={C.tp}
                 />
-                {isLive && (
+                {isLive && !wallet.myrTokenAdded && (
                   <Button
                     size="small"
                     onClick={() => wallet.addTokenToWallet()}
@@ -292,6 +293,11 @@ export default function Dashboard() {
                   >
                     + Add MYR to MetaMask
                   </Button>
+                )}
+                {isLive && wallet.myrTokenAdded && (
+                  <Typography variant="caption" sx={{ mt: 1.5, display: 'block', color: C.ts, fontWeight: 600 }}>
+                    ✓ MYR token in wallet
+                  </Typography>
                 )}
               </Paper>
 
@@ -959,13 +965,13 @@ export default function Dashboard() {
             <Paper sx={cardSx}>
               {/* Tab switcher */}
               <Box sx={{ display: 'flex', bgcolor: C.inner, borderRadius: 2, p: 0.5, mb: 3 }}>
-                {(['deposit', 'borrow', 'repay'] as const).map(tab => (
+                {(['deposit', 'withdraw', 'borrow', 'repay'] as const).map(tab => (
                   <Box key={tab} onClick={() => setActiveTab(tab)}
                     sx={{
                       flex: 1, py: 1, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer', transition: 'all 0.15s',
                       bgcolor: activeTab === tab ? C.teal : 'transparent',
                     }}>
-                    <Typography variant="caption" sx={{ color: activeTab === tab ? '#060D1F' : C.ts, fontWeight: 700 }}>
+                    <Typography variant="caption" sx={{ color: activeTab === tab ? '#060D1F' : C.ts, fontWeight: 700, fontSize: 12 }}>
                       {tab.charAt(0).toUpperCase() + tab.slice(1)}
                     </Typography>
                   </Box>
@@ -1052,16 +1058,111 @@ export default function Dashboard() {
                     </Typography>
                   </Box>
 
-                  <Button fullWidth variant="contained"
-                    disabled={!isLive || !depositAmt || wallet.txStatus === 'pending'}
-                    onClick={() => wallet.depositCollateral(depositAmt).then(() => setDepositAmt(''))}
-                    sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
-                    {wallet.txStatus === 'pending' ? 'Waiting for confirmation…' : 'Deposit Collateral'}
-                  </Button>
+                  {(() => {
+                    const amt        = parseFloat(depositAmt || '0');
+                    const overBal    = wallet.isConnected && amt > parseFloat(wallet.ethBalance || '0');
+                    const pending    = wallet.txStatus === 'pending';
+                    // Resolve the single blocking reason so the button is always
+                    // either actionable or clearly explains why it isn't.
+                    const action =
+                      !wallet.isConnected       ? { label: 'Connect Wallet',        onClick: wallet.connect,         disabled: false } :
+                      !wallet.isCorrectNetwork  ? { label: 'Switch to Hardhat',      onClick: wallet.switchToHardhat, disabled: false } :
+                      !wallet.isDeployed        ? { label: 'Contracts not deployed', onClick: undefined,              disabled: true  } :
+                      pending                   ? { label: 'Waiting for confirmation…', onClick: undefined,           disabled: true  } :
+                      !depositAmt || amt <= 0   ? { label: 'Enter an ETH amount',    onClick: undefined,              disabled: true  } :
+                      overBal                   ? { label: 'Insufficient ETH balance',onClick: undefined,              disabled: true  } :
+                                                  { label: 'Deposit Collateral',     onClick: () => wallet.depositCollateral(depositAmt).then(() => setDepositAmt('')), disabled: false };
+                    return (
+                      <Button fullWidth variant="contained"
+                        disabled={action.disabled}
+                        onClick={action.onClick}
+                        sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
+                        {action.label}
+                      </Button>
+                    );
+                  })()}
                   </>
                   )}
                 </Box>
               )}
+
+              {/* WITHDRAW */}
+              {activeTab === 'withdraw' && (() => {
+                const price       = isLive ? wallet.ethPriceMYR : ethPriceMYR;
+                const colEth      = isLive && wallet.loanInfo ? parseFloat(ethers.formatEther(wallet.loanInfo.collateral)) : 0;
+                const borMYR      = isLive && wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0;
+                // Must keep enough collateral that the loan stays within 70% LTV.
+                const minColEth   = borMYR > 0 ? (borMYR / 0.70) / price : 0;
+                const maxWithdraw = Math.max(0, colEth - minColEth);
+                const wAmt        = parseFloat(withdrawAmt || '0');
+                const colAfter    = Math.max(0, colEth - wAmt);
+                const pending     = wallet.txStatus === 'pending';
+                const overMax     = wAmt > maxWithdraw + 1e-9;
+                const action =
+                  !wallet.isConnected      ? { label: 'Connect Wallet',          onClick: wallet.connect,         disabled: false } :
+                  !wallet.isCorrectNetwork ? { label: 'Switch to Hardhat',        onClick: wallet.switchToHardhat, disabled: false } :
+                  !wallet.isDeployed       ? { label: 'Contracts not deployed',   onClick: undefined,              disabled: true  } :
+                  colEth <= 0              ? { label: 'No collateral to withdraw',onClick: undefined,              disabled: true  } :
+                  pending                  ? { label: 'Waiting for confirmation…',onClick: undefined,              disabled: true  } :
+                  !withdrawAmt || wAmt <= 0? { label: 'Enter an ETH amount',      onClick: undefined,              disabled: true  } :
+                  overMax                  ? { label: 'Exceeds withdrawable (LTV)',onClick: undefined,             disabled: true  } :
+                                             { label: 'Withdraw Collateral',      onClick: () => wallet.withdrawCollateral(withdrawAmt).then(() => setWithdrawAmt('')), disabled: false };
+                return (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Box>
+                    <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
+                      ETH Amount to Withdraw
+                    </Typography>
+                    <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Typography sx={{ fontSize: 20, fontWeight: 700, color: '#627EEA', lineHeight: 1 }}>Ξ</Typography>
+                      <InputBase type="number" value={withdrawAmt} onChange={e => setWithdrawAmt(e.target.value)}
+                        placeholder="0.00"
+                        sx={{ flex: 1, color: C.tp, fontSize: 20, fontWeight: 600, '& input': { p: 0 } }} />
+                      <Button size="small" onClick={() => setWithdrawAmt((Math.floor(maxWithdraw * 10000) / 10000).toFixed(4))}
+                        sx={{ bgcolor: `${C.teal}15`, color: C.teal, fontSize: 11, minWidth: 'auto', py: 0.25, px: 1.25, borderRadius: 1.5 }}>
+                        MAX
+                      </Button>
+                    </Box>
+                    {isLive && (
+                      <Typography variant="caption" sx={{ color: C.ts, mt: 0.75, display: 'block' }}>
+                        Deposited: {colEth.toFixed(4)} ETH · Withdrawable now: {maxWithdraw.toFixed(4)} ETH
+                      </Typography>
+                    )}
+                  </Box>
+
+                  <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Typography variant="caption" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>After Withdrawal</Typography>
+                    <Row label="Current collateral"          value={`${colEth.toFixed(4)} ETH`} />
+                    <Row label={`Withdraw`}                   value={`−${(wAmt || 0).toFixed(4)} ETH`} vc={C.gold} />
+                    <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
+                      <Row label="Remaining collateral"       value={`${colAfter.toFixed(4)} ETH`} bold />
+                      <Row label="Value"                       value={rm(colAfter * price)} />
+                    </Box>
+                    {borMYR > 0 && (
+                      <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
+                        <Row label="Outstanding debt"          value={rm(borMYR, 2)} vc={C.gold} />
+                        <Row label="Min. collateral required"  value={`${minColEth.toFixed(4)} ETH`} />
+                      </Box>
+                    )}
+                  </Box>
+
+                  {borMYR > 0 && (
+                    <Box sx={{ p: 1.75, bgcolor: `${C.gold}08`, border: `1px solid ${C.gold}20`, borderRadius: 2 }}>
+                      <Typography variant="caption" sx={{ color: C.gold }}>
+                        You have an open loan. You can only withdraw collateral above the amount needed to keep your loan within 70% LTV. Repay debt to free up more.
+                      </Typography>
+                    </Box>
+                  )}
+
+                  <Button fullWidth variant="contained"
+                    disabled={action.disabled}
+                    onClick={action.onClick}
+                    sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
+                    {action.label}
+                  </Button>
+                </Box>
+                );
+              })()}
 
               {/* BORROW */}
               {activeTab === 'borrow' && (
