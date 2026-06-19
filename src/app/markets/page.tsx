@@ -75,16 +75,16 @@ export default function MarketsPage() {
     });
   }
 
-  const thSx = { color: '#64748B', bgcolor: '#131629', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap', userSelect: 'none' };
+  const thSx = { color: '#5A6675', bgcolor: '#EEF1F5', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', userSelect: 'none' };
   const thBtn = (col: SortKey, label: string) => (
     <Box onClick={() => handleSort(col)}
-      sx={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', '&:hover': { color: '#94A3B8' } }}>
+      sx={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', '&:hover': { color: '#10151C' } }}>
       {label}<SortIcon col={col} />
     </Box>
   );
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#0D0F1A', color: 'text.primary' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', color: 'text.primary' }}>
       <Navbar />
       <Box component="main" sx={{ maxWidth: 1280, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4 }}>
 
@@ -97,7 +97,7 @@ export default function MarketsPage() {
             </Typography>
           </Box>
           {loading ? (
-            <MuiSkeleton width={144} height={12} sx={{ bgcolor: '#1E2035', mt: 1 }} />
+            <MuiSkeleton width={144} height={12} sx={{ bgcolor: '#E7EBF1', mt: 1 }} />
           ) : lastUpdated && (
             <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
               Last updated: {lastUpdated.toLocaleTimeString()}
@@ -108,12 +108,12 @@ export default function MarketsPage() {
         {/* Market stats */}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, 1fr)' }, gap: 2, mb: 4 }}>
           {[
-            { label: 'Total Value Locked', value: 'RM 28.3B', sub: 'Across all assets', c: '#22c55e' },
-            { label: 'Total Borrowed',     value: 'RM 17.5B', sub: '61.8% utilisation',  c: '#eab308' },
-            { label: 'Avg Borrow APR',     value: '7.1%',      sub: 'Weighted average',   c: '#ef4444' },
-            { label: 'Avg Supply APR',     value: '3.9%',      sub: 'Weighted average',   c: '#22c55e' },
+            { label: 'Total Value Locked', value: 'RM 28.3B', sub: 'Across all assets', c: '#0E9F6E' },
+            { label: 'Total Borrowed',     value: 'RM 17.5B', sub: '61.8% utilisation',  c: '#C77700' },
+            { label: 'Avg Borrow APR',     value: '7.1%',      sub: 'Weighted average',   c: '#E5484D' },
+            { label: 'Avg Supply APR',     value: '3.9%',      sub: 'Weighted average',   c: '#0E9F6E' },
           ].map(s => (
-            <Paper key={s.label} sx={{ p: 2, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2 }}>
+            <Paper key={s.label} sx={{ p: 2, bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 2 }}>
               <Typography variant="caption" color="text.secondary">{s.label}</Typography>
               <Typography variant="h5" color="text.primary" sx={{ my: 0.5, fontWeight: 700 }}>{s.value}</Typography>
               <Typography variant="caption" sx={{ color: s.c }}>{s.sub}</Typography>
@@ -129,7 +129,7 @@ export default function MarketsPage() {
                 label={`Sorted by ${sortKey} ${sortDir === 'asc' ? '▲' : '▼'}`}
                 size="small"
                 onDelete={() => { setSortKey(null); }}
-                sx={{ bgcolor: '#1E2035', color: '#94A3B8', fontSize: 11, height: 24 }}
+                sx={{ bgcolor: '#EEF1F5', color: '#5A6675', fontSize: 11, height: 24 }}
               />
             )}
             {search && (
@@ -137,7 +137,7 @@ export default function MarketsPage() {
                 label={`"${search}"`}
                 size="small"
                 onDelete={() => setSearch('')}
-                sx={{ bgcolor: '#1E2035', color: '#94A3B8', fontSize: 11, height: 24 }}
+                sx={{ bgcolor: '#EEF1F5', color: '#5A6675', fontSize: 11, height: 24 }}
               />
             )}
           </Box>
@@ -151,7 +151,7 @@ export default function MarketsPage() {
         </Box>
 
         {/* Markets table */}
-        <TableContainer component={Paper} sx={{ bgcolor: 'transparent', border: '1px solid #1E2035', borderRadius: 3, overflowX: 'auto' }}>
+        <TableContainer component={Paper} sx={{ bgcolor: 'transparent', border: '1px solid #E2E7EE', borderRadius: 3, overflowX: 'auto' }}>
           <Table sx={{ minWidth: 800 }}>
             <TableHead>
               <TableRow>
@@ -169,7 +169,7 @@ export default function MarketsPage() {
             <TableBody>
               {displayed.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} sx={{ textAlign: 'center', py: 6, color: '#64748B', borderColor: '#1E2035' }}>
+                  <TableCell colSpan={9} sx={{ textAlign: 'center', py: 6, color: '#8B96A5', borderColor: '#E2E7EE' }}>
                     No assets match &ldquo;{search}&rdquo;
                   </TableCell>
                 </TableRow>
@@ -178,9 +178,9 @@ export default function MarketsPage() {
                 const key      = SYMBOL_TO_ID[m.symbol] as keyof typeof flash | undefined;
                 const flashDir = key ? flash[key] : undefined;
                 return (
-                  <TableRow key={m.symbol} sx={{ bgcolor: i % 2 === 0 ? '#0D0F1A' : '#0F111D', '&:hover': { bgcolor: '#131629' } }}>
+                  <TableRow key={m.symbol} sx={{ bgcolor: i % 2 === 0 ? '#FFFFFF' : '#FAFBFC', '&:hover': { bgcolor: '#EEF1F5' } }}>
 
-                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                    <TableCell sx={{ borderColor: '#E2E7EE' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                                     fontSize: 14, fontWeight: 700, flexShrink: 0, bgcolor: `${m.color}1A`, color: m.color }}>
@@ -193,11 +193,11 @@ export default function MarketsPage() {
                       </Box>
                     </TableCell>
 
-                    <TableCell className={flashDir ? `price-flash-${flashDir}` : ''} sx={{ borderColor: '#1E2035' }}>
+                    <TableCell className={flashDir ? `price-flash-${flashDir}` : ''} sx={{ borderColor: '#E2E7EE' }}>
                       {loading ? (
                         <Box>
-                          <MuiSkeleton width={96} height={16} sx={{ bgcolor: '#1E2035', mb: 0.5 }} />
-                          <MuiSkeleton width={64} height={12} sx={{ bgcolor: '#1E2035' }} />
+                          <MuiSkeleton width={96} height={16} sx={{ bgcolor: '#E7EBF1', mb: 0.5 }} />
+                          <MuiSkeleton width={64} height={12} sx={{ bgcolor: '#E7EBF1' }} />
                         </Box>
                       ) : (
                         <Box>
@@ -211,42 +211,42 @@ export default function MarketsPage() {
                       )}
                     </TableCell>
 
-                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                    <TableCell sx={{ borderColor: '#E2E7EE' }}>
                       {loading ? (
-                        <MuiSkeleton width={56} height={20} sx={{ bgcolor: '#1E2035', borderRadius: 999 }} />
+                        <MuiSkeleton width={56} height={20} sx={{ bgcolor: '#E7EBF1', borderRadius: 999 }} />
                       ) : (
                         <Chip label={`${p.change24h >= 0 ? '+' : ''}${p.change24h.toFixed(2)}%`} size="small"
-                          sx={{ bgcolor: p.change24h >= 0 ? '#22c55e20' : '#ef444420',
-                                color: p.change24h >= 0 ? '#22c55e' : '#ef4444', fontSize: 11, fontWeight: 600, height: 20 }} />
+                          sx={{ bgcolor: p.change24h >= 0 ? '#0E9F6E20' : '#E5484D20',
+                                color: p.change24h >= 0 ? '#0E9F6E' : '#E5484D', fontSize: 11, fontWeight: 600, height: 20 }} />
                       )}
                     </TableCell>
 
-                    <TableCell sx={{ borderColor: '#1E2035', color: '#06B6D4', fontWeight: 600 }}>{m.maxLTV}%</TableCell>
-                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                    <TableCell sx={{ borderColor: '#E2E7EE', color: '#2A3FD6', fontWeight: 600 }}>{m.maxLTV}%</TableCell>
+                    <TableCell sx={{ borderColor: '#E2E7EE' }}>
                       <Typography variant="caption" color="text.secondary">{m.liqThresh}%</Typography>
                     </TableCell>
-                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                    <TableCell sx={{ borderColor: '#E2E7EE' }}>
                       <Chip label={`${m.borrowAPR}%`} size="small"
-                        sx={{ bgcolor: '#ef444420', color: '#ef4444', fontSize: 11, fontWeight: 600, height: 20 }} />
+                        sx={{ bgcolor: '#E5484D20', color: '#E5484D', fontSize: 11, fontWeight: 600, height: 20 }} />
                     </TableCell>
-                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                    <TableCell sx={{ borderColor: '#E2E7EE' }}>
                       <Chip label={`${m.supplyAPR}%`} size="small"
-                        sx={{ bgcolor: '#22c55e20', color: '#22c55e', fontSize: 11, fontWeight: 600, height: 20 }} />
+                        sx={{ bgcolor: '#0E9F6E20', color: '#0E9F6E', fontSize: 11, fontWeight: 600, height: 20 }} />
                     </TableCell>
 
-                    <TableCell sx={{ borderColor: '#1E2035' }}>
+                    <TableCell sx={{ borderColor: '#E2E7EE' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <LinearProgress variant="determinate" value={m.util}
-                          sx={{ flex: 1, minWidth: 48, height: 6, borderRadius: 1, bgcolor: '#1E2035',
+                          sx={{ flex: 1, minWidth: 48, height: 6, borderRadius: 1, bgcolor: '#E7EBF1',
                                 '& .MuiLinearProgress-bar': { borderRadius: 1,
-                                  bgcolor: m.util > 75 ? '#ef4444' : m.util > 50 ? '#eab308' : '#22c55e' } }} />
+                                  bgcolor: m.util > 75 ? '#E5484D' : m.util > 50 ? '#C77700' : '#0E9F6E' } }} />
                         <Typography variant="caption" color="text.secondary" sx={{ minWidth: 28 }}>{m.util}%</Typography>
                       </Box>
                     </TableCell>
 
-                    <TableCell sx={{ borderColor: '#1E2035' }}>
-                      <Button component={Link} href={`/?asset=${m.symbol}`} size="small"
-                        sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white', fontSize: 11, px: 1.5, whiteSpace: 'nowrap' }}>
+                    <TableCell sx={{ borderColor: '#E2E7EE' }}>
+                      <Button component={Link} href={`/?asset=${m.symbol}`} size="small" variant="contained"
+                        sx={{ bgcolor: '#2A3FD6', color: 'white', fontSize: 11, px: 1.5, whiteSpace: 'nowrap', boxShadow: 'none', '&:hover': { bgcolor: '#1E2FA8', boxShadow: 'none' } }}>
                         Borrow
                       </Button>
                     </TableCell>

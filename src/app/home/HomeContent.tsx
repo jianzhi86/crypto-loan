@@ -70,7 +70,6 @@ const ASSETS = [
 const FOOTER_LINKS = [
   { href: '/', label: 'Dashboard' },
   { href: '/markets', label: 'Markets' },
-  { href: '/ico', label: 'Buy MYRC' },
   { href: '/docs', label: 'Docs' },
   { href: '/kyc', label: 'KYC' },
 ];

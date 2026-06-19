@@ -11,7 +11,6 @@ import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
-import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
 import CircularProgress from '@mui/material/CircularProgress';
 import Navbar from '@/components/Navbar';
@@ -39,11 +38,39 @@ interface BankAccount {
 }
 
 const cardSx = {
-  bgcolor: '#0D1117',
-  border: '1px solid #1A1C30',
+  bgcolor: '#FFFFFF',
+  border: '1px solid #E2E7EE',
   borderRadius: 2,
   p: 3,
 };
+
+const DISBURSEMENT_STEPS = [
+  'After a successful borrow, choose "Transfer to Bank" in the loan calculator.',
+  'Funds are sent via DuitNow Instant Transfer to your registered account.',
+  'Processing typically completes within 10 seconds (simulated in this demo).',
+  'A transfer reference number is generated for each disbursement.',
+  'View all transfer history on the Portfolio page.',
+];
+
+// Group a digit string into blocks of four for readability: 1234567890 → 1234 5678 90
+function groupDigits(s: string) { return s.replace(/(.{4})/g, '$1 ').trim(); }
+
+// Mask all but the last four digits, then group: 1234567890 → •••• •••• 7890
+function maskAccount(s: string) {
+  if (!s) return '•••• •••• ••••';
+  const last4  = s.slice(-4);
+  const masked = '•'.repeat(Math.max(0, s.length - 4)) + last4;
+  return groupDigits(masked);
+}
+
+// Small uppercase eyebrow label used to separate the page's sections.
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography sx={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', color: '#8B96A5', mb: 1.5 }}>
+      {children}
+    </Typography>
+  );
+}
 
 export default function SettingsPage() {
   const [account, setAccount]     = useState<BankAccount | null>(null);
@@ -98,67 +125,107 @@ export default function SettingsPage() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#060812', pb: 8 }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', pb: 8 }}>
       <Navbar />
       <Box sx={{ maxWidth: 720, mx: 'auto', px: { xs: 2, sm: 3 }, pt: 4 }}>
         {/* Header */}
-        <Box sx={{ mb: 4 }}>
+        <Box sx={{ mb: 3 }}>
+          <Eyebrow>Profile &amp; payouts</Eyebrow>
           <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary', mb: 0.5 }}>
             Settings
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Manage your profile and payment preferences
+            Where your ringgit lands when a loan is disbursed.
           </Typography>
+        </Box>
+
+        {/* Passbook preview — the registered disbursement account, passbook-style */}
+        <Box sx={{
+          position: 'relative', overflow: 'hidden', mb: 3,
+          borderRadius: 2.5, p: 3, bgcolor: '#2A3FD6', color: '#fff',
+          boxShadow: '0 8px 24px -12px rgba(42,63,214,0.6)',
+        }}>
+          {/* faint passbook ruling */}
+          <Box sx={{ position: 'absolute', inset: 0, opacity: 0.12, pointerEvents: 'none',
+            backgroundImage: 'repeating-linear-gradient(transparent, transparent 27px, #fff 27px, #fff 28px)' }} />
+          <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+            <Typography sx={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1.4, textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)' }}>
+              DuitNow disbursement account
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+              <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: account ? '#3DD68C' : 'rgba(255,255,255,0.45)',
+                boxShadow: account ? '0 0 8px #3DD68C' : 'none' }} />
+              <Typography sx={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+                {account ? 'Active' : 'Not set up'}
+              </Typography>
+            </Box>
+          </Box>
+          <Typography className="tnum" sx={{ position: 'relative',
+            fontSize: { xs: 22, sm: 26 }, fontWeight: 600, letterSpacing: 3, mb: 3 }}>
+            {maskAccount(accountNumber)}
+          </Typography>
+          <Box sx={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 2 }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'rgba(255,255,255,0.6)', mb: 0.25 }}>
+                Account holder
+              </Typography>
+              <Typography noWrap sx={{ fontSize: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {accountHolder || '—'}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+              <Typography sx={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'rgba(255,255,255,0.6)', mb: 0.25 }}>
+                Bank
+              </Typography>
+              <Typography sx={{ fontSize: 14, fontWeight: 600 }}>
+                {bankName || '—'}
+              </Typography>
+            </Box>
+          </Box>
         </Box>
 
         {/* Bank Account section */}
         <Paper sx={cardSx}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
-            <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: 'rgba(6,182,212,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: 'rgba(42,63,214,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
               🏦
             </Box>
             <Box>
               <Typography sx={{ fontWeight: 600, color: 'text.primary' }}>
-                Bank Account
+                Payout details
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                Used to receive MYR loan disbursements via DuitNow
+                Edit your DuitNow account and on-chain recipient
               </Typography>
             </Box>
-            {account && (
-              <Chip
-                label="Registered"
-                size="small"
-                sx={{ ml: 'auto', bgcolor: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)', fontSize: 11 }}
-              />
-            )}
           </Box>
 
-          <Divider sx={{ borderColor: '#1A1C30', mb: 3 }} />
+          <Divider sx={{ borderColor: '#E2E7EE', mb: 3 }} />
 
           {loading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-              <CircularProgress size={28} sx={{ color: '#06B6D4' }} />
+              <CircularProgress size={28} sx={{ color: '#2A3FD6' }} />
             </Box>
           ) : (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+              <Eyebrow>Bank details</Eyebrow>
               <FormControl fullWidth size="small">
-                <InputLabel sx={{ color: '#475569' }}>Bank Name</InputLabel>
+                <InputLabel sx={{ color: '#5A6675' }}>Bank Name</InputLabel>
                 <Select
                   value={bankName}
                   label="Bank Name"
                   onChange={e => setBankName(e.target.value)}
                   sx={{
                     color: 'text.primary',
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1E2035' },
-                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#475569' },
-                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#06B6D4' },
-                    '& .MuiSvgIcon-root': { color: '#475569' },
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#E2E7EE' },
+                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#5A6675' },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#2A3FD6' },
+                    '& .MuiSvgIcon-root': { color: '#5A6675' },
                   }}
-                  MenuProps={{ slotProps: { paper: { sx: { bgcolor: '#0D1117', border: '1px solid #1E2035' } } } }}
+                  MenuProps={{ slotProps: { paper: { sx: { bgcolor: '#FFFFFF', border: '1px solid #E2E7EE' } } } }}
                 >
                   {BANKS.map(b => (
-                    <MenuItem key={b} value={b} sx={{ color: 'text.primary', '&:hover': { bgcolor: '#131629' } }}>
+                    <MenuItem key={b} value={b} sx={{ color: 'text.primary', '&:hover': { bgcolor: '#EEF1F5' } }}>
                       {b}
                     </MenuItem>
                   ))}
@@ -171,15 +238,15 @@ export default function SettingsPage() {
                 fullWidth
                 value={accountNumber}
                 onChange={e => setAccountNumber(e.target.value.replace(/\D/g, ''))}
-                slotProps={{ htmlInput: { maxLength: 20 }, formHelperText: { sx: { color: '#475569' } } }}
+                slotProps={{ htmlInput: { maxLength: 20 }, formHelperText: { sx: { color: '#5A6675' } } }}
                 helperText="Digits only · dashes and spaces are removed automatically"
                 placeholder="e.g. 1234567890"
                 sx={{
                   '& .MuiInputBase-input': { color: 'text.primary' },
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1E2035' },
-                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#475569' },
-                  '& .MuiInputLabel-root': { color: '#475569' },
-                  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#06B6D4' },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: '#E2E7EE' },
+                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#5A6675' },
+                  '& .MuiInputLabel-root': { color: '#5A6675' },
+                  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#2A3FD6' },
                 }}
               />
 
@@ -192,17 +259,19 @@ export default function SettingsPage() {
                 placeholder="As per bank records"
                 sx={{
                   '& .MuiInputBase-input': { color: 'text.primary' },
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1E2035' },
-                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#475569' },
-                  '& .MuiInputLabel-root': { color: '#475569' },
-                  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#06B6D4' },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: '#E2E7EE' },
+                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#5A6675' },
+                  '& .MuiInputLabel-root': { color: '#5A6675' },
+                  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#2A3FD6' },
                 }}
               />
 
-              {/* On-chain recipient wallet */}
+              {/* On-chain recipient wallet — a separate, technical concern from the bank account */}
+              <Divider sx={{ borderColor: '#E2E7EE', mt: 0.5 }} />
               <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
-                  Hardhat Recipient Wallet <Box component="span" sx={{ color: '#475569' }}>(for on-chain MYR transfer)</Box>
+                <Eyebrow>On-chain recipient</Eyebrow>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Where MockMYR is sent when you borrow with Bank Transfer. Any Hardhat test account works.
                 </Typography>
                 <TextField
                   size="small"
@@ -210,23 +279,22 @@ export default function SettingsPage() {
                   value={recipientAddress}
                   onChange={e => setRecipientAddress(e.target.value.trim())}
                   placeholder="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-                  helperText="Enter any Hardhat test account address — MockMYR tokens will be sent here on-chain when you borrow with Bank Transfer"
-                  slotProps={{ formHelperText: { sx: { color: '#475569' } } }}
+                  slotProps={{ formHelperText: { sx: { color: '#5A6675' } } }}
                   sx={{
                     '& .MuiInputBase-input': { color: 'text.primary', fontFamily: 'monospace', fontSize: 12 },
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#1E2035' },
-                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#475569' },
-                    '& .MuiInputLabel-root': { color: '#475569' },
-                    '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#8247E5' },
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: '#E2E7EE' },
+                    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#5A6675' },
+                    '& .MuiInputLabel-root': { color: '#5A6675' },
+                    '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#2A3FD6' },
                   }}
                 />
                 <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-                  <Typography variant="caption" sx={{ color: '#475569', alignSelf: 'center' }}>Quick fill:</Typography>
+                  <Typography variant="caption" sx={{ color: '#5A6675', alignSelf: 'center' }}>Quick fill:</Typography>
                   {HARDHAT_ACCOUNTS.map(a => (
                     <Box key={a.address} onClick={() => setRecipientAddress(a.address)}
-                      sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: '#1E2035', cursor: 'pointer', border: `1px solid ${recipientAddress === a.address ? '#8247E5' : 'transparent'}`,
-                            '&:hover': { borderColor: '#8247E5' } }}>
-                      <Typography variant="caption" sx={{ color: '#94A3B8', fontFamily: 'monospace', fontSize: 10 }}>
+                      sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: '#EEF1F5', cursor: 'pointer', border: `1px solid ${recipientAddress === a.address ? '#2A3FD6' : 'transparent'}`,
+                            '&:hover': { borderColor: '#2A3FD6' } }}>
+                      <Typography variant="caption" sx={{ color: '#5A6675', fontFamily: 'monospace', fontSize: 10 }}>
                         {a.label} · {a.address.slice(0, 10)}…
                       </Typography>
                     </Box>
@@ -234,15 +302,15 @@ export default function SettingsPage() {
                 </Box>
               </Box>
 
-              {error   && <Alert severity="error"   sx={{ bgcolor: '#1a0a0a', color: '#f87171' }}>{error}</Alert>}
-              {success && <Alert severity="success" sx={{ bgcolor: '#052e16', color: '#4ade80' }}>Bank account saved successfully.</Alert>}
+              {error   && <Alert severity="error"   sx={{ bgcolor: '#FEF2F2', color: '#E5484D' }}>{error}</Alert>}
+              {success && <Alert severity="success" sx={{ bgcolor: '#ECFDF3', color: '#0E9F6E' }}>Bank account saved successfully.</Alert>}
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, pt: 1 }}>
                 <Button
                   variant="contained"
                   onClick={handleSave}
                   disabled={saving || !bankName || !accountNumber || !accountHolder}
-                  sx={{ background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', color: 'white', px: 3 }}
+                  sx={{ bgcolor: '#2A3FD6', color: 'white', px: 3, boxShadow: 'none', '&:hover': { bgcolor: '#1E2FA8', boxShadow: 'none' } }}
                 >
                   {saving ? 'Saving…' : account ? 'Update Bank Account' : 'Save Bank Account'}
                 </Button>
@@ -256,24 +324,25 @@ export default function SettingsPage() {
           )}
         </Paper>
 
-        {/* Info box */}
-        <Paper sx={{ ...cardSx, mt: 3, bgcolor: 'rgba(6,182,212,0.04)', border: '1px solid rgba(6,182,212,0.15)' }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, color: '#06B6D4', mb: 1 }}>
-            How bank disbursement works
-          </Typography>
-          <Box component="ul" sx={{ pl: 2, m: 0, color: 'text.secondary' }}>
-            {[
-              'After a successful borrow, choose "Transfer to Bank" in the loan calculator.',
-              'Funds are sent via DuitNow Instant Transfer to your registered account.',
-              'Processing typically completes within 10 seconds (simulated in this demo).',
-              'A transfer reference number is generated for each disbursement.',
-              'View all transfer history in the Portfolio page.',
-            ].map((line, i) => (
-              <Typography key={i} component="li" variant="caption" color="text.secondary" sx={{ mb: 0.75 }}>
+        {/* How disbursement works — a real sequence, rendered as ruled ledger steps */}
+        <Paper sx={{ ...cardSx, mt: 3, p: 0, overflow: 'hidden' }}>
+          <Box sx={{ px: 3, pt: 2.5, pb: 1.5 }}>
+            <Eyebrow>How a bank disbursement works</Eyebrow>
+          </Box>
+          {DISBURSEMENT_STEPS.map((line, i) => (
+            <Box key={i} sx={{
+              display: 'flex', alignItems: 'center', gap: 2, px: 3, py: 1.5,
+              borderTop: '1px solid #EEF1F5',
+            }}>
+              <Typography className="tnum" sx={{ fontSize: 12,
+                fontWeight: 600, color: '#2A3FD6', width: 22, flexShrink: 0 }}>
+                {String(i + 1).padStart(2, '0')}
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#5A6675', lineHeight: 1.5 }}>
                 {line}
               </Typography>
-            ))}
-          </Box>
+            </Box>
+          ))}
         </Paper>
       </Box>
     </Box>

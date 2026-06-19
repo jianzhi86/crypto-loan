@@ -36,7 +36,7 @@ function Section({ id, title, children }: { id: string; title: string; children:
   return (
     <Box component="section" id={id} sx={{ mb: 6 }}>
       <Typography variant="h5" color="text.primary" gutterBottom sx={{ fontWeight: 700 }}>{title}</Typography>
-      <Box sx={{ color: '#94A3B8', display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</Box>
+      <Box sx={{ color: '#5A6675', display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</Box>
     </Box>
   );
 }
@@ -50,7 +50,7 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
     <Box
       component="pre"
       sx={{ fontSize: 12, p: 2, borderRadius: 2, overflowX: 'auto', fontFamily: 'monospace',
-            bgcolor: '#0D0F1A', border: '1px solid #1E2035', color: '#06B6D4', m: 0 }}
+            bgcolor: '#EEF1F5', border: '1px solid #E2E7EE', color: '#1E2FA8', m: 0 }}
     >
       {children}
     </Box>
@@ -59,12 +59,12 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 
 function DocTable({ rows }: { rows: [string, string, string][] }) {
   return (
-    <TableContainer component={Paper} sx={{ bgcolor: 'transparent', border: '1px solid #1E2035', borderRadius: 2 }}>
+    <TableContainer component={Paper} sx={{ bgcolor: 'transparent', border: '1px solid #E2E7EE', borderRadius: 2 }}>
       <Table size="small">
         <TableHead>
           <TableRow>
             {['Asset', 'Max LTV', 'Liq. Threshold'].map(h => (
-              <TableCell key={h} sx={{ color: '#64748B', bgcolor: '#0D0F1A', fontSize: 12 }}>{h}</TableCell>
+              <TableCell key={h} sx={{ color: '#5A6675', bgcolor: '#EEF1F5', fontSize: 12 }}>{h}</TableCell>
             ))}
           </TableRow>
         </TableHead>
@@ -72,8 +72,8 @@ function DocTable({ rows }: { rows: [string, string, string][] }) {
           {rows.map(([a, b, c]) => (
             <TableRow key={a}>
               <TableCell sx={{ color: 'text.primary', fontWeight: 500 }}>{a}</TableCell>
-              <TableCell sx={{ color: '#06B6D4' }}>{b}</TableCell>
-              <TableCell sx={{ color: '#eab308' }}>{c}</TableCell>
+              <TableCell sx={{ color: '#2A3FD6' }}>{b}</TableCell>
+              <TableCell sx={{ color: '#C77700' }}>{c}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -91,14 +91,14 @@ const FaqItem = ({ q, a }: { q: string; a: string }) => {
   const [open, setOpen] = useState(false);
   return (
     <Paper onClick={() => setOpen(o => !o)}
-      sx={{ p: 2, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2, cursor: 'pointer',
-            '&:hover': { borderColor: '#2a2d50' } }}>
+      sx={{ p: 2, bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 2, cursor: 'pointer',
+            '&:hover': { borderColor: '#CBD3DD' } }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>{q}</Typography>
-        <Typography sx={{ color: '#7C3AED', fontSize: 18, lineHeight: 1, ml: 1, flexShrink: 0 }}>{open ? '−' : '+'}</Typography>
+        <Typography sx={{ color: '#2A3FD6', fontSize: 18, lineHeight: 1, ml: 1, flexShrink: 0 }}>{open ? '−' : '+'}</Typography>
       </Box>
       {open && (
-        <Typography variant="caption" sx={{ display: 'block', mt: 1.5, lineHeight: 1.7, color: '#94A3B8' }}>{a}</Typography>
+        <Typography variant="caption" sx={{ display: 'block', mt: 1.5, lineHeight: 1.7, color: '#5A6675' }}>{a}</Typography>
       )}
     </Paper>
   );
@@ -108,23 +108,24 @@ export default function DocsPage() {
   const [active, setActive] = useState('overview');
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#0D0F1A', color: 'text.primary' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', color: 'text.primary' }}>
       <Navbar />
       <Box sx={{ maxWidth: 1280, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4, display: 'flex', gap: 4 }}>
 
         {/* Sidebar */}
         <Box component="aside" sx={{ display: { xs: 'none', lg: 'block' }, width: 208, flexShrink: 0 }}>
           <Box sx={{ position: 'sticky', top: 88 }}>
-            <Typography variant="caption" sx={{ color: '#475569', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600, display: 'block', mb: 1.5, px: 1.5 }}>
+            <Typography variant="caption" sx={{ color: '#8B96A5', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600, display: 'block', mb: 1.5, px: 1.5 }}>
               Documentation
             </Typography>
             {SECTIONS.map(s => (
               <Box key={s.id} component="a" href={`#${s.id}`} onClick={() => setActive(s.id)}
                 sx={{ display: 'block', px: 1.5, py: 1, mb: 0.25, borderRadius: 1.5, textDecoration: 'none',
-                      fontSize: 14, bgcolor: active === s.id ? '#1E1B3A' : 'transparent',
-                      color: active === s.id ? '#A78BFA' : '#64748B',
-                      borderLeft: `2px solid ${active === s.id ? '#7C3AED' : 'transparent'}`,
-                      transition: 'all 0.15s', '&:hover': { color: 'white', bgcolor: '#131629' } }}>
+                      fontSize: 14, bgcolor: active === s.id ? '#E7EAFF' : 'transparent',
+                      color: active === s.id ? '#2A3FD6' : '#5A6675',
+                      fontWeight: active === s.id ? 600 : 400,
+                      borderLeft: `2px solid ${active === s.id ? '#2A3FD6' : 'transparent'}`,
+                      transition: 'all 0.15s', '&:hover': { color: '#10151C', bgcolor: '#EEF1F5' } }}>
                 {s.label}
               </Box>
             ))}
@@ -148,13 +149,13 @@ export default function DocsPage() {
                 { n: '2', title: 'Borrow MYR',         desc: 'Request MockMYR tokens up to 70% of your collateral value (LTV). The contract mints MYR directly to your wallet.' },
                 { n: '3', title: 'Repay & Withdraw',   desc: 'Approve the contract to spend your MYR, then call repay. Once debt is cleared, you can withdraw your ETH collateral.' },
               ].map(s => (
-                <Paper key={s.n} sx={{ display: 'flex', gap: 2, p: 2, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2 }}>
-                  <Box sx={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #7C3AED, #06B6D4)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Paper key={s.n} sx={{ display: 'flex', gap: 2, p: 2, bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 2 }}>
+                  <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: '#2A3FD6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Typography sx={{ color: 'white', fontSize: 14, fontWeight: 700 }}>{s.n}</Typography>
                   </Box>
                   <Box>
                     <Typography variant="body2" color="text.primary" gutterBottom sx={{ fontWeight: 600 }}>{s.title}</Typography>
-                    <Typography variant="caption" sx={{ lineHeight: 1.6, color: '#94A3B8' }}>{s.desc}</Typography>
+                    <Typography variant="caption" sx={{ lineHeight: 1.6, color: '#5A6675' }}>{s.desc}</Typography>
                   </Box>
                 </Paper>
               ))}
@@ -173,9 +174,9 @@ export default function DocsPage() {
             <CodeBlock>{`HF = (Collateral × ETH price × Liquidation threshold%) / Borrowed MYR\n\nExample:\n  1 ETH × RM 18,000 × 80% / RM 9,000 borrowed = 1.60`}</CodeBlock>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5 }}>
               {[
-                { range: 'HF ≥ 2.0', label: 'Safe',     desc: 'Position is well-collateralised', c: '#22c55e' },
-                { range: '1.5 – 2.0', label: 'Moderate', desc: 'Consider adding more collateral', c: '#eab308' },
-                { range: 'HF < 1.5', label: 'At Risk',   desc: 'Close to liquidation threshold', c: '#ef4444' },
+                { range: 'HF ≥ 2.0', label: 'Safe',     desc: 'Position is well-collateralised', c: '#0E9F6E' },
+                { range: '1.5 – 2.0', label: 'Moderate', desc: 'Consider adding more collateral', c: '#C77700' },
+                { range: 'HF < 1.5', label: 'At Risk',   desc: 'Close to liquidation threshold', c: '#E5484D' },
               ].map(h => (
                 <Box key={h.range} sx={{ p: 1.5, borderRadius: 2, textAlign: 'center', bgcolor: `${h.c}0F`, border: `1px solid ${h.c}33` }}>
                   <Typography variant="body2" sx={{ color: h.c, fontWeight: 700 }}>{h.label}</Typography>
@@ -203,7 +204,7 @@ export default function DocsPage() {
             </Box>
             <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, mt: 2 }}>4. Configure MetaMask</Typography>
             <CodeBlock>{`Network name : Hardhat Local\nRPC URL      : ${CODE.metamaskRPC}\nChain ID     : ${CODE.chainId}\nCurrency     : ETH`}</CodeBlock>
-            <P>Import one of the Hardhat test accounts using a private key printed when you run <Box component="code" sx={{ fontFamily: 'monospace', fontSize: 12, bgcolor: 'rgba(0,0,0,0.3)', px: 0.75, borderRadius: 0.5, color: '#A78BFA' }}>npm run chain</Box>. Each account starts with <Box component="strong" sx={{ color: 'text.primary' }}>10,000 ETH</Box>.</P>
+            <P>Import one of the Hardhat test accounts using a private key printed when you run <Box component="code" sx={{ fontFamily: 'monospace', fontSize: 12, bgcolor: '#EEF1F5', px: 0.75, borderRadius: 0.5, color: '#1E2FA8' }}>npm run chain</Box>. Each account starts with <Box component="strong" sx={{ color: 'text.primary' }}>10,000 ETH</Box>.</P>
             <Callout type="tip">The deploy script automatically writes contract addresses to <code>src/lib/contractConfig.ts</code>. You do not need to copy addresses manually.</Callout>
           </Section>
 
@@ -214,12 +215,12 @@ export default function DocsPage() {
                 { name: 'CryptoLoan.sol', desc: 'Main lending contract. Accepts ETH collateral, mints MockMYR on borrow, accepts MockMYR on repay.', fns: ['depositCollateral()','borrow(uint256)','repay(uint256)','withdrawCollateral(uint256)','getLoanInfo(address)','setEthPrice(uint256)'] },
                 { name: 'MockMYR.sol',    desc: 'ERC-20 mock stablecoin. Only the CryptoLoan contract can mint. You can approve and transfer freely.', fns: ['mint(address,uint256)','approve(address,uint256)','balanceOf(address)','transferFrom(...)'] },
               ].map(c => (
-                <Paper key={c.name} sx={{ p: 2, bgcolor: '#131629', border: '1px solid #1E2035', borderRadius: 2 }}>
+                <Paper key={c.name} sx={{ p: 2, bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 2 }}>
                   <Typography variant="body2" color="text.primary" gutterBottom sx={{ fontWeight: 700 }}>{c.name}</Typography>
-                  <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mb: 1.5 }}>{c.desc}</Typography>
+                  <Typography variant="caption" sx={{ color: '#5A6675', display: 'block', mb: 1.5 }}>{c.desc}</Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
                     {c.fns.map(fn => (
-                      <Chip key={fn} label={fn} size="small" sx={{ bgcolor: '#7C3AED22', color: '#A78BFA', fontFamily: 'monospace', fontSize: 11, height: 22 }} />
+                      <Chip key={fn} label={fn} size="small" sx={{ bgcolor: '#E7EAFF', color: '#2A3FD6', fontFamily: 'monospace', fontSize: 11, height: 22 }} />
                     ))}
                   </Box>
                 </Paper>

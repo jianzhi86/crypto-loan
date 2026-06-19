@@ -19,7 +19,6 @@ const NAV = [
   { href: '/markets',   label: 'Markets'   },
   { href: '/portfolio', label: 'Portfolio' },
   { href: '/docs',      label: 'Docs'      },
-  { href: '/ico',       label: 'Buy MYRC'  },
   { href: '/kyc',       label: 'KYC'       },
   { href: '/settings',  label: 'Settings'  },
 ];
