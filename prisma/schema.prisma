@@ -16,6 +16,7 @@ model User {
   email         String?       @unique
   password      String?
   walletAddress String?       @unique
+  isAdmin       Boolean       @default(false)
   createdAt     DateTime      @default(now())
   bankAccount   BankAccount?
   transfers     BankTransfer[]
@@ -78,9 +79,12 @@ model KycSubmission {
   income      String
   purpose     String
   fundSource  String
-  icFrontPath  String   @default("")
-  icBackPath   String   @default("")
-  selfiePath   String   @default("")
+  // Document images stored in-DB as data URIs (data:image/jpeg;base64,...), so
+  // they are shared across all users via the same Supabase database. Served by
+  // GET /api/kyc/documents.
+  icFrontData String?
+  icBackData  String?
+  selfieData  String?
   status      String   @default("pending")
   submittedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt

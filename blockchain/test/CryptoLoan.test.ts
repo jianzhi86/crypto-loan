@@ -286,6 +286,60 @@ describe("CryptoLoan", function () {
       ).to.emit(loan, "Liquidated");
     });
 
+    it("scales down the MYR pulled from the liquidator when collateral can't cover debt + bonus", async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      const principal = (ONE_ETH * ETH_PRICE * MAX_LTV * MYR_6) / (10n ** 18n * 100n);
+      await loan.connect(user).borrow(principal);
+
+      // Crash the price hard enough that collateralValue + 5% bonus for the
+      // full debt would exceed the 1 ETH actually deposited (two successive
+      // 20%-max drops: 18000 -> 14400 -> 11520).
+      await loan.connect(owner).setEthPrice((ETH_PRICE * 80n) / 100n);
+      const crashedPrice = (((ETH_PRICE * 80n) / 100n) * 80n) / 100n;
+      await loan.connect(owner).setEthPrice(crashedPrice);
+
+      await loan.connect(owner).setKYC(liquidator.address, true);
+      await loan.connect(liquidator).depositCollateral({ value: ONE_ETH * 3n });
+      const liquidatorMaxBorrow = (ONE_ETH * 3n * crashedPrice * MAX_LTV * MYR_6) / (10n ** 18n * 100n);
+      await loan.connect(liquidator).borrow(liquidatorMaxBorrow);
+
+      expect(await loan.healthFactor(user.address)).to.be.lt(10n ** 18n);
+
+      // Naive (unscaled) collateral value + bonus for repaying the full debt
+      // — this is more ETH than the borrower actually deposited.
+      const naiveCollateralValue = (principal * 10n ** 18n) / (crashedPrice * MYR_6);
+      const naiveSeize = naiveCollateralValue + (naiveCollateralValue * 5n) / 100n;
+      expect(naiveSeize).to.be.gt(ONE_ETH);
+
+      await myr.connect(liquidator).approve(await loan.getAddress(), principal);
+      const liquidatorMyrBefore = await myr.balanceOf(liquidator.address);
+      const liquidatorEthBefore = await ethers.provider.getBalance(liquidator.address);
+
+      const tx = await loan.connect(liquidator).liquidate(user.address, principal);
+      const receipt = await tx.wait();
+      const gasCost = receipt!.gasUsed * receipt!.gasPrice;
+
+      // All collateral seized (capped), but never more than what's there.
+      const loanAfter = await loan.loans(user.address);
+      expect(loanAfter.collateral).to.equal(0n);
+
+      // Liquidator received exactly the capped collateral, not the naive
+      // (over-bonused) amount.
+      const liquidatorEthAfter = await ethers.provider.getBalance(liquidator.address);
+      expect(liquidatorEthAfter - liquidatorEthBefore + gasCost).to.equal(ONE_ETH);
+
+      // Liquidator paid proportionally less MYR than the full debt, since
+      // they only received 1 ETH worth (scaled), not naiveSeize worth.
+      const liquidatorMyrAfter = await myr.balanceOf(liquidator.address);
+      const myrPaid = liquidatorMyrBefore - liquidatorMyrAfter;
+      expect(myrPaid).to.be.lt(principal);
+
+      // The shortfall stays on the books as uncovered principal (bad debt)
+      // rather than being wiped out for collateral the liquidator didn't
+      // actually receive.
+      expect(loanAfter.principal).to.be.gt(0n);
+    });
+
     it("non-liquidator cannot liquidate", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
       await loan.connect(user).borrow(1_000n * MYR_6);

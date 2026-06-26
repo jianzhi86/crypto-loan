@@ -42,7 +42,7 @@ function LoginForm() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Login failed'); setLoading(false); return; }
-      router.push(nextPath);
+      router.push(data.isAdmin ? '/admin' : nextPath);
     } catch {
       setError('Network error. Please try again.');
       setLoading(false);

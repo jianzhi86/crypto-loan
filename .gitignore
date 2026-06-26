@@ -41,6 +41,9 @@ next-env.d.ts
 
 /src/generated/prisma
 
+# Legacy local KYC document uploads (now stored in the database)
+/public/uploads/
+
 # SQLite database files
 *.db
 *.db-journal

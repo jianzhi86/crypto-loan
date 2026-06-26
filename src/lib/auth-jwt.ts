@@ -10,6 +10,7 @@ export interface AuthPayload {
   email?: string | null;
   name?: string | null;
   walletAddress?: string | null;
+  isAdmin?: boolean;
 }
 
 export async function createToken(payload: AuthPayload): Promise<string> {

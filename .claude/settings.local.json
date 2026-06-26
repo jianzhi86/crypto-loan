@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k,v\\) for k,v in {**d.get\\('dependencies',{}\\),**d.get\\('devDependencies',{}\\)}.items\\(\\)]\")",
-      "PowerShell(Get-Content \"c:\\\\Users\\\\leeji\\\\crypto-loan\\\\package.json\" | ConvertFrom-Json | ForEach-Object { $_.dependencies.PSObject.Properties | Select-Object Name, Value })"
+      "PowerShell(Get-Content \"c:\\\\Users\\\\leeji\\\\crypto-loan\\\\package.json\" | ConvertFrom-Json | ForEach-Object { $_.dependencies.PSObject.Properties | Select-Object Name, Value })",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"console.log\\(require\\('dotenv/package.json'\\).version\\)\")"
     ]
   }
 }

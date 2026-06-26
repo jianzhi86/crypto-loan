@@ -4,11 +4,12 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @notice Sells RinggitToken (MYR) for ETH at a fixed price. The owner holds
 ///         the token supply and approves this contract; buyers pay ETH and
 ///         receive MYR via safeTransferFrom(owner -> buyer).
-contract ICO is Pausable, Ownable {
+contract ICO is Pausable, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IERC20 public token;
@@ -51,7 +52,13 @@ contract ICO is Pausable, Ownable {
     function unpause() external onlyOwner { _unpause(); }
 
     /// @notice Withdraw collected ETH to the owner.
-    function withdrawal() external onlyOwner {
-        payable(owner()).transfer(address(this).balance);
+    ///         Uses `call` instead of `transfer` — `transfer`'s fixed 2300-gas
+    ///         stipend reverts if the owner is ever a contract wallet with a
+    ///         nontrivial receive function.
+    function withdrawal() external onlyOwner nonReentrant {
+        uint256 amount = address(this).balance;
+        require(amount > 0, "Nothing to withdraw");
+        (bool ok, ) = payable(owner()).call{value: amount}("");
+        require(ok, "ETH transfer failed");
     }
 }

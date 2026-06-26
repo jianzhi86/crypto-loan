@@ -72,11 +72,13 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     // ── Admin ──────────────────────────────────────────────────────────────
 
     function setKYC(address user, bool approved) external onlyOwner {
+        require(user != address(0), "Zero address");
         kycApproved[user] = approved;
         emit KYCSet(user, approved);
     }
 
     function setLiquidator(address liquidator, bool approved) external onlyOwner {
+        require(liquidator != address(0), "Zero address");
         liquidators[liquidator] = approved;
         emit LiquidatorSet(liquidator, approved);
     }
@@ -207,7 +209,15 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 collateralValue = (covering * PRECISION) / (ethPrice * MYR_DECIMALS);
         uint256 bonus           = (collateralValue * LIQ_BONUS) / 100;
         uint256 seize           = collateralValue + bonus;
-        if (seize > loan.collateral) seize = loan.collateral;
+        if (seize > loan.collateral) {
+            // Not enough collateral left to fully cover `covering` + bonus —
+            // scale the MYR pulled from the liquidator down to match what's
+            // actually seizable, so they're never charged for collateral they
+            // don't receive.
+            seize = loan.collateral;
+            collateralValue = (seize * 100) / (100 + LIQ_BONUS);
+            covering        = (collateralValue * ethPrice * MYR_DECIMALS) / PRECISION;
+        }
 
         // Pull MYR from liquidator
         myr.transferFrom(msg.sender, address(this), covering);

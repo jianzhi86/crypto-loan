@@ -33,15 +33,15 @@ export function AdminApproveBtn({ wallet, initialStatus }: { wallet: string; ini
   if (status === 'approved') {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-        <Typography variant="caption" sx={{ color: '#22c55e', fontWeight: 500 }}>✓ Approved</Typography>
+        <Typography variant="caption" sx={{ color: '#0E9F6E', fontWeight: 500 }}>✓ Approved</Typography>
         <Button
           size="small"
           onClick={approve}
           disabled={loading}
           variant="outlined"
           sx={{
-            borderColor: '#1E2035',
-            color: '#64748B',
+            borderColor: '#E2E7EE',
+            color: '#5A6675',
             fontSize: 10,
             py: 0.25,
             px: 0.75,
@@ -53,7 +53,7 @@ export function AdminApproveBtn({ wallet, initialStatus }: { wallet: string; ini
         >
           {loading ? '…' : '🔄 Re-sync chain'}
         </Button>
-        {error && <Typography variant="caption" sx={{ color: '#ef4444' }}>{error}</Typography>}
+        {error && <Typography variant="caption" sx={{ color: '#E5484D' }}>{error}</Typography>}
       </Box>
     );
   }
@@ -66,22 +66,22 @@ export function AdminApproveBtn({ wallet, initialStatus }: { wallet: string; ini
         disabled={loading}
         variant="outlined"
         sx={{
-          borderColor: '#16a34a',
-          color: '#22c55e',
-          bgcolor: 'rgba(34,197,94,0.08)',
+          borderColor: '#0E9F6E',
+          color: '#0E9F6E',
+          bgcolor: 'rgba(14,159,110,0.08)',
           fontSize: 11,
           py: 0.25,
           px: 1,
           minWidth: 'auto',
           whiteSpace: 'nowrap',
-          '&:hover': { bgcolor: 'rgba(34,197,94,0.15)', borderColor: '#22c55e' },
+          '&:hover': { bgcolor: 'rgba(14,159,110,0.15)', borderColor: '#0E9F6E' },
           '&.Mui-disabled': { opacity: 0.4 },
         }}
       >
         {loading ? 'Approving…' : 'Approve'}
       </Button>
       {error && (
-        <Typography variant="caption" sx={{ color: '#ef4444' }}>{error}</Typography>
+        <Typography variant="caption" sx={{ color: '#E5484D' }}>{error}</Typography>
       )}
     </Box>
   );

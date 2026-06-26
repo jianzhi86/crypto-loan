@@ -33,24 +33,24 @@ export function AdminSyncPriceBtn() {
         disabled={loading}
         variant="outlined"
         sx={{
-          borderColor: 'rgba(6,182,212,0.25)',
+          borderColor: 'rgba(6,182,212,0.3)',
           color: '#06B6D4',
-          bgcolor: '#0D1520',
+          bgcolor: 'rgba(6,182,212,0.06)',
           fontSize: 11,
           gap: 0.5,
-          '&:hover': { bgcolor: 'rgba(6,182,212,0.08)', borderColor: '#06B6D4' },
+          '&:hover': { bgcolor: 'rgba(6,182,212,0.12)', borderColor: '#06B6D4' },
           '&.Mui-disabled': { opacity: 0.4 },
         }}
       >
         {loading ? '⟳ Syncing…' : '⟳ Sync ETH Price'}
       </Button>
       {result?.price && (
-        <Typography variant="caption" sx={{ fontWeight: 600, color: '#22c55e' }}>
+        <Typography variant="caption" sx={{ fontWeight: 600, color: '#0E9F6E' }}>
           ✓ RM {result.price.toLocaleString()} on-chain
         </Typography>
       )}
       {result?.error && (
-        <Typography variant="caption" sx={{ color: '#ef4444' }}>{result.error}</Typography>
+        <Typography variant="caption" sx={{ color: '#E5484D' }}>{result.error}</Typography>
       )}
     </Box>
   );

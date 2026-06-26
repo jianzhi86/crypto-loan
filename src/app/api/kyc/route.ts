@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
 import { prisma } from '@/lib/db/prisma';
 
-function saveBase64File(walletDir: string, name: string, dataUri: string | undefined): string {
-  if (!dataUri || !dataUri.startsWith('data:')) return '';
-  const [header, data] = dataUri.split(',');
-  const ext = header.includes('png') ? 'png' : header.includes('pdf') ? 'pdf' : 'jpg';
-  const filename = `${name}.${ext}`;
-  writeFileSync(join(walletDir, filename), Buffer.from(data, 'base64'));
-  return filename;
+// Keep only valid image data URIs; anything else becomes undefined so we don't
+// overwrite an existing image with junk.
+function cleanDataUri(dataUri: string | undefined): string | undefined {
+  return typeof dataUri === 'string' && dataUri.startsWith('data:') ? dataUri : undefined;
 }
 
 // POST /api/kyc — save KYC form data + document uploads
@@ -30,14 +25,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Save uploaded documents to public/uploads/kyc/{wallet}/
+    // Store document images in-DB (Supabase Postgres) as data URIs so they are
+    // shared across all users, not saved to the local filesystem.
     const walletKey = (wallet as string).toLowerCase();
-    const walletDir = join(process.cwd(), 'public', 'uploads', 'kyc', walletKey);
-    mkdirSync(walletDir, { recursive: true });
-
-    const icFrontPath = saveBase64File(walletDir, 'front',  icFront);
-    const icBackPath  = saveBase64File(walletDir, 'back',   icBack);
-    const selfiePath  = saveBase64File(walletDir, 'selfie', selfie);
+    const icFrontData = cleanDataUri(icFront);
+    const icBackData  = cleanDataUri(icBack);
+    const selfieData  = cleanDataUri(selfie);
 
     const record = await prisma.kycSubmission.upsert({
       where:  { wallet: walletKey },
@@ -45,9 +38,9 @@ export async function POST(req: NextRequest) {
         fullName, docType: dt, icNumber, dob, gender, nationality, phone, email,
         addr1, addr2: addr2 ?? '', postcode, city, state,
         employment, income, purpose, fundSource,
-        ...(icFrontPath && { icFrontPath }),
-        ...(icBackPath  && { icBackPath }),
-        ...(selfiePath  && { selfiePath }),
+        ...(icFrontData && { icFrontData }),
+        ...(icBackData  && { icBackData }),
+        ...(selfieData  && { selfieData }),
         status: 'pending',
       },
       create: {
@@ -55,7 +48,7 @@ export async function POST(req: NextRequest) {
         fullName, docType: dt, icNumber, dob, gender, nationality, phone, email,
         addr1, addr2: addr2 ?? '', postcode, city, state,
         employment, income, purpose, fundSource,
-        icFrontPath, icBackPath, selfiePath,
+        icFrontData, icBackData, selfieData,
         status: 'pending',
       },
     });
@@ -67,7 +60,8 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/kyc?wallet=0x... — fetch KYC record by wallet
+// GET /api/kyc?wallet=0x... — fetch KYC record by wallet (excludes heavy image
+// blobs; use GET /api/kyc/documents to fetch images).
 export async function GET(req: NextRequest) {
   const wallet = req.nextUrl.searchParams.get('wallet');
   if (!wallet) return NextResponse.json({ error: 'wallet param required' }, { status: 400 });
@@ -77,9 +71,29 @@ export async function GET(req: NextRequest) {
       where: { wallet: wallet.toLowerCase() },
     });
     if (!record) return NextResponse.json({ exists: false }, { status: 200 });
-    return NextResponse.json({ exists: true, ...record });
+    // Strip the heavy image blobs from the status response — images are fetched
+    // separately via GET /api/kyc/documents.
+    const rest = { ...record };
+    delete (rest as Partial<typeof record>).icFrontData;
+    delete (rest as Partial<typeof record>).icBackData;
+    delete (rest as Partial<typeof record>).selfieData;
+    return NextResponse.json({ exists: true, ...rest });
   } catch (err) {
     console.error('[GET /api/kyc]', err);
+    return NextResponse.json({ error: 'Database error' }, { status: 500 });
+  }
+}
+
+// DELETE /api/kyc?wallet=0x... — remove a KYC submission (admin action)
+export async function DELETE(req: NextRequest) {
+  const wallet = req.nextUrl.searchParams.get('wallet');
+  if (!wallet) return NextResponse.json({ error: 'wallet param required' }, { status: 400 });
+
+  try {
+    await prisma.kycSubmission.delete({ where: { wallet: wallet.toLowerCase() } });
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('[DELETE /api/kyc]', err);
     return NextResponse.json({ error: 'Database error' }, { status: 500 });
   }
 }

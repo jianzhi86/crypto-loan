@@ -18,7 +18,6 @@ import Step from '@mui/material/Step';
 import StepLabel from '@mui/material/StepLabel';
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
 import Navbar from '@/components/Navbar';
 import { useWallet } from '@/lib/WalletContext';
 
@@ -208,8 +207,6 @@ export default function KYCPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submittedId, setSubmittedId] = useState<number | null>(null);
   const [mounted, setMounted]     = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [verifyResult, setVerifyResult] = useState<{ status: string; reason?: string } | null>(null);
 
   const [files, setFiles] = useState<Record<DocKey, File | null>>({ front: null, back: null });
   const fileRefs: Record<DocKey, React.RefObject<HTMLInputElement | null>> = {
@@ -249,64 +246,27 @@ export default function KYCPage() {
     const data = await res.json();
     setSubmittedId(data.id);
     setSubmitting(false);
-
-    // Auto-verification: OCR the uploaded ID and match it against the form.
-    // Only runs when a document was provided; otherwise it stays for manual review.
-    if (files.front || files.back) {
-      setVerifying(true);
-      try {
-        const vr = await fetch('/api/kyc/auto-verify', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ wallet: wallet.address, docType: form.docType }),
-        });
-        const vd = await vr.json();
-        setVerifyResult(vr.ok ? { status: vd.status, reason: vd.reason } : { status: 'pending' });
-        if (vd.status === 'approved') wallet.refresh();
-      } catch {
-        setVerifyResult({ status: 'pending' });
-      } finally {
-        setVerifying(false);
-      }
-    }
+    // Submission is saved as 'pending'. An admin reviews and approves it from
+    // the admin dashboard — there is no automated document verification.
   };
 
-  // ── Post-submit Screen (verifying / approved / rejected / pending) ────────
+  // ── Post-submit Screen (always pending — an admin reviews & approves) ─────
   if (submittedId) {
     const ref = `KYC-${String(submittedId).padStart(6, '0')}`;
-    const outcome = verifying ? 'verifying' : (verifyResult?.status ?? 'pending');
-
-    const theme = {
-      verifying: { icon: null,  ring: '#E7EAFF', accent: '#2A3FD6', title: 'Verifying Documents' },
-      approved:  { icon: '✅',  ring: '#ECFDF3', accent: '#0E9F6E', title: 'KYC Approved' },
-      rejected:  { icon: '❌',  ring: '#FEF2F2', accent: '#E5484D', title: 'Verification Failed' },
-      pending:   { icon: '⏳',  ring: '#E7EAFF', accent: '#2A3FD6', title: 'Application Submitted' },
-    }[outcome] ?? { icon: '⏳', ring: '#E7EAFF', accent: '#2A3FD6', title: 'Application Submitted' };
 
     return (
       <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
         <Navbar />
         <Box component="main" sx={{ maxWidth: 480, mx: 'auto', px: 2, py: 8 }}>
           <Paper sx={{ p: 5, textAlign: 'center', bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 3 }}>
-            <Box sx={{ width: 80, height: 80, borderRadius: '50%', bgcolor: theme.ring,
+            <Box sx={{ width: 80, height: 80, borderRadius: '50%', bgcolor: '#E7EAFF',
                        display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2.5 }}>
-              {outcome === 'verifying'
-                ? <CircularProgress size={40} thickness={2.5} sx={{ color: theme.accent }} />
-                : <Typography sx={{ fontSize: 40 }}>{theme.icon}</Typography>}
+              <Typography sx={{ fontSize: 40 }}>⏳</Typography>
             </Box>
-            <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 1 }}>{theme.title}</Typography>
+            <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 1 }}>Application Submitted</Typography>
 
-            {outcome === 'approved' && (
-              <Chip label="✓ Identity Verified" size="small"
-                sx={{ bgcolor: '#ECFDF3', color: '#0E9F6E', border: '1px solid #0E9F6E44', fontWeight: 600, mb: 3 }} />
-            )}
-            {outcome === 'rejected' && (
-              <Chip label="● Document Mismatch" size="small"
-                sx={{ bgcolor: '#FEF2F2', color: '#E5484D', border: '1px solid #E5484D44', fontWeight: 600, mb: 3 }} />
-            )}
-            {(outcome === 'pending' || outcome === 'verifying') && (
-              <Chip label={outcome === 'verifying' ? '● Checking your document…' : '● Pending Review'} size="small"
-                sx={{ bgcolor: '#E7EAFF', color: '#2A3FD6', border: '1px solid #2A3FD633', fontWeight: 600, mb: 3 }} />
-            )}
+            <Chip label="● Pending Review" size="small"
+              sx={{ bgcolor: '#E7EAFF', color: '#2A3FD6', border: '1px solid #2A3FD633', fontWeight: 600, mb: 3 }} />
 
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
               Reference number
@@ -316,62 +276,22 @@ export default function KYCPage() {
             </Typography>
 
             <Paper sx={{ p: 2, mb: 3, bgcolor: '#F4F6F8', border: '1px solid #E2E7EE', borderRadius: 2, textAlign: 'left' }}>
-              {outcome === 'verifying' && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  We&apos;re reading your uploaded document and matching it against your details. This usually takes a few seconds.
-                </Typography>
-              )}
-              {outcome === 'approved' && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                  Your document matched your details and your identity has been verified on-chain.
-                  You can now access borrowing services.
-                </Typography>
-              )}
-              {outcome === 'rejected' && (
-                <>
-                  <Typography variant="caption" sx={{ color: '#E5484D', display: 'block', mb: 1, fontWeight: 600 }}>
-                    The uploaded document did not match the information you provided.
-                  </Typography>
-                  {verifyResult?.reason && (
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                      {verifyResult.reason}.
-                    </Typography>
-                  )}
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    Please make sure your full name, document number, and address exactly match your document, then re-upload a clearer photo.
-                  </Typography>
-                </>
-              )}
-              {outcome === 'pending' && (
-                <>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                    Your KYC application has been received and is currently under review by our compliance team.
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                    Estimated processing time:{' '}
-                    <Box component="span" sx={{ color: 'text.primary' }}>1–3 business days</Box>
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    You will be notified once your verification is complete.
-                  </Typography>
-                </>
-              )}
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                Your KYC application has been received and is currently under review by our compliance team.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                Estimated processing time:{' '}
+                <Box component="span" sx={{ color: 'text.primary' }}>1–3 business days</Box>
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                You will be notified once your verification is complete.
+              </Typography>
             </Paper>
 
-            {outcome === 'rejected' ? (
-              <Button fullWidth variant="contained" onClick={() => { setSubmittedId(null); setVerifyResult(null); setStep(1); }}
-                sx={{ bgcolor: '#2A3FD6', '&:hover': { bgcolor: '#1E2FA8' }, py: 1.25 }}>
-                Review & Resubmit
-              </Button>
-            ) : (
-              <Button fullWidth variant="contained" disabled={outcome === 'verifying'}
-                onClick={() => router.push(outcome === 'approved' ? '/?tab=deposit' : '/')}
-                sx={{ background: outcome === 'approved' ? 'linear-gradient(135deg, #2A3FD6, #2A3FD6)' : undefined,
-                      bgcolor: outcome === 'approved' ? undefined : '#2A3FD6', color: 'white', py: 1.25,
-                      '&:hover': { bgcolor: '#1E2FA8' }, '&.Mui-disabled': { opacity: 0.4 } }}>
-                {outcome === 'approved' ? 'Start Borrowing →' : 'Back to Dashboard'}
-              </Button>
-            )}
+            <Button fullWidth variant="contained" onClick={() => router.push('/')}
+              sx={{ bgcolor: '#2A3FD6', color: 'white', py: 1.25, '&:hover': { bgcolor: '#1E2FA8' } }}>
+              Back to Dashboard
+            </Button>
           </Paper>
         </Box>
       </Box>

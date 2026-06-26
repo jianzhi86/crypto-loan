@@ -467,22 +467,29 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     } catch (e) { console.error('watchAsset', e); }
   }, [s.address]);
 
-  // Fallback: check DB approval status when wallet connects (covers reset-chain scenarios)
+  // Check DB approval status when the wallet connects, then keep polling so an
+  // admin approval made in another session/tab is picked up without the user
+  // having to reconnect or reload (covers reset-chain scenarios too).
   useEffect(() => {
     if (!s.address) return;
     const wallet = s.address;
-    fetch(`/api/kyc?wallet=${wallet}`)
-      .then(r => r.json())
-      .then(d => {
-        const approved = !!(d.exists && d.status === 'approved');
-        // Ignore a stale response if the user switched accounts mid-flight.
-        setS(p => (p.address !== wallet ? p : {
-          ...p,
-          kycApprovedDb: approved,
-          kycApproved: p.kycApproved || approved,
-        }));
-      })
-      .catch(() => {});
+    const checkDbKyc = () => {
+      fetch(`/api/kyc?wallet=${wallet}`)
+        .then(r => r.json())
+        .then(d => {
+          const approved = !!(d.exists && d.status === 'approved');
+          // Ignore a stale response if the user switched accounts mid-flight.
+          setS(p => (p.address !== wallet ? p : {
+            ...p,
+            kycApprovedDb: approved,
+            kycApproved: p.kycApproved || approved,
+          }));
+        })
+        .catch(() => {});
+    };
+    checkDbKyc();
+    const id = setInterval(checkDbKyc, 10000);
+    return () => clearInterval(id);
   }, [s.address]);
 
   // Reflect whether the current account has already imported the MYR token, so
