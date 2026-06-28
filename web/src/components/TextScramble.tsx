@@ -119,17 +119,51 @@ export default function TextScramble({
       component="span"
       className={className}
       aria-label={phrases.join(' ')}
-      sx={{ display: 'inline', ...sx }}
+      sx={{
+        display: 'block',
+        width: '100%',
+        whiteSpace: 'normal',
+        overflow: 'hidden',
+        ...sx,
+      }}
     >
-      {output.map((c, i) => (
-        <Box
-          key={i}
-          component="span"
-          sx={{ color: c.dim ? scrambleColor : 'inherit', opacity: c.dim ? 0.85 : 1 }}
-        >
-          {c.char === ' ' ? ' ' : c.char}
-        </Box>
-      ))}
+      {(() => {
+        // Group consecutive non-space chars into nowrap word-spans;
+        // spaces remain as plain breakable inlines.
+        const groups: { chars: typeof output; key: number; nowrap: boolean }[] = [];
+        let current: typeof output = [];
+        let key = 0;
+        for (const c of output) {
+          if (c.char === ' ') {
+            if (current.length > 0) {
+              groups.push({ chars: current, key: key++, nowrap: true });
+              current = [];
+            }
+            groups.push({ chars: [c], key: key++, nowrap: false });
+          } else {
+            current.push(c);
+          }
+        }
+        if (current.length > 0) groups.push({ chars: current, key: key++, nowrap: true });
+
+        return groups.map((g) => (
+          <Box
+            key={g.key}
+            component="span"
+            sx={{ whiteSpace: g.nowrap ? 'nowrap' : 'normal' }}
+          >
+            {g.chars.map((c, i) => (
+              <Box
+                key={i}
+                component="span"
+                sx={{ color: c.dim ? scrambleColor : 'inherit', opacity: c.dim ? 0.85 : 1 }}
+              >
+                {c.char}
+              </Box>
+            ))}
+          </Box>
+        ));
+      })()}
     </Box>
   );
 }

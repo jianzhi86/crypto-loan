@@ -16,7 +16,7 @@ async function isValidToken(token: string): Promise<boolean> {
 }
 
 // Paths reachable without authentication.
-const PUBLIC_PATHS = ['/login', '/signup', '/home'];
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/home'];
 // Auth-only paths that an already-authenticated user should be redirected away from.
 const AUTH_PATHS = ['/login', '/signup'];
 

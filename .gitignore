@@ -1,7 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+web/node_modules/
+blockchain/node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -11,14 +12,14 @@
 !.yarn/versions
 
 # testing
-/coverage
+web/coverage/
 
 # next.js
-/.next/
-/out/
+web/.next/
+web/out/
 
 # production
-/build
+web/build/
 
 # misc
 .DS_Store
@@ -37,12 +38,12 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts
+web/next-env.d.ts
 
-/src/generated/prisma
+web/src/generated/prisma
 
 # Legacy local KYC document uploads (now stored in the database)
-/public/uploads/
+web/public/uploads/
 
 # SQLite database files
 *.db
@@ -51,7 +52,6 @@ next-env.d.ts
 *.db-shm
 
 # Hardhat — artifacts and local dependencies
-blockchain/node_modules/
 blockchain/artifacts/
 blockchain/cache/
 blockchain/typechain-types/

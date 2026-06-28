@@ -327,10 +327,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const network  = await provider.getNetwork();
       const chainId  = Number(network.chainId);
       const ok = chainId === HARDHAT_CHAIN_ID;
-      const cached = readCachedPosition(accounts[0]);
+      const cached = ok ? readCachedPosition(accounts[0]) : null;
       setS(p => ({
         ...p, address: accounts[0], isConnected: true, isCorrectNetwork: ok, chainId, isConnecting: false,
-        ...(cached ? { loanInfo: cached.info, ethBalance: cached.ethBalance, myrBalance: cached.myrBalance, ethPriceMYR: cached.ethPriceMYR } : {}),
+        ...(cached
+          ? { loanInfo: cached.info, ethBalance: cached.ethBalance, myrBalance: cached.myrBalance, ethPriceMYR: cached.ethPriceMYR }
+          : { loanInfo: null, ethBalance: '0', myrBalance: '0' }),
       }));
       if (ok) await refresh(accounts[0]);
     } catch (e) { console.error('connect', e); setS(p => ({ ...p, isConnecting: false })); }

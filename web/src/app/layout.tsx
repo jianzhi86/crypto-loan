@@ -4,6 +4,7 @@ import "./globals.css";
 import { WalletProvider } from "@/lib/WalletContext";
 import TxToast from "@/components/TxToast";
 import MuiProvider from "@/components/MuiProvider";
+import SmoothScrollProvider from "@/components/SmoothScrollProvider";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -25,7 +26,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning>
         <MuiProvider>
           <WalletProvider>
-            {children}
+            <SmoothScrollProvider>
+              {children}
+            </SmoothScrollProvider>
             <TxToast />
           </WalletProvider>
         </MuiProvider>

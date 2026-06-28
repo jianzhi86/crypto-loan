@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 async function main() {
-  const configPath = path.join(__dirname, "../../src/lib/contractConfig.ts");
+  const configPath = path.join(__dirname, "../../web/src/lib/contractConfig.ts");
   if (!fs.existsSync(configPath)) {
     throw new Error("contractConfig.ts not found — run deploy first");
   }

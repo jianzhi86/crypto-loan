@@ -5,14 +5,24 @@
   "scripts": {
     "compile": "hardhat compile",
     "node": "hardhat node",
+    "chain": "hardhat node",
     "deploy": "hardhat run scripts/deploy.ts --network localhost",
-    "test": "hardhat test"
+    "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
+    "deploy:ico": "hardhat run scripts/deploy-ico.ts --network localhost",
+    "deploy:sepolia": "hardhat run scripts/deploy.ts --network sepolia",
+    "deploy:mainnet": "hardhat run scripts/deploy.ts --network mainnet",
+    "verify:sepolia": "hardhat run scripts/verify.ts --network sepolia",
+    "verify:mainnet": "hardhat run scripts/verify.ts --network mainnet",
+    "test": "hardhat test",
+    "clean": "hardhat clean",
+    "gas-report": "REPORT_GAS=true hardhat test"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "hardhat": "^2.22.17"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.1.0"
+    "@openzeppelin/contracts": "^5.1.0",
+    "dotenv": "^17.4.2"
   }
 }
