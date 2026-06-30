@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${hanken.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${hanken.variable}`} data-scroll-behavior="smooth" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <MuiProvider>
           <WalletProvider>

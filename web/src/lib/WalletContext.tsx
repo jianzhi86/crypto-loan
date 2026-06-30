@@ -291,7 +291,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         isDeployed: true,
         isRefreshing: false,
       }));
-    } catch (e) { console.error('refresh', e); setS(p => ({ ...p, isRefreshing: false })); }
+    } catch (e) {
+      // UNKNOWN_ERROR (-32002) means MetaMask can't reach the RPC node (e.g. Hardhat
+      // not running). Mark the contract as undeployed so the UI shows the banner
+      // instead of a console wall-of-text.
+      const code = (e as { code?: string }).code;
+      if (code !== 'UNKNOWN_ERROR') console.error('refresh', e);
+      setS(p => ({ ...p, isRefreshing: false, isDeployed: false }));
+    }
   }, [getProvider, getContracts]);
 
   // Guards against re-attempting an on-chain KYC re-sync in a loop for the same

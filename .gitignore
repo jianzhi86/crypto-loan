@@ -1,6 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
+node_modules/
 web/node_modules/
 blockchain/node_modules/
 /.pnp
@@ -15,6 +16,7 @@ blockchain/node_modules/
 web/coverage/
 
 # next.js
+.next/
 web/.next/
 web/out/
 
@@ -24,6 +26,8 @@ web/build/
 # misc
 .DS_Store
 *.pem
+.playwright-mcp/
+next-env.d.ts
 
 # debug
 npm-debug.log*
