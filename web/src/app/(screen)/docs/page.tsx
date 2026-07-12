@@ -17,9 +17,9 @@ const SECTIONS = [
   { id: 'overview',     label: 'Overview'         },
   { id: 'how-it-works', label: 'How It Works'     },
   { id: 'collateral',   label: 'Collateral & LTV' },
-  { id: 'health',       label: 'Health Factor'    },
-  { id: 'setup',        label: 'Local Setup'       },
-  { id: 'contracts',    label: 'Smart Contracts'   },
+  // { id: 'health',       label: 'Health Factor'    },
+  // { id: 'setup',        label: 'Local Setup'       },
+  // { id: 'contracts',    label: 'Smart Contracts'   },
   { id: 'faq',          label: 'FAQ'               },
 ];
 
@@ -112,7 +112,7 @@ export default function DocsPage() {
 
         {/* Sidebar */}
         <Box component="aside" sx={{ display: { xs: 'none', lg: 'block' }, width: 208, flexShrink: 0 }}>
-          <Box sx={{ position: 'sticky', top: 88 }}>
+          <Box sx={{ position: 'sticky', top: 130 }}>
             <Typography variant="caption" sx={{ color: '#8B96A5', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600, display: 'block', mb: 1.5, px: 1.5 }}>
               Documentation
             </Typography>
@@ -167,7 +167,7 @@ export default function DocsPage() {
             <DocTable rows={[['ETH (Hardhat)','70%','80%'],['BTC','70%','80%'],['SOL','65%','75%'],['BNB','65%','75%'],['XRP','55%','65%'],['AVAX','60%','70%'],['LINK','60%','70%'],['DOT','55%','65%'],['ADA','50%','60%']]} />
           </Section>
 
-          <Section id="health" title="Health Factor">
+          {/* <Section id="health" title="Health Factor">
             <P>The health factor (HF) tells you how safe your position is. It is calculated as:</P>
             <CodeBlock>{`HF = (Collateral × ETH price × Liquidation threshold%) / Borrowed MYR\n\nExample:\n  1 ETH × RM 18,000 × 80% / RM 9,000 borrowed = 1.60`}</CodeBlock>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5 }}>
@@ -184,9 +184,9 @@ export default function DocsPage() {
               ))}
             </Box>
             <Callout type="warning">If the health factor drops below 1.0 your position can be liquidated. Always keep a safe buffer above 1.5.</Callout>
-          </Section>
+          </Section> */}
 
-          <Section id="setup" title="Local Setup">
+          {/* <Section id="setup" title="Local Setup">
             <P>Follow these steps to run the full stack locally:</P>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {[
@@ -204,9 +204,9 @@ export default function DocsPage() {
             <CodeBlock>{`Network name : Hardhat Local\nRPC URL      : ${CODE.metamaskRPC}\nChain ID     : ${CODE.chainId}\nCurrency     : ETH`}</CodeBlock>
             <P>Import one of the Hardhat test accounts using a private key printed when you run <Box component="code" sx={{ fontFamily: 'monospace', fontSize: 12, bgcolor: '#EEF1F5', px: 0.75, borderRadius: 0.5, color: '#1E2FA8' }}>npm run chain</Box>. Each account starts with <Box component="strong" sx={{ color: 'text.primary' }}>10,000 ETH</Box>.</P>
             <Callout type="tip">The deploy script automatically writes contract addresses to <code>src/lib/contractConfig.ts</code>. You do not need to copy addresses manually.</Callout>
-          </Section>
+          </Section> */}
 
-          <Section id="contracts" title="Smart Contracts">
+          {/* <Section id="contracts" title="Smart Contracts">
             <P>Two contracts are deployed during setup:</P>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
               {[
@@ -224,7 +224,7 @@ export default function DocsPage() {
                 </Paper>
               ))}
             </Box>
-          </Section>
+          </Section> */}
 
           <Section id="faq" title="FAQ">
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>

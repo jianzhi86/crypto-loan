@@ -125,7 +125,7 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
           </Box>
         </DialogTitle>
 
-        <DialogContent sx={{ p: 3 }}>
+        <DialogContent sx={{ p: 3 }} data-lenis-prevent>
           {/* IC Number highlight */}
           <Box sx={{ p: 2, mb: 2.5, background: 'linear-gradient(135deg, rgba(42,63,214,0.08), rgba(42,63,214,0.02))', border: '1px solid rgba(42,63,214,0.25)', borderRadius: 2 }}>
             <Typography variant="caption" sx={{ color: '#2A3FD6', display: 'block', mb: 0.5 }}>{docLabel} Number</Typography>
