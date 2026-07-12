@@ -18,7 +18,6 @@ import Step from '@mui/material/Step';
 import StepLabel from '@mui/material/StepLabel';
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
-import Navbar from '@/components/Navbar';
 import { useWallet } from '@/lib/WalletContext';
 
 const MY_STATES = [
@@ -256,7 +255,6 @@ export default function KYCPage() {
 
     return (
       <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
-        <Navbar />
         <Box component="main" sx={{ maxWidth: 480, mx: 'auto', px: 2, py: 8 }}>
           <Paper sx={{ p: 5, textAlign: 'center', bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 3 }}>
             <Box sx={{ width: 80, height: 80, borderRadius: '50%', bgcolor: '#E7EAFF',
@@ -288,7 +286,7 @@ export default function KYCPage() {
               </Typography>
             </Paper>
 
-            <Button fullWidth variant="contained" onClick={() => router.push('/')}
+            <Button fullWidth variant="contained" onClick={() => router.push('/dashboard')}
               sx={{ bgcolor: '#2A3FD6', color: 'white', py: 1.25, '&:hover': { bgcolor: '#1E2FA8' } }}>
               Back to Dashboard
             </Button>
@@ -302,7 +300,6 @@ export default function KYCPage() {
   if (mounted && wallet.kycApproved && !submittedId) {
     return (
       <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
-        <Navbar />
         <Box component="main" sx={{ maxWidth: 480, mx: 'auto', px: 2, py: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Paper sx={{ p: 4, textAlign: 'center', bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 3 }}>
             <Box sx={{
@@ -331,7 +328,8 @@ export default function KYCPage() {
               ))}
             </Paper>
 
-            <Button fullWidth variant="contained" onClick={() => router.push('/?tab=deposit')}
+            {/* <Button fullWidth variant="contained" onClick={() => router.push('/?tab=deposit')} */}
+            <Button fullWidth variant="contained" onClick={() => router.push('/dashboard')}
               sx={{ background: 'linear-gradient(135deg, #2A3FD6, #2A3FD6)', color: 'white', py: 1.25,
                     '&:hover': { background: 'linear-gradient(135deg, #1E2FA8, #1E2FA8)' } }}>
               Start Borrowing →
@@ -347,7 +345,6 @@ export default function KYCPage() {
   // ── KYC Form ─────────────────────────────────────────────────────────────
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
-      <Navbar />
       <Box component="main" sx={{ maxWidth: 672, mx: 'auto', px: 2, py: 5 }}>
 
         <Box sx={{ mb: 3 }}>

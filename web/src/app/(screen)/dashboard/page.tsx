@@ -19,7 +19,6 @@ import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
-import Navbar from '@/components/Navbar';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 
@@ -206,7 +205,6 @@ export default function Dashboard() {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: C.bg }}>
-      <Navbar />
       <Box component="main" sx={{ maxWidth: 1320, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4 }}>
 
         {/* ── Protocol Stats Banner ─────────────────────────────────────── */}

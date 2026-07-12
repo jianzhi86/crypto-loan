@@ -12,7 +12,6 @@ import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
-import Navbar from '@/components/Navbar';
 
 const SECTIONS = [
   { id: 'overview',     label: 'Overview'         },
@@ -109,7 +108,6 @@ export default function DocsPage() {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', color: 'text.primary' }}>
-      <Navbar />
       <Box sx={{ maxWidth: 1280, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4, display: 'flex', gap: 4 }}>
 
         {/* Sidebar */}

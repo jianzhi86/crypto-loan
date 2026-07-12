@@ -13,7 +13,6 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import Divider from '@mui/material/Divider';
 import CircularProgress from '@mui/material/CircularProgress';
-import Navbar from '@/components/Navbar';
 
 const BANKS = [
   'Maybank', 'CIMB Bank', 'Public Bank', 'RHB Bank', 'Hong Leong Bank',
@@ -126,7 +125,6 @@ export default function SettingsPage() {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', pb: 8 }}>
-      <Navbar />
       <Box sx={{ maxWidth: 720, mx: 'auto', px: { xs: 2, sm: 3 }, pt: 4 }}>
         {/* Header */}
         <Box sx={{ mb: 3 }}>

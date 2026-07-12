@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Box from '@mui/material/Box';
@@ -45,22 +46,14 @@ export default function MarketingHeader() {
           href="/home"
           style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10 }}
         >
-          <Box
-            sx={{
-              width: 34,
-              height: 34,
-              borderRadius: 2.5,
-              bgcolor: '#2A3FD6',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(42,63,214,0.3)',
-            }}
-          >
-            <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#fff', fontSize: 17, fontWeight: 700, lineHeight: 1 }}>
-              C
-            </Typography>
-          </Box>
+          <Image
+            src="/Logo.png"
+            alt="CryptoLend logo"
+            width={34}
+            height={34}
+            priority
+            style={{ borderRadius: 10, boxShadow: '0 2px 8px rgba(42,63,214,0.3)' }}
+          />
           <Typography
             sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#10151C', letterSpacing: '-0.3px', fontSize: 19, fontWeight: 700 }}
           >

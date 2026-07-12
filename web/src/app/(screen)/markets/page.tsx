@@ -16,7 +16,6 @@ import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
 import LinearProgress from '@mui/material/LinearProgress';
 import MuiSkeleton from '@mui/material/Skeleton';
-import Navbar from '@/components/Navbar';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 
 const MARKETS = [
@@ -85,7 +84,6 @@ export default function MarketsPage() {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', color: 'text.primary' }}>
-      <Navbar />
       <Box component="main" sx={{ maxWidth: 1280, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4 }}>
 
         {/* Header */}

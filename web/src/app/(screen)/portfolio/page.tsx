@@ -11,7 +11,6 @@ import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
 import MuiSkeleton from '@mui/material/Skeleton';
 import Alert from '@mui/material/Alert';
-import Navbar from '@/components/Navbar';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices } from '@/hooks/usePrices';
 import { useTransactionHistory, ICONS, LABELS, COLORS } from '@/hooks/useTransactionHistory';
@@ -120,7 +119,6 @@ export default function PortfolioPage() {
   if (!wallet.isConnected) {
     return (
       <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
-        <Navbar />
         <Box sx={{ maxWidth: 480, mx: 'auto', px: 3, py: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
           <Box sx={{ width: 80, height: 80, borderRadius: 3, bgcolor: 'rgba(42,63,214,0.08)',
                       border: '1px solid rgba(42,63,214,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -143,7 +141,6 @@ export default function PortfolioPage() {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
-      <Navbar />
       <Box component="main" sx={{ maxWidth: 1280, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4 }}>
 
         {/* Header */}

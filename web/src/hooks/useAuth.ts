@@ -7,6 +7,7 @@ export interface AuthUser {
   email?: string | null;
   name?: string | null;
   walletAddress?: string | null;
+  isAdmin?: boolean;
 }
 
 export function useAuth() {

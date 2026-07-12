@@ -59,7 +59,7 @@ export default function SignupPage() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Sign up failed'); setLoading(false); return; }
-      router.push('/');
+      router.push('/dashboard');
     } catch {
       setError('Network error. Please try again.');
       setLoading(false);
@@ -83,7 +83,7 @@ export default function SignupPage() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Wallet sign-up failed'); setWalletLoading(false); return; }
-      router.push('/');
+      router.push('/dashboard');
     } catch (e: unknown) {
       const code = (e as { code?: number }).code;
       if (code !== 4001) setError('Wallet sign-up failed. Please try again.');
