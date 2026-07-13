@@ -161,7 +161,7 @@ export default function Navbar() {
                 )}
                 <Button
                   size="small"
-                  onClick={() => { logout(); router.push('/dashboard'); }}
+                  onClick={() => { wallet.disconnect(); logout(); router.push('/login'); }}
                   sx={{ color: '#5A6675', fontSize: 11, px: 1, minWidth: 'auto', borderRadius: 2, '&:hover': { color: '#E5484D' } }}
                 >
                   Logout

@@ -3,7 +3,7 @@
 
 export const HARDHAT_CHAIN_ID = 31337;
 export const HARDHAT_RPC_URL  = "http://127.0.0.1:8545";
-export const ETH_PRICE_MYR    = 7265;
+export const ETH_PRICE_MYR    = 7256;
 
 export const CONTRACT_ADDRESSES = {
   CryptoLoan: "0x5FbDB2315678afecb367f032d93F642f64180aa3",

@@ -351,7 +351,6 @@ export default function KYCPage() {
             </Button>
           </Paper>
 
-          <DocUploadPanel wallet={wallet.address ?? ''} />
         </Box>
       </Box>
     );

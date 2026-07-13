@@ -183,14 +183,22 @@ export default function Dashboard() {
   const kycDialogShown = useRef(false);
 
   // Show KYC dialog once per session when wallet connects and deposit tab is active.
-  // Wait for loanInfo (set by refresh()) so we have the real on-chain kycApproved
-  // before deciding — avoids a false-positive flash while the chain read is in flight.
+  // Wait for BOTH loanInfo (chain read done) AND kycDbChecked (DB check done) before
+  // deciding — prevents a false-positive when chain read finishes first and kycApproved
+  // is temporarily false while the DB check is still in flight.
   useEffect(() => {
-    if (wallet.isConnected && wallet.loanInfo !== null && !wallet.kycApproved && activeTab === 'deposit' && !kycDialogShown.current) {
+    if (
+      wallet.isConnected &&
+      wallet.loanInfo !== null &&
+      wallet.kycDbChecked &&
+      !wallet.kycApproved &&
+      activeTab === 'deposit' &&
+      !kycDialogShown.current
+    ) {
       kycDialogShown.current = true;
       setKycDialogOpen(true);
     }
-  }, [wallet.isConnected, wallet.loanInfo, wallet.kycApproved, activeTab]);
+  }, [wallet.isConnected, wallet.loanInfo, wallet.kycDbChecked, wallet.kycApproved, activeTab]);
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const calcAsset  = ASSETS[calcAssetIdx];

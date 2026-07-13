@@ -60,6 +60,9 @@ export interface WalletState {
   kycApprovedChain: boolean;
   // Granular KYC status from the DB: 'none' = no submission, 'pending' = awaiting review, 'approved' = verified.
   kycStatus: 'none' | 'pending' | 'approved';
+  // True once the first /api/kyc DB check for this address has resolved.
+  // Guards the KYC dialog so it never fires before we know the real status.
+  kycDbChecked: boolean;
   // Whether the current MockMYR token has already been imported into MetaMask
   // for this account (remembered locally). Lets the UI hide the "Add MYR" button.
   myrTokenAdded: boolean;
@@ -83,6 +86,7 @@ const INIT: WalletState = {
   kycApprovedDb: false,
   kycApprovedChain: false,
   kycStatus: 'none',
+  kycDbChecked: false,
   myrTokenAdded: false,
   isRefreshing: false,
   isConnecting: false,
@@ -196,6 +200,8 @@ function revertReason(err: unknown): string | null {
 
 interface WalletCtx extends WalletState {
   connect: () => Promise<void>;
+  disconnect: () => void;
+  tryAutoConnect: () => Promise<void>;
   switchToHardhat: () => Promise<void>;
   depositCollateral: (eth: string) => Promise<void>;
   borrow: (myr: string) => Promise<boolean>;
@@ -295,7 +301,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         isDeployed: true,
         isRefreshing: false,
       }));
-    } catch (e) { console.error('refresh', e); setS(p => ({ ...p, isRefreshing: false })); }
+    } catch (e) {
+      const msg = String((e as { message?: string }).message ?? '');
+      if (msg.includes('Failed to fetch') || msg.includes('ECONNREFUSED') || msg.includes('could not coalesce')) {
+        // Hardhat node not running — quietly mark as not deployed so the UI shows the warning banner.
+        setS(p => ({ ...p, isDeployed: false, isRefreshing: false }));
+      } else {
+        console.error('refresh', e);
+        setS(p => ({ ...p, isRefreshing: false }));
+      }
+    }
   }, [getProvider, getContracts]);
 
   // Guards against re-attempting an on-chain KYC re-sync in a loop for the same
@@ -517,6 +532,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             kycApprovedDb: approved,
             kycApproved: p.kycApproved || approved,
             kycStatus,
+            kycDbChecked: true,
           }));
         })
         .catch(() => {});
@@ -561,6 +577,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           kycApprovedDb: false,
           kycApprovedChain: false,
           kycStatus: 'none',
+          kycDbChecked: false,
         }));
         refresh(list[0]);
       }
@@ -579,31 +596,39 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     };
   }, [s.address, refresh]);
 
+  // Checks if MetaMask already has an authorized account and restores wallet state.
+  // Extracted so it can be called after login (not just on app mount).
+  const tryAutoConnect = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.ethereum) return;
+    try {
+      const accounts = await window.ethereum.request({ method: 'eth_accounts' }) as string[];
+      if (!accounts.length) return;
+      const provider = getProvider()!;
+      const network  = await provider.getNetwork();
+      const chainId  = Number(network.chainId);
+      const ok = chainId === HARDHAT_CHAIN_ID;
+      const cached = readCachedPosition(accounts[0]);
+      setS(p => ({
+        ...p, address: accounts[0], isConnected: true, isCorrectNetwork: ok, chainId,
+        ...(cached ? { loanInfo: cached.info, ethBalance: cached.ethBalance, myrBalance: cached.myrBalance, ethPriceMYR: cached.ethPriceMYR } : {}),
+      }));
+      if (ok) await refresh(accounts[0]);
+    } catch { /* not connected */ }
+  }, [getProvider, refresh]);
+
   // Auto-restore if already connected
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.ethereum) return;
-    (async () => {
-      try {
-        const accounts = await window.ethereum!.request({ method: 'eth_accounts' }) as string[];
-        if (!accounts.length) return;
-        const provider = getProvider()!;
-        const network  = await provider.getNetwork();
-        const chainId  = Number(network.chainId);
-        const ok = chainId === HARDHAT_CHAIN_ID;
-        const cached = readCachedPosition(accounts[0]);
-        setS(p => ({
-          ...p, address: accounts[0], isConnected: true, isCorrectNetwork: ok, chainId,
-          ...(cached ? { loanInfo: cached.info, ethBalance: cached.ethBalance, myrBalance: cached.myrBalance, ethPriceMYR: cached.ethPriceMYR } : {}),
-        }));
-        if (ok) await refresh(accounts[0]);
-      } catch { /* not connected */ }
-    })();
+    tryAutoConnect();
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const disconnect = useCallback(() => {
+    setS(INIT);
   }, []);
 
   const value: WalletCtx = {
     ...s,
-    connect, switchToHardhat,
+    connect, disconnect, tryAutoConnect, switchToHardhat,
     depositCollateral, borrow, buyMYR, transferMYR, repay, withdrawCollateral,
     addTokenToWallet,
     refresh: () => s.address ? refresh(s.address) : Promise.resolve(),

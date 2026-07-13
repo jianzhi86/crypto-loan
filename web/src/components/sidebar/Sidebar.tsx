@@ -114,7 +114,8 @@ export default function Sidebar() {
   };
 
   const acl: AclContext = {
-    isAuthenticated: !!user,
+    // A connected wallet counts as authenticated for sidebar access.
+    isAuthenticated: !!user || wallet.isConnected,
     isAdmin: !!user?.isAdmin,
     kycApproved: !!wallet.kycApproved,
   };

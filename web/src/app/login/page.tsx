@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useWallet } from '@/lib/WalletContext';
 import Link from 'next/link';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -24,6 +25,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') ?? '/dashboard';
+  const wallet = useWallet();
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [showPwd,  setShowPwd]  = useState(false);
@@ -42,6 +44,7 @@ function LoginForm() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Login failed'); setLoading(false); return; }
+      await wallet.tryAutoConnect();
       router.push(data.isAdmin ? '/admin' : nextPath);
     } catch {
       setError('Network error. Please try again.');
@@ -66,6 +69,7 @@ function LoginForm() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Wallet login failed'); setWalletLoading(false); return; }
+      await wallet.tryAutoConnect();
       router.push(nextPath);
     } catch (e: unknown) {
       const code = (e as { code?: number }).code;
