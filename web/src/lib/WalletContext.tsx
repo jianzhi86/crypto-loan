@@ -58,6 +58,8 @@ export interface WalletState {
   // Raw on-chain KYC flag (loan.kycApproved). Used to detect a DB↔chain mismatch
   // after a redeploy so it can be auto-resynced.
   kycApprovedChain: boolean;
+  // Granular KYC status from the DB: 'none' = no submission, 'pending' = awaiting review, 'approved' = verified.
+  kycStatus: 'none' | 'pending' | 'approved';
   // Whether the current MockMYR token has already been imported into MetaMask
   // for this account (remembered locally). Lets the UI hide the "Add MYR" button.
   myrTokenAdded: boolean;
@@ -80,6 +82,7 @@ const INIT: WalletState = {
   kycApproved: false,
   kycApprovedDb: false,
   kycApprovedChain: false,
+  kycStatus: 'none',
   myrTokenAdded: false,
   isRefreshing: false,
   isConnecting: false,
@@ -196,6 +199,7 @@ interface WalletCtx extends WalletState {
   switchToHardhat: () => Promise<void>;
   depositCollateral: (eth: string) => Promise<void>;
   borrow: (myr: string) => Promise<boolean>;
+  buyMYR: (myr: string) => Promise<void>;
   transferMYR: (myr: string, to: string) => Promise<boolean>;
   repay: (myr: string) => Promise<void>;
   withdrawCollateral: (eth: string) => Promise<void>;
@@ -392,6 +396,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [getContracts, s.address, refresh, resyncKyc]);
 
+  const buyMYR = useCallback(async (myrAmt: string) => {
+    const c = await getContracts(true);
+    if (!c || !s.address) return;
+    setTx('pending', `Buying RM ${myrAmt} of MYR…`);
+    try {
+      const units    = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
+      // ethNeeded = (units * 1e18) / (ethPrice * 1e6)
+      const ethPrice = BigInt(s.ethPriceMYR);
+      const ethNeeded = (units * BigInt(1e18)) / (ethPrice * BigInt(1e6));
+      // Add 0.1% buffer for rounding
+      const ethWithBuffer = ethNeeded + ethNeeded / BigInt(1000);
+      const tx = await (c.loan.buyMYR as (myrAmount: bigint, opts: { value: bigint }) => Promise<ethers.TransactionResponse>)(units, { value: ethWithBuffer });
+      const receipt = await tx.wait();
+      if (receipt && s.address) saveTxToDB(s.address, 'MYRPurchased', units.toString(), receipt);
+      setTx('success', `Bought RM ${myrAmt} MYR`);
+      await refresh(s.address);
+    } catch (e) {
+      const reason = revertReason(e);
+      setTx('error', reason ? `Buy failed: ${reason}` : 'Buy MYR failed — check ETH balance');
+    }
+  }, [getContracts, s.address, s.ethPriceMYR, refresh]);
+
   const transferMYR = useCallback(async (myrAmt: string, to: string): Promise<boolean> => {
     const c = await getContracts(true);
     if (!c || !s.address) return false;
@@ -420,7 +446,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (repayReceipt && s.address) saveTxToDB(s.address, 'Repaid', units.toString(), repayReceipt);
       setTx('success', `Repaid RM ${myrAmt}`, 2, 2);
       await refresh(s.address);
-    } catch { setTx('error', 'Repay failed', 1, 2); }
+    } catch (e) {
+      const reason = revertReason(e);
+      setTx('error', reason ? `Repay failed: ${reason}` : 'Repay failed — check MYR balance or approve amount', 1, 2);
+    }
   }, [getContracts, s.address, refresh]);
 
   const withdrawCollateral = useCallback(async (ethAmt: string) => {
@@ -480,11 +509,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         .then(r => r.json())
         .then(d => {
           const approved = !!(d.exists && d.status === 'approved');
+          const kycStatus: 'none' | 'pending' | 'approved' =
+            !d.exists ? 'none' : d.status === 'approved' ? 'approved' : 'pending';
           // Ignore a stale response if the user switched accounts mid-flight.
           setS(p => (p.address !== wallet ? p : {
             ...p,
             kycApprovedDb: approved,
             kycApproved: p.kycApproved || approved,
+            kycStatus,
           }));
         })
         .catch(() => {});
@@ -528,6 +560,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           kycApproved: false,
           kycApprovedDb: false,
           kycApprovedChain: false,
+          kycStatus: 'none',
         }));
         refresh(list[0]);
       }
@@ -571,7 +604,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value: WalletCtx = {
     ...s,
     connect, switchToHardhat,
-    depositCollateral, borrow, transferMYR, repay, withdrawCollateral,
+    depositCollateral, borrow, buyMYR, transferMYR, repay, withdrawCollateral,
     addTokenToWallet,
     refresh: () => s.address ? refresh(s.address) : Promise.resolve(),
     clearTx: () => setS(p => ({ ...p, txStatus: 'idle', txMessage: '' })),

@@ -6,12 +6,16 @@ const SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET ?? 'crypto-lend-jwt-dev-fallback'
 );
 
-async function isValidToken(token: string): Promise<boolean> {
+interface TokenPayload {
+  isAdmin?: boolean;
+}
+
+async function decodeToken(token: string): Promise<TokenPayload | null> {
   try {
-    await jwtVerify(token, SECRET);
-    return true;
+    const { payload } = await jwtVerify(token, SECRET);
+    return payload as TokenPayload;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -19,19 +23,28 @@ async function isValidToken(token: string): Promise<boolean> {
 const PUBLIC_PATHS = ['/', '/login', '/signup', '/home'];
 // Auth-only paths that an already-authenticated user should be redirected away from.
 const AUTH_PATHS = ['/login', '/signup'];
+// Paths only accessible to admin users (isAdmin: true in JWT).
+const ADMIN_PATHS = ['/admin'];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get('auth-token')?.value;
-  const authenticated = token ? await isValidToken(token) : false;
+  const payload = token ? await decodeToken(token) : null;
+  const authenticated = payload !== null;
 
   const isPublic = PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'));
   const isAuthPath = AUTH_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'));
+  const isAdminPath = ADMIN_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'));
 
   if (!authenticated && !isPublic) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('next', pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Authenticated but not an admin trying to reach an admin path → back to dashboard.
+  if (authenticated && isAdminPath && !payload?.isAdmin) {
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
   if (authenticated && isAuthPath) {

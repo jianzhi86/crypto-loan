@@ -3,7 +3,7 @@
 
 export const HARDHAT_CHAIN_ID = 31337;
 export const HARDHAT_RPC_URL  = "http://127.0.0.1:8545";
-export const ETH_PRICE_MYR    = 6527;
+export const ETH_PRICE_MYR    = 7265;
 
 export const CONTRACT_ADDRESSES = {
   CryptoLoan: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
@@ -208,6 +208,31 @@ export const CRYPTO_LOAN_ABI = [
       }
     ],
     "name": "LiquidatorSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "buyer",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "ethSpent",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "myrReceived",
+        "type": "uint256"
+      }
+    ],
+    "name": "MYRPurchased",
     "type": "event"
   },
   {
@@ -503,6 +528,19 @@ export const CRYPTO_LOAN_ABI = [
     "name": "borrow",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "myrAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "buyMYR",
+    "outputs": [],
+    "stateMutability": "payable",
     "type": "function"
   },
   {

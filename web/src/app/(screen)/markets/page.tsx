@@ -243,7 +243,7 @@ export default function MarketsPage() {
                     </TableCell>
 
                     <TableCell sx={{ borderColor: '#E2E7EE' }}>
-                      <Button component={Link} href={`/?asset=${m.symbol}`} size="small" variant="contained"
+                      <Button component={Link} href={`/dashboard?asset=${m.symbol}`} size="small" variant="contained"
                         sx={{ bgcolor: '#2A3FD6', color: 'white', fontSize: 11, px: 1.5, whiteSpace: 'nowrap', boxShadow: 'none', '&:hover': { bgcolor: '#1E2FA8', boxShadow: 'none' } }}>
                         Borrow
                       </Button>

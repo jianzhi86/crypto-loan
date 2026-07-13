@@ -49,6 +49,7 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     event LiquidatorSet(address indexed liquidator, bool approved);
     event ProtocolFeesWithdrawn(address indexed to, uint256 amount);
     event EmergencyWithdraw(address indexed to, uint256 amount);
+    event MYRPurchased(address indexed buyer, uint256 ethSpent, uint256 myrReceived);
 
     // ── Constructor ────────────────────────────────────────────────────────
     constructor(uint256 _ethPrice) Ownable(msg.sender) {
@@ -110,6 +111,24 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     // ── Core ───────────────────────────────────────────────────────────────
+
+    /// @notice Swap ETH for MYR tokens at the current on-chain price.
+    ///         Lets borrowers top-up MYR to repay their loans.
+    function buyMYR(uint256 myrAmount) external payable whenNotPaused nonReentrant {
+        require(myrAmount > 0, "Amount must be > 0");
+        require(ethPrice > 0, "Price not set");
+        // ETH needed = (myrAmount / ethPrice) in wei.
+        // myrAmount is in MYR_DECIMALS (1e6) units; ethPrice is whole MYR per ETH.
+        uint256 ethNeeded = (myrAmount * 1e18) / (ethPrice * MYR_DECIMALS);
+        require(msg.value >= ethNeeded, "Insufficient ETH");
+        myr.mint(msg.sender, myrAmount);
+        // Refund any excess ETH sent
+        uint256 excess = msg.value - ethNeeded;
+        if (excess > 0) {
+            payable(msg.sender).transfer(excess);
+        }
+        emit MYRPurchased(msg.sender, ethNeeded, myrAmount);
+    }
 
     function depositCollateral() external payable whenNotPaused nonReentrant {
         require(msg.value > 0, "Send ETH");

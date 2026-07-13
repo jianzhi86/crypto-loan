@@ -163,11 +163,11 @@ export default function PortfolioPage() {
                   '& .MuiAlert-icon': { color: '#E5484D' }, borderRadius: 2 }}
             action={
               <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button component={Link} href="/?tab=deposit" size="small"
+                <Button component={Link} href="/dashboard?tab=deposit" size="small"
                   sx={{ bgcolor: '#2A3FD6', color: 'white', fontSize: 11, '&:hover': { bgcolor: '#1E2FA8' } }}>
                   Add Collateral
                 </Button>
-                <Button component={Link} href="/?tab=repay" size="small"
+                <Button component={Link} href="/dashboard?tab=repay" size="small"
                   sx={{ bgcolor: '#E5484D', color: 'white', fontSize: 11, '&:hover': { bgcolor: '#C93A3F' } }}>
                   Repay Now
                 </Button>
@@ -302,7 +302,7 @@ export default function PortfolioPage() {
                   <Typography sx={{ fontSize: 36, mb: 1.5 }}>📭</Typography>
                   <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500, mb: 0.5 }}>No open position</Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ mb: 2.5 }}>Deposit ETH collateral to start borrowing</Typography>
-                  <Button component={Link} href="/" variant="contained"
+                  <Button component={Link} href="/dashboard" variant="contained"
                     sx={{ bgcolor: '#2A3FD6', color: 'white', fontSize: 12, boxShadow: 'none',
                           '&:hover': { bgcolor: '#1E2FA8', boxShadow: 'none' } }}>
                     Go to Dashboard
@@ -369,7 +369,7 @@ export default function PortfolioPage() {
                   </Box>
                 </Box>
 
-                <Button component={Link} href="/?tab=repay" fullWidth variant="contained"
+                <Button component={Link} href="/dashboard?tab=repay" fullWidth variant="contained"
                   sx={{ mt: 3, py: 1.25, bgcolor: '#2A3FD6', color: 'white', boxShadow: 'none',
                         '&:hover': { bgcolor: '#1E2FA8', boxShadow: 'none' } }}>
                   Repay Loan →
@@ -399,7 +399,7 @@ export default function PortfolioPage() {
                 ) : (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     {txHistory.map((tx, i) => {
-                      const isMyr  = tx.type === 'Borrowed' || tx.type === 'Repaid';
+                      const isMyr  = tx.type === 'Borrowed' || tx.type === 'Repaid' || tx.type === 'MYRPurchased';
                       const fmtAmt = isMyr
                         ? 'RM ' + (Number(tx.amount) / 1e6).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                         : parseFloat(ethers.formatEther(tx.amount)).toFixed(4) + ' ETH';
@@ -577,9 +577,9 @@ export default function PortfolioPage() {
               <Typography variant="body1" color="text.primary" sx={{ fontWeight: 600, mb: 2 }}>Quick Actions</Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 {[
-                  { label: 'Deposit Collateral', sub: 'Add ETH to position',    href: '/?tab=deposit', bg: '#2A3FD6' },
-                  { label: 'Borrow MYR',         sub: 'Borrow against ETH',     href: '/?tab=borrow',  bg: '#4458E8' },
-                  { label: 'Repay Loan',         sub: 'Reduce debt + interest', href: '/?tab=repay',   bg: '#1E2FA8' },
+                  { label: 'Deposit Collateral', sub: 'Add ETH to position',    href: '/dashboard?tab=deposit', bg: '#2A3FD6' },
+                  { label: 'Borrow MYR',         sub: 'Borrow against ETH',     href: '/dashboard?tab=borrow',  bg: '#4458E8' },
+                  { label: 'Repay Loan',         sub: 'Reduce debt + interest', href: '/dashboard?tab=repay',   bg: '#1E2FA8' },
                   { label: 'KYC Verification',   sub: 'Required to borrow',     href: '/kyc',          bg: '#2A3FD6' },
                 ].map(a => (
                   <Box key={a.label} component={Link} href={a.href}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ethers } from 'ethers';
 import Box from '@mui/material/Box';
@@ -19,6 +19,8 @@ import TableBody from '@mui/material/TableBody';
 import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
+import Dialog from '@mui/material/Dialog';
+import DialogContent from '@mui/material/DialogContent';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 
@@ -94,7 +96,27 @@ const cardSx = { p: 3, bgcolor: C.card, border: `1px solid ${C.border}`, borderR
 const innerSx = { p: 2, bgcolor: C.inner, border: `1px solid ${C.border}`, borderRadius: 2 };
 
 // KYC gate shown in place of the Deposit / Borrow / Repay forms until verified.
-function KycRequiredCard({ onStart, action }: { onStart: () => void; action: string }) {
+function KycRequiredCard({ onStart, action, kycStatus }: { onStart: () => void; action: string; kycStatus: 'none' | 'pending' | 'approved' }) {
+  if (kycStatus === 'pending') {
+    return (
+      <Box sx={{ p: 3, bgcolor: 'rgba(42,63,214,0.06)', border: `1px solid rgba(42,63,214,0.25)`, borderRadius: 2.5, textAlign: 'center' }}>
+        <Box sx={{
+          width: 48, height: 48, borderRadius: '50%', bgcolor: 'rgba(42,63,214,0.12)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, mx: 'auto', mb: 1.5,
+        }}>⏳</Box>
+        <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.75 }}>KYC Under Review</Typography>
+        <Chip label="● Pending Review" size="small"
+          sx={{ bgcolor: 'rgba(42,63,214,0.1)', color: C.blue, border: '1px solid rgba(42,63,214,0.25)', fontWeight: 600, mb: 1.5, fontSize: 11 }} />
+        <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 2, lineHeight: 1.6 }}>
+          Your identity verification is being reviewed by our compliance team. You will be able to {action} once your KYC is approved (1–3 business days).
+        </Typography>
+        <Button variant="outlined" onClick={onStart}
+          sx={{ borderColor: C.blue, color: C.blue, fontSize: 12, '&:hover': { bgcolor: 'rgba(42,63,214,0.06)' } }}>
+          View KYC Status →
+        </Button>
+      </Box>
+    );
+  }
   return (
     <Box sx={{ p: 3, bgcolor: `${C.gold}08`, border: `1px solid ${C.gold}30`, borderRadius: 2.5, textAlign: 'center' }}>
       <Box sx={{
@@ -139,16 +161,17 @@ export default function Dashboard() {
   });
   const [collAmt,          setCollAmt]          = useState('1');
   const [ltv,              setLtv]              = useState(50);
-  const [activeTab,        setActiveTab]         = useState<'deposit' | 'withdraw' | 'borrow' | 'repay'>(() => {
+  const [activeTab,        setActiveTab]         = useState<'deposit' | 'withdraw' | 'borrow' | 'repay' | 'buy'>(() => {
     if (typeof window === 'undefined') return 'deposit';
     const tab = new URLSearchParams(window.location.search).get('tab');
-    if (tab === 'withdraw' || tab === 'borrow' || tab === 'repay') return tab;
+    if (tab === 'withdraw' || tab === 'borrow' || tab === 'repay' || tab === 'buy') return tab;
     return 'deposit';
   });
   const [depositAmt,       setDepositAmt]        = useState('');
   const [withdrawAmt,      setWithdrawAmt]       = useState('');
   const [borrowAmt,        setBorrowAmt]         = useState('');
   const [repayAmt,         setRepayAmt]          = useState('');
+  const [buyAmt,           setBuyAmt]            = useState('');
   const [loanTermDays,     setLoanTermDays]      = useState(90);
   const [holdMultiplier,   setHoldMultiplier]    = useState(1.5);
   const [syncError,        setSyncError]         = useState('');
@@ -156,6 +179,18 @@ export default function Dashboard() {
   const [deliveryMethod,   setDeliveryMethod]    = useState<'token' | 'bank'>('token');
   const [transferResult,   setTransferResult]    = useState<{ refNo: string; bankName: string; last4: string } | null>(null);
   const [transferError,    setTransferError]     = useState('');
+  const [kycDialogOpen,    setKycDialogOpen]     = useState(false);
+  const kycDialogShown = useRef(false);
+
+  // Show KYC dialog once per session when wallet connects and deposit tab is active.
+  // Wait for loanInfo (set by refresh()) so we have the real on-chain kycApproved
+  // before deciding — avoids a false-positive flash while the chain read is in flight.
+  useEffect(() => {
+    if (wallet.isConnected && wallet.loanInfo !== null && !wallet.kycApproved && activeTab === 'deposit' && !kycDialogShown.current) {
+      kycDialogShown.current = true;
+      setKycDialogOpen(true);
+    }
+  }, [wallet.isConnected, wallet.loanInfo, wallet.kycApproved, activeTab]);
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const calcAsset  = ASSETS[calcAssetIdx];
@@ -963,14 +998,14 @@ export default function Dashboard() {
             <Paper sx={cardSx}>
               {/* Tab switcher */}
               <Box sx={{ display: 'flex', bgcolor: C.inner, borderRadius: 2, p: 0.5, mb: 3 }}>
-                {(['deposit', 'withdraw', 'borrow', 'repay'] as const).map(tab => (
+                {(['deposit', 'withdraw', 'borrow', 'repay', 'buy'] as const).map(tab => (
                   <Box key={tab} onClick={() => setActiveTab(tab)}
                     sx={{
                       flex: 1, py: 1, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer', transition: 'all 0.15s',
                       bgcolor: activeTab === tab ? C.teal : 'transparent',
                     }}>
                     <Typography variant="caption" sx={{ color: activeTab === tab ? '#060D1F' : C.ts, fontWeight: 700, fontSize: 12 }}>
-                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                      {tab === 'buy' ? 'Buy MYR' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                     </Typography>
                   </Box>
                 ))}
@@ -991,7 +1026,7 @@ export default function Dashboard() {
               {activeTab === 'deposit' && (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {isLive && !wallet.kycApproved && (
-                    <KycRequiredCard onStart={() => router.push('/kyc')} action="depositing collateral" />
+                    <KycRequiredCard onStart={() => router.push('/kyc')} action="depositing collateral" kycStatus={wallet.kycStatus} />
                   )}
                   {(!isLive || wallet.kycApproved) && (
                   <>
@@ -1166,7 +1201,7 @@ export default function Dashboard() {
               {activeTab === 'borrow' && (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {isLive && !wallet.kycApproved && (
-                    <KycRequiredCard onStart={() => router.push('/kyc')} action="borrowing" />
+                    <KycRequiredCard onStart={() => router.push('/kyc')} action="borrowing" kycStatus={wallet.kycStatus} />
                   )}
 
                   {(!isLive || wallet.kycApproved) && (
@@ -1379,14 +1414,9 @@ export default function Dashboard() {
                 </Box>
               )}
 
-              {/* REPAY */}
+              {/* REPAY — no KYC gate; repay() on-chain has no onlyKYC modifier */}
               {activeTab === 'repay' && (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {isLive && !wallet.kycApproved && (
-                    <KycRequiredCard onStart={() => router.push('/kyc')} action="repaying your loan" />
-                  )}
-                  {(!isLive || wallet.kycApproved) && (
-                  <>
                   <Box>
                     <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
                       Repay Amount (MYR)
@@ -1438,6 +1468,34 @@ export default function Dashboard() {
                     </Box>
                   </Box>
 
+                  {/* Low MYR balance warning */}
+                  {isLive && wallet.loanInfo && (() => {
+                    const due = (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6;
+                    const bal = parseFloat(wallet.myrBalance || '0');
+                    const shortage = due - bal;
+                    if (shortage <= 0) return null;
+                    return (
+                      <Box sx={{ p: 2, bgcolor: `${C.red}08`, border: `1px solid ${C.red}30`, borderRadius: 2 }}>
+                        <Typography variant="caption" sx={{ color: C.red, fontWeight: 700, display: 'block', mb: 0.75 }}>
+                          Insufficient MYR balance
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1.25, lineHeight: 1.6 }}>
+                          You need <b style={{ color: C.tp }}>RM {due.toFixed(2)}</b> to repay in full but only have{' '}
+                          <b style={{ color: C.tp }}>RM {bal.toFixed(2)}</b>.{' '}
+                          You&apos;re short by <b style={{ color: C.red }}>RM {shortage.toFixed(2)}</b>.
+                        </Typography>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => { setBuyAmt(shortage.toFixed(2)); setActiveTab('buy'); }}
+                          sx={{ fontSize: 12, borderRadius: 2, bgcolor: C.teal, '&:hover': { bgcolor: '#0b8a5e' } }}
+                        >
+                          Buy RM {shortage.toFixed(2)} MYR →
+                        </Button>
+                      </Box>
+                    );
+                  })()}
+
                   <Box sx={{ p: 1.75, bgcolor: `${C.blue}08`, border: `1px solid ${C.blue}20`, borderRadius: 2 }}>
                     <Typography variant="caption" sx={{ color: C.ts }}>
                       ℹ Two MetaMask confirmations: (1) Approve MYR spend, (2) Repay loan. Full repayment unlocks your collateral.
@@ -1450,14 +1508,154 @@ export default function Dashboard() {
                     sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
                     {wallet.txStatus === 'pending' ? 'Waiting for confirmation…' : 'Repay Loan'}
                   </Button>
-                  </>
-                  )}
                 </Box>
               )}
+
+              {/* BUY MYR */}
+              {activeTab === 'buy' && (() => {
+                const buyMyrNum    = parseFloat(buyAmt || '0');
+                const ethCost      = isLive && wallet.ethPriceMYR > 0 ? buyMyrNum / wallet.ethPriceMYR : 0;
+                const overBalance  = wallet.isConnected && ethCost > parseFloat(wallet.ethBalance || '0');
+                const pending      = wallet.txStatus === 'pending';
+                const action =
+                  !wallet.isConnected      ? { label: 'Connect Wallet',         onClick: wallet.connect,          disabled: false } :
+                  !wallet.isCorrectNetwork ? { label: 'Switch to Hardhat',       onClick: wallet.switchToHardhat,  disabled: false } :
+                  !wallet.isDeployed       ? { label: 'Contracts not deployed',  onClick: undefined,               disabled: true  } :
+                  pending                  ? { label: 'Waiting for confirmation…',onClick: undefined,              disabled: true  } :
+                  !buyAmt || buyMyrNum <= 0? { label: 'Enter MYR amount',        onClick: undefined,               disabled: true  } :
+                  overBalance              ? { label: 'Insufficient ETH balance', onClick: undefined,              disabled: true  } :
+                                             { label: 'Buy MYR →',              onClick: () => wallet.buyMYR(buyAmt).then(() => setBuyAmt('')), disabled: false };
+                return (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Box sx={{ p: 2, bgcolor: `${C.teal}08`, border: `1px solid ${C.teal}25`, borderRadius: 2 }}>
+                      <Typography variant="caption" sx={{ color: C.teal, fontWeight: 700, display: 'block', mb: 0.5 }}>
+                        Need MYR to repay your loan?
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: C.ts, lineHeight: 1.6 }}>
+                        Swap ETH for MYR tokens at the current on-chain price. MYR is minted directly to your wallet.
+                      </Typography>
+                    </Box>
+
+                    <Box>
+                      <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
+                        MYR Amount to Buy
+                      </Typography>
+                      <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Typography sx={{ fontSize: 16, fontWeight: 700, color: C.teal, lineHeight: 1 }}>RM</Typography>
+                        <InputBase type="number" value={buyAmt} onChange={e => setBuyAmt(e.target.value)}
+                          placeholder="0.00"
+                          sx={{ flex: 1, color: C.tp, fontSize: 20, fontWeight: 600, '& input': { p: 0 } }} />
+                        <Typography variant="caption" sx={{ color: C.ts, fontWeight: 700, pr: 0.5 }}>MYR</Typography>
+                      </Box>
+                      {wallet.isConnected && (
+                        <Typography variant="caption" sx={{ color: C.ts, mt: 0.75, display: 'block' }}>
+                          Wallet balance: {wallet.ethBalance} ETH · MYR balance: {wallet.myrBalance}
+                        </Typography>
+                      )}
+                    </Box>
+
+                    <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <Typography variant="caption" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>You Will Pay</Typography>
+                      <Row label="ETH/MYR Rate (on-chain)"   value={isLive ? `RM ${wallet.ethPriceMYR.toLocaleString()}` : '—'} />
+                      <Row label={`${buyMyrNum.toFixed(2)} MYR ÷ rate`} value={ethCost > 0 ? `${ethCost.toFixed(6)} ETH` : '—'} />
+                      <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
+                        <Row label="ETH Cost"  value={ethCost > 0 ? `${ethCost.toFixed(6)} ETH` : '—'} vc={C.teal} bold />
+                      </Box>
+                    </Box>
+
+                    <Box sx={{ p: 1.75, bgcolor: `${C.gold}08`, border: `1px solid ${C.gold}25`, borderRadius: 2 }}>
+                      <Typography variant="caption" sx={{ color: C.gold }}>
+                        ⚠ This mints new MYR at the contract&apos;s on-chain price. Use it to top up your balance before repaying a loan.
+                      </Typography>
+                    </Box>
+
+                    <Button fullWidth variant="contained"
+                      disabled={action.disabled}
+                      onClick={action.onClick}
+                      sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5, background: !action.disabled ? `linear-gradient(135deg, ${C.teal}, #0B8B5E)` : undefined }}>
+                      {action.label}
+                    </Button>
+                  </Box>
+                );
+              })()}
             </Paper>
           </Box>
         </Box>
       </Box>
+
+      {/* KYC Dialog — shown once per session when deposit tab is active and KYC not done */}
+      <Dialog open={kycDialogOpen} onClose={() => setKycDialogOpen(false)} maxWidth="xs" fullWidth
+        slotProps={{ paper: { sx: { borderRadius: 3, p: 0.5 } } }}>
+        <DialogContent sx={{ p: 3.5, textAlign: 'center' }}>
+          {wallet.kycStatus === 'pending' ? (
+            <>
+              <Box sx={{
+                width: 64, height: 64, borderRadius: '50%', bgcolor: 'rgba(42,63,214,0.1)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, mx: 'auto', mb: 2,
+              }}>⏳</Box>
+              <Typography variant="h6" sx={{ color: C.tp, fontWeight: 700, mb: 1 }}>KYC Under Review</Typography>
+              <Chip label="● Pending Review" size="small"
+                sx={{ bgcolor: 'rgba(42,63,214,0.1)', color: C.blue, border: '1px solid rgba(42,63,214,0.25)', fontWeight: 600, mb: 2 }} />
+              <Typography variant="body2" sx={{ color: C.ts, lineHeight: 1.7, mb: 3 }}>
+                Your identity verification is being reviewed by our compliance team. Depositing collateral will be unlocked once your KYC is approved.
+              </Typography>
+              <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 3,
+                p: 1.5, bgcolor: C.inner, border: `1px solid ${C.border}`, borderRadius: 2, textAlign: 'left' }}>
+                <Box component="span" sx={{ fontWeight: 700, color: C.tp, display: 'block', mb: 0.5 }}>Why KYC?</Box>
+                Malaysian regulations (BNM AML/CFT) require all crypto-backed lending platforms to verify user identities to prevent money laundering and fraud.
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1.5 }}>
+                <Button fullWidth variant="outlined" onClick={() => setKycDialogOpen(false)}
+                  sx={{ borderColor: C.border, color: C.ts, borderRadius: 2 }}>
+                  Continue Browsing
+                </Button>
+                <Button fullWidth variant="contained" onClick={() => { setKycDialogOpen(false); router.push('/kyc'); }}
+                  sx={{ borderRadius: 2, bgcolor: C.blue }}>
+                  View KYC Status
+                </Button>
+              </Box>
+            </>
+          ) : (
+            <>
+              <Box sx={{
+                width: 64, height: 64, borderRadius: '50%', bgcolor: `${C.gold}15`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, mx: 'auto', mb: 2,
+              }}>🪪</Box>
+              <Typography variant="h6" sx={{ color: C.tp, fontWeight: 700, mb: 1 }}>Verify Your Identity First</Typography>
+              <Typography variant="body2" sx={{ color: C.ts, lineHeight: 1.7, mb: 2 }}>
+                Before depositing collateral, you need to complete KYC (Know Your Customer) verification.
+              </Typography>
+              <Box sx={{ p: 2, mb: 3, bgcolor: C.inner, border: `1px solid ${C.border}`, borderRadius: 2, textAlign: 'left' }}>
+                <Typography variant="caption" sx={{ color: C.tp, fontWeight: 700, display: 'block', mb: 1 }}>Why is KYC required?</Typography>
+                <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                  {[
+                    'Mandated by BNM (Bank Negara Malaysia) AML/CFT guidelines',
+                    'Protects against money laundering and financial fraud',
+                    'Enables legally compliant crypto-backed lending in Malaysia',
+                  ].map(t => (
+                    <Box component="li" key={t}>
+                      <Typography variant="caption" sx={{ color: C.ts, lineHeight: 1.6 }}>{t}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+              <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 3 }}>
+                Verification takes 1–3 business days. Only basic identity documents are required.
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1.5 }}>
+                <Button fullWidth variant="outlined" onClick={() => setKycDialogOpen(false)}
+                  sx={{ borderColor: C.border, color: C.ts, borderRadius: 2 }}>
+                  Not Now
+                </Button>
+                <Button fullWidth variant="contained" onClick={() => { setKycDialogOpen(false); router.push('/kyc'); }}
+                  sx={{ borderRadius: 2, background: `linear-gradient(135deg, ${C.gold}, #FF8C00)`, boxShadow: `0 4px 14px ${C.gold}40` }}>
+                  Start KYC →
+                </Button>
+              </Box>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Footer */}
       <Box component="footer" sx={{ mt: 10, py: 5, borderTop: `1px solid ${C.border}`, textAlign: 'center' }}>

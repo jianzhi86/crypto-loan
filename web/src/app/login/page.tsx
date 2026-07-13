@@ -23,7 +23,7 @@ const FEATURES = [
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextPath = searchParams.get('next') ?? '/';
+  const nextPath = searchParams.get('next') ?? '/dashboard';
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [showPwd,  setShowPwd]  = useState(false);

@@ -146,7 +146,7 @@ export default function HomeContent() {
                   </Typography>
 
                   <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 4 }}>
-                    <CtaButton href="/" variant="contained" sx={{ px: 3.5, py: 1.5, fontSize: 15.5, borderRadius: 2.5, fontWeight: 700 }}>
+                    <CtaButton href="/dashboard" variant="contained" sx={{ px: 3.5, py: 1.5, fontSize: 15.5, borderRadius: 2.5, fontWeight: 700 }}>
                       Start borrowing
                     </CtaButton>
                     <CtaButton href="/docs" variant="outlined" sx={{ px: 3.5, py: 1.5, fontSize: 15.5, borderRadius: 2.5, fontWeight: 600 }}>
@@ -281,7 +281,7 @@ export default function HomeContent() {
                   Borrowing against it lets you access ringgit today while keeping every coin. If the
                   market rises, the gains are still yours.
                 </Typography>
-                <CtaButton href="/" variant="contained" sx={{ px: 3.5, py: 1.25, fontSize: 15, borderRadius: 2.5, fontWeight: 700 }}>
+                <CtaButton href="/dashboard" variant="contained" sx={{ px: 3.5, py: 1.25, fontSize: 15, borderRadius: 2.5, fontWeight: 700 }}>
                   Try the loan calculator
                 </CtaButton>
               </Box>
@@ -354,7 +354,7 @@ export default function HomeContent() {
             <Typography sx={{ color: 'rgba(255,255,255,0.85)', fontSize: { xs: 15.5, md: 17 }, maxWidth: 520, mx: 'auto', mb: 3.5 }}>
               Put your crypto to work in minutes — keep your assets, get the cash.
             </Typography>
-            <CtaButton href="/" sx={{ px: 4.5, py: 1.5, fontSize: 16, borderRadius: 2.5, fontWeight: 700, bgcolor: '#fff', color: C.indigo, '&:hover': { bgcolor: '#EEF1F5' } }}>
+            <CtaButton href="/dashboard" sx={{ px: 4.5, py: 1.5, fontSize: 16, borderRadius: 2.5, fontWeight: 700, bgcolor: '#fff', color: C.indigo, '&:hover': { bgcolor: '#EEF1F5' } }}>
               Start borrowing
             </CtaButton>
           </Box>

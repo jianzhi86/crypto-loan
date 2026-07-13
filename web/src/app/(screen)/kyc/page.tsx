@@ -206,6 +206,7 @@ export default function KYCPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submittedId, setSubmittedId] = useState<number | null>(null);
   const [mounted, setMounted]     = useState(false);
+  const [existingRef, setExistingRef] = useState<string | null>(null);
 
   const [files, setFiles] = useState<Record<DocKey, File | null>>({ front: null, back: null });
   const fileRefs: Record<DocKey, React.RefObject<HTMLInputElement | null>> = {
@@ -214,6 +215,20 @@ export default function KYCPage() {
   };
 
   useEffect(() => { setMounted(true); }, []);
+
+  // When wallet connects, check if there's already a pending submission so we
+  // can show the status screen instead of the form.
+  useEffect(() => {
+    if (!wallet.address || submittedId) return;
+    fetch(`/api/kyc?wallet=${wallet.address}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.exists && d.status === 'pending') {
+          setExistingRef(`KYC-${String(d.id).padStart(6, '0')}`);
+        }
+      })
+      .catch(() => {});
+  }, [wallet.address, submittedId]);
 
   const set = (field: keyof FormData, value: string | boolean) =>
     setForm(p => ({ ...p, [field]: value }));
@@ -337,6 +352,59 @@ export default function KYCPage() {
           </Paper>
 
           <DocUploadPanel wallet={wallet.address ?? ''} />
+        </Box>
+      </Box>
+    );
+  }
+
+  // ── Pending Review Screen (returning after submission) ────────────────────
+  if (mounted && existingRef && !wallet.kycApproved && !submittedId) {
+    return (
+      <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
+        <Box component="main" sx={{ maxWidth: 480, mx: 'auto', px: 2, py: 8 }}>
+          <Paper sx={{ p: 5, textAlign: 'center', bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 3 }}>
+            <Box sx={{ width: 80, height: 80, borderRadius: '50%', bgcolor: '#E7EAFF',
+                       display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2.5 }}>
+              <Typography sx={{ fontSize: 40 }}>⏳</Typography>
+            </Box>
+            <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 1 }}>KYC Under Review</Typography>
+
+            <Chip label="● Pending Review" size="small"
+              sx={{ bgcolor: '#E7EAFF', color: '#2A3FD6', border: '1px solid #2A3FD633', fontWeight: 600, mb: 3 }} />
+
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+              Reference number
+            </Typography>
+            <Typography variant="h6" color="text.primary" sx={{ fontFamily: 'monospace', fontWeight: 700, mb: 3 }}>
+              {existingRef}
+            </Typography>
+
+            <Paper sx={{ p: 2, mb: 3, bgcolor: '#F4F6F8', border: '1px solid #E2E7EE', borderRadius: 2, textAlign: 'left' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                Your KYC application has been received and is currently under review by our compliance team.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                Estimated processing time:{' '}
+                <Box component="span" sx={{ color: 'text.primary' }}>1–3 business days</Box>
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                Depositing collateral and borrowing will be enabled once your identity is verified.
+              </Typography>
+            </Paper>
+
+            <Box sx={{ display: 'flex', gap: 1.5 }}>
+              <Button fullWidth variant="outlined" onClick={() => setExistingRef(null)}
+                sx={{ borderColor: '#E2E7EE', color: '#5A6675', py: 1.25, borderRadius: 2,
+                      '&:hover': { bgcolor: '#F4F6F8' } }}>
+                Edit Submission
+              </Button>
+              <Button fullWidth variant="contained" onClick={() => router.push('/dashboard')}
+                sx={{ bgcolor: '#2A3FD6', color: 'white', py: 1.25, borderRadius: 2,
+                      '&:hover': { bgcolor: '#1E2FA8' } }}>
+                Back to Dashboard
+              </Button>
+            </Box>
+          </Paper>
         </Box>
       </Box>
     );
