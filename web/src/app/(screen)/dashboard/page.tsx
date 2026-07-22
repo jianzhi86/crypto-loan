@@ -22,7 +22,6 @@ import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
 import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import IconButton from '@mui/material/IconButton';
 import { useWallet } from '@/lib/WalletContext';
@@ -162,6 +161,11 @@ export default function Dashboard() {
   const [collAmt,          setCollAmt]          = useState('1');
   const [ltv,              setLtv]              = useState(50);
   const [activeTab,        setActiveTab]         = useState<'deposit' | 'withdraw' | 'borrow' | 'repay' | 'buy' | null>(null);
+
+  const switchTab = (tab: 'deposit' | 'withdraw' | 'borrow' | 'repay' | 'buy') => {
+    setActiveTab(tab);
+    router.replace(`/dashboard?tab=${tab}`, { scroll: false });
+  };
 
   // Sync activeTab with URL ?tab= param (runs on mount + every sidebar nav)
   useEffect(() => {
@@ -1058,23 +1062,82 @@ export default function Dashboard() {
         onClose={() => { setActiveTab(null); router.replace('/dashboard'); }}
         maxWidth="sm"
         fullWidth
-        slotProps={{ paper: { sx: { borderRadius: 3 } } }}
+        slotProps={{ paper: { sx: { borderRadius: 3, overflow: 'hidden' } } }}
       >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1, pt: 2.5, px: 3 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700, fontSize: 17 }}>
-            {activeTab === 'deposit' ? 'Deposit Collateral'
-              : activeTab === 'withdraw' ? 'Withdraw Collateral'
-              : activeTab === 'borrow' ? 'Borrow MYR'
-              : activeTab === 'repay' ? 'Repay Loan'
-              : 'Buy MYR'}
-          </Typography>
-          <IconButton size="small" onClick={() => { setActiveTab(null); router.replace('/dashboard'); }} sx={{ color: C.ts }}>
+        {/* Dialog header: title + close */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 2.5, pb: 0 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: 16, color: C.tp }}>Manage Position</Typography>
+          <IconButton size="small" onClick={() => { setActiveTab(null); router.replace('/dashboard'); }} sx={{ color: C.ts, mr: -0.5 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6L6 18M6 6l12 12"/>
             </svg>
           </IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ px: 3, pb: 3 }}>
+        </Box>
+
+        {/* Inline tab strip */}
+        <Box sx={{ px: 2.5, pt: 1.5, pb: 0 }}>
+          <Box sx={{ display: 'flex', bgcolor: C.inner, borderRadius: 2, p: 0.5, gap: 0.5 }}>
+            {([
+              { key: 'deposit',  label: 'Deposit'  },
+              { key: 'withdraw', label: 'Withdraw' },
+              { key: 'borrow',   label: 'Borrow'   },
+              { key: 'repay',    label: 'Repay'    },
+              { key: 'buy',      label: 'Buy MYR'  },
+            ] as const).map(t => {
+              const active = activeTab === t.key;
+              return (
+                <Box key={t.key} onClick={() => switchTab(t.key)}
+                  sx={{
+                    flex: 1, py: 0.75, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer',
+                    transition: 'all 0.15s',
+                    bgcolor: active ? '#fff' : 'transparent',
+                    boxShadow: active ? '0 1px 4px rgba(10,15,28,0.10)' : 'none',
+                  }}>
+                  <Typography variant="caption" sx={{
+                    fontSize: 11.5, fontWeight: active ? 700 : 500,
+                    color: active ? C.tp : C.ts,
+                    lineHeight: 1,
+                  }}>
+                    {t.label}
+                  </Typography>
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+
+        <DialogContent sx={{ px: 3, pb: 3, pt: 2 }}>
+
+              {/* Position summary strip — only when wallet connected and has a position */}
+              {isLive && wallet.isConnected && wallet.loanInfo && (Number(wallet.loanInfo.collateral) > 0 || Number(wallet.loanInfo.borrowed) > 0) && (() => {
+                const colEthPos  = parseFloat(ethers.formatEther(wallet.loanInfo!.collateral));
+                const borMYRPos  = Number(wallet.loanInfo!.borrowed) / 1e6;
+                const hfPos      = Number(wallet.loanInfo!.healthFactor) / 1e18;
+                const hfColor    = hfPos < 1.2 ? C.red : hfPos < 1.5 ? C.gold : C.teal;
+                return (
+                  <Box sx={{ display: 'flex', gap: 0, mb: 2, borderRadius: 2, overflow: 'hidden', border: `1px solid ${C.border}` }}>
+                    {[
+                      { label: 'Collateral', value: `${colEthPos.toFixed(3)} ETH`, color: C.tp },
+                      { label: 'Borrowed',   value: borMYRPos > 0 ? `RM ${borMYRPos.toFixed(2)}` : '—', color: borMYRPos > 0 ? C.gold : C.ts },
+                      { label: 'Health',     value: borMYRPos > 0 ? hfPos.toFixed(2) : '—',            color: hfColor },
+                    ].map((item, i) => (
+                      <Box key={item.label} sx={{
+                        flex: 1, px: 1.5, py: 1.25,
+                        bgcolor: i % 2 === 1 ? `${C.inner}` : '#fff',
+                        borderRight: i < 2 ? `1px solid ${C.border}` : 'none',
+                        textAlign: 'center',
+                      }}>
+                        <Typography sx={{ fontSize: 10, color: C.ts, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.25 }}>
+                          {item.label}
+                        </Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 700, color: item.color }}>
+                          {item.value}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                );
+              })()}
 
               {!wallet.isConnected && (
                 <Box sx={{ mb: 2.5, p: 3, bgcolor: `${C.blue}06`, border: `2px dashed rgba(42,63,214,0.2)`, borderRadius: 2.5, textAlign: 'center' }}>
@@ -1178,7 +1241,7 @@ export default function Dashboard() {
                       <Button fullWidth variant="contained"
                         disabled={action.disabled}
                         onClick={action.onClick}
-                        sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
+                        sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5, background: !action.disabled ? `linear-gradient(135deg, ${C.teal}, #0B8B5E)` : undefined }}>
                         {action.label}
                       </Button>
                     );
@@ -1275,7 +1338,7 @@ export default function Dashboard() {
                   <Button fullWidth variant="contained"
                     disabled={action.disabled}
                     onClick={action.onClick}
-                    sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
+                    sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5, background: !action.disabled ? `linear-gradient(135deg, ${C.gold}, #B85C00)` : undefined }}>
                     {action.label}
                   </Button>
                   </>
@@ -1446,6 +1509,7 @@ export default function Dashboard() {
                       <Button fullWidth variant="contained"
                         disabled={!isLive || !borrowAmt || wallet.txStatus === 'pending' ||
                           (isLive && wallet.loanInfo != null && parseFloat(borrowAmt) > Number(wallet.loanInfo.available) / 1e6)}
+                        sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5, background: (isLive && !!borrowAmt && wallet.txStatus !== 'pending') ? `linear-gradient(135deg, ${C.blue}, #4458E8)` : undefined }}
                         onClick={async () => {
                           setTransferResult(null); setTransferError('');
                           const available = wallet.loanInfo ? Number(wallet.loanInfo.available) / 1e6 : 0;
@@ -1491,8 +1555,7 @@ export default function Dashboard() {
                             }
                           }
                           setBorrowAmt('');
-                        }}
-                        sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
+                        }}>
                         {wallet.txStatus === 'pending' ? 'Waiting for confirmation…'
                           : deliveryMethod === 'bank' ? 'Borrow + Transfer to Bank' : 'Borrow MYR'}
                       </Button>
@@ -1598,7 +1661,7 @@ export default function Dashboard() {
                   <Button fullWidth variant="contained"
                     disabled={!isLive || !repayAmt || wallet.txStatus === 'pending'}
                     onClick={() => wallet.repay(repayAmt).then(() => setRepayAmt(''))}
-                    sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
+                    sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5, background: (isLive && !!repayAmt && wallet.txStatus !== 'pending') ? `linear-gradient(135deg, ${C.teal}, #0B8B5E)` : undefined }}>
                     {wallet.txStatus === 'pending' ? 'Waiting for confirmation…' : 'Repay Loan'}
                   </Button>
                 </Box>
