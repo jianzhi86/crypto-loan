@@ -513,10 +513,10 @@ export default function Dashboard() {
           {/* ── LEFT column ── */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
 
-            {/* Loan Calculator */}
+            {/* Markets & Calculator — combined */}
             <Paper sx={cardSx}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-                <Typography variant="h6" sx={{ color: C.tp, fontWeight: 700 }}>Loan Calculator</Typography>
+                <Typography variant="h6" sx={{ color: C.tp, fontWeight: 700 }}>Markets & Calculator</Typography>
                 <Chip
                   label={loading ? 'Loading prices…' : '● Live MYR'}
                   size="small"
@@ -529,42 +529,97 @@ export default function Dashboard() {
                 />
               </Box>
 
-              {/* Asset selector */}
-              <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
-                Collateral Asset
-              </Typography>
-              <Box sx={{
-                display: 'grid',
-                gridTemplateColumns: { xs: 'repeat(3, 1fr)', sm: 'repeat(5, 1fr)', lg: 'repeat(3, 1fr)', xl: 'repeat(5, 1fr)' },
-                gap: 1, mb: 3,
-              }}>
-                {ASSETS.map((asset, i) => {
-                  const p   = prices[SYMBOL_TO_ID[asset.symbol]];
-                  const myr = p?.myr ?? 0;
-                  const fmt = myr >= 100000 ? `RM ${(myr / 1000).toFixed(0)}K`
-                            : myr >= 1000   ? `RM ${(myr / 1000).toFixed(1)}K`
-                            : myr >= 1      ? `RM ${myr.toFixed(0)}`
-                            :                 `RM ${myr.toFixed(2)}`;
-                  const sel = calcAssetIdx === i;
-                  return (
-                    <Box
-                      key={asset.symbol}
-                      onClick={() => { setCalcAssetIdx(i); setLtv(Math.min(ltv, asset.maxLTV)); }}
-                      sx={{
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5,
-                        p: 1.5, borderRadius: 2, cursor: 'pointer', transition: 'all 0.15s', minWidth: 0,
-                        bgcolor: sel ? `${asset.color}12` : C.inner,
-                        border: `1px solid ${sel ? asset.color + '60' : C.border}`,
-                        '&:hover': { borderColor: asset.color + '40', bgcolor: `${asset.color}0A` },
-                      }}
-                    >
-                      <Typography sx={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: asset.color }}>{asset.icon}</Typography>
-                      <Typography variant="caption" sx={{ color: C.tp, fontWeight: 700 }}>{asset.symbol}</Typography>
-                      <Typography variant="caption" sx={{ color: C.ts, fontSize: 10 }}>{loading ? '…' : fmt}</Typography>
-                    </Box>
-                  );
-                })}
-              </Box>
+              {/* ── Assets table (clicking a row selects it for the calculator) ── */}
+              <TableContainer sx={{ overflowX: 'auto', mb: 3 }}>
+                <Table size="small" sx={{ minWidth: 480 }}>
+                  <TableHead>
+                    <TableRow>
+                      {['Asset', 'Price (MYR)', 'Max LTV', 'Borrow APR', 'Supply APR', 'Liquidity'].map(h => (
+                        <TableCell key={h} sx={{ color: C.ts, bgcolor: 'transparent', fontSize: 11, fontWeight: 600, border: 'none', borderBottom: `1px solid ${C.border}`, pb: 1.5 }}>{h}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {ASSETS.map((a, i) => {
+                      const p      = prices[SYMBOL_TO_ID[a.symbol]];
+                      const change = p?.change24h ?? 0;
+                      const sel    = calcAssetIdx === i;
+                      return (
+                        <TableRow key={a.symbol}
+                          onClick={() => { setCalcAssetIdx(i); setLtv(Math.min(ltv, a.maxLTV)); }}
+                          sx={{
+                            cursor: 'pointer', transition: 'background 0.15s',
+                            bgcolor: sel ? `${a.color}08` : 'transparent',
+                            '&:hover': { bgcolor: sel ? `${a.color}12` : 'rgba(14,159,110,0.06)' },
+                          }}>
+                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                              <Box sx={{
+                                width: 34, height: 34, borderRadius: '50%',
+                                bgcolor: sel ? `${a.color}20` : `${a.color}15`,
+                                color: a.color,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, flexShrink: 0,
+                                border: `1px solid ${sel ? a.color + '50' : a.color + '25'}`,
+                              }}>
+                                {a.icon}
+                              </Box>
+                              <Box>
+                                <Typography variant="body2" sx={{ color: C.tp, fontWeight: sel ? 700 : 600 }}>{a.symbol}</Typography>
+                                <Typography variant="caption" sx={{ color: C.ts }}>{a.name}</Typography>
+                              </Box>
+                              {sel && (
+                                <Chip label="Selected" size="small"
+                                  sx={{ bgcolor: `${a.color}15`, color: a.color, border: `1px solid ${a.color}30`, fontSize: 10, fontWeight: 700, height: 18, ml: 0.5 }} />
+                              )}
+                            </Box>
+                          </TableCell>
+                          <TableCell className={flash[SYMBOL_TO_ID[a.symbol]] ? `price-flash-${flash[SYMBOL_TO_ID[a.symbol]]}` : ''}
+                            sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
+                            <Typography variant="body2" sx={{ color: C.tp, fontWeight: 600 }}>
+                              {loading ? '…' : `RM ${(p?.myr ?? 0).toLocaleString()}`}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: change >= 0 ? C.teal : C.red }}>
+                              {change >= 0 ? '+' : ''}{change.toFixed(2)}%
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
+                            <Typography variant="body2" sx={{ color: C.teal, fontWeight: 700 }}>{a.maxLTV}%</Typography>
+                          </TableCell>
+                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
+                            <Chip label={`${a.borrowAPR}%`} size="small"
+                              sx={{ bgcolor: `${C.red}18`, color: C.red, border: `1px solid ${C.red}30`, fontSize: 11, fontWeight: 700, height: 22 }} />
+                          </TableCell>
+                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
+                            <Chip label={`${a.supplyAPR}%`} size="small"
+                              sx={{ bgcolor: `${C.teal}18`, color: C.teal, border: `1px solid ${C.teal}30`, fontSize: 11, fontWeight: 700, height: 22 }} />
+                          </TableCell>
+                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
+                            <Typography variant="caption" sx={{ color: C.ts }}>{a.liquidity}</Typography>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* ── Calculator for selected asset ── */}
+              <Box sx={{ pt: 3, borderTop: `1px solid ${C.border}` }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
+                  <Box sx={{
+                    width: 32, height: 32, borderRadius: '50%', bgcolor: `${calcAsset.color}18`, color: calcAsset.color,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 800,
+                    border: `1px solid ${calcAsset.color}30`, flexShrink: 0,
+                  }}>{calcAsset.icon}</Box>
+                  <Box>
+                    <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700 }}>
+                      {calcAsset.name} Calculator
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: C.ts }}>
+                      {calcAsset.maxLTV}% Max LTV · {calcAsset.borrowAPR}% APR
+                    </Typography>
+                  </Box>
+                </Box>
 
               {/* Collateral Amount */}
               <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
@@ -792,79 +847,15 @@ export default function Dashboard() {
                   ))}
                 </Box>
               </Box>
-            </Paper>
-
-            {/* Supported Assets Table */}
-            <Paper sx={cardSx}>
-              <Typography variant="h6" sx={{ color: C.tp, fontWeight: 700, mb: 3 }}>Supported Assets</Typography>
-              <TableContainer sx={{ overflowX: 'auto' }}>
-                <Table size="small" sx={{ minWidth: 480 }}>
-                  <TableHead>
-                    <TableRow>
-                      {['Asset', 'Price (MYR)', 'Max LTV', 'Borrow APR', 'Supply APR', 'Liquidity'].map(h => (
-                        <TableCell key={h} sx={{ color: C.ts, bgcolor: 'transparent', fontSize: 11, fontWeight: 600, border: 'none', borderBottom: `1px solid ${C.border}`, pb: 1.5 }}>{h}</TableCell>
-                      ))}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {ASSETS.map((a, i) => {
-                      const p      = prices[SYMBOL_TO_ID[a.symbol]];
-                      const change = p?.change24h ?? 0;
-                      return (
-                        <TableRow key={a.symbol} onClick={() => setCalcAssetIdx(i)}
-                          sx={{ cursor: 'pointer', transition: 'background 0.15s', '&:hover': { bgcolor: 'rgba(14,159,110,0.06)' } }}>
-                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                              <Box sx={{
-                                width: 38, height: 38, borderRadius: '50%', bgcolor: `${a.color}15`, color: a.color,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 800, flexShrink: 0,
-                                border: `1px solid ${a.color}25`,
-                              }}>
-                                {a.icon}
-                              </Box>
-                              <Box>
-                                <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700 }}>{a.symbol}</Typography>
-                                <Typography variant="caption" sx={{ color: C.ts }}>{a.name}</Typography>
-                              </Box>
-                            </Box>
-                          </TableCell>
-                          <TableCell className={flash[SYMBOL_TO_ID[a.symbol]] ? `price-flash-${flash[SYMBOL_TO_ID[a.symbol]]}` : ''}
-                            sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
-                            <Typography variant="body2" sx={{ color: C.tp, fontWeight: 600 }}>
-                              {loading ? '…' : `RM ${(p?.myr ?? 0).toLocaleString()}`}
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: change >= 0 ? C.teal : C.red }}>
-                              {change >= 0 ? '+' : ''}{change.toFixed(2)}%
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
-                            <Typography variant="body2" sx={{ color: C.teal, fontWeight: 700 }}>{a.maxLTV}%</Typography>
-                          </TableCell>
-                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
-                            <Chip label={`${a.borrowAPR}%`} size="small"
-                              sx={{ bgcolor: `${C.red}18`, color: C.red, border: `1px solid ${C.red}30`, fontSize: 11, fontWeight: 700, height: 22 }} />
-                          </TableCell>
-                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
-                            <Chip label={`${a.supplyAPR}%`} size="small"
-                              sx={{ bgcolor: `${C.teal}18`, color: C.teal, border: `1px solid ${C.teal}30`, fontSize: 11, fontWeight: 700, height: 22 }} />
-                          </TableCell>
-                          <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
-                            <Typography variant="caption" sx={{ color: C.ts }}>{a.liquidity}</Typography>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              </Box>{/* end calculator wrapper */}
             </Paper>
           </Box>
 
           {/* ── RIGHT column ── */}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
 
-            {/* My Active Loans */}
-            <Paper sx={cardSx}>
+            {/* (My Credit Line card removed — position shown in top stats cards) */}
+            {false && <Paper sx={cardSx}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
                 <Typography variant="h6" sx={{ color: C.tp, fontWeight: 700 }}>My Credit Line</Typography>
                 <Chip
@@ -1054,19 +1045,13 @@ export default function Dashboard() {
                   </Typography>
                 </Box>
               )}
-            </Paper>
+            </Paper>}
 
-            {/* Deposit / Borrow / Repay */}
+            {/* Actions */}
             <Paper sx={cardSx}>
               {/* Tab switcher */}
               <Box sx={{ display: 'flex', bgcolor: C.inner, borderRadius: 2, p: 0.5, mb: 3, gap: 0.5 }}>
-                {([
-                  { key: 'deposit',  label: 'Deposit',  icon: '↓' },
-                  { key: 'withdraw', label: 'Withdraw', icon: '↑' },
-                  { key: 'borrow',   label: 'Borrow',   icon: '💸' },
-                  { key: 'repay',    label: 'Repay',    icon: '↩' },
-                  { key: 'buy',      label: 'Buy MYR',  icon: '🛒' },
-                ] as const).map(({ key: tab, label, icon }) => (
+                {(['deposit', 'withdraw', 'borrow', 'repay', 'buy'] as const).map(tab => (
                   <Box key={tab} onClick={() => setActiveTab(tab)}
                     sx={{
                       flex: 1, py: 1, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer',
@@ -1075,13 +1060,12 @@ export default function Dashboard() {
                       boxShadow: activeTab === tab ? '0 1px 4px rgba(0,0,0,0.09)' : 'none',
                       border: `1px solid ${activeTab === tab ? C.border : 'transparent'}`,
                     }}>
-                    <Typography sx={{ fontSize: 13, lineHeight: 1.2, mb: 0.15 }}>{icon}</Typography>
                     <Typography variant="caption" sx={{
                       color: activeTab === tab ? C.tp : C.ts,
                       fontWeight: activeTab === tab ? 700 : 500,
-                      fontSize: 10, display: 'block', lineHeight: 1,
+                      fontSize: 11,
                     }}>
-                      {label}
+                      {tab === 'buy' ? 'Buy MYR' : tab.charAt(0).toUpperCase() + tab.slice(1)}
                     </Typography>
                   </Box>
                 ))}
