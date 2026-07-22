@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
@@ -32,8 +32,12 @@ function NavRow({ item, open, status, reason }: {
   reason: string;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const active = pathname === item.href;
+  const active = item.href.includes('?')
+    ? pathname === item.href.split('?')[0] &&
+      searchParams.get('tab') === new URLSearchParams(item.href.split('?')[1]).get('tab')
+    : pathname === item.href;
   const locked = status === 'locked';
 
   const row = (

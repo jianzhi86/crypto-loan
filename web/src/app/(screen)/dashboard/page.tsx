@@ -153,20 +153,22 @@ export default function Dashboard() {
   const router  = useRouter();
   const { prices, loading, flash } = usePrices();
 
-  const [calcAssetIdx, setCalcAssetIdx] = useState(() => {
-    if (typeof window === 'undefined') return 1;
-    const asset = new URLSearchParams(window.location.search).get('asset')?.toUpperCase();
-    const idx   = asset ? ASSETS.findIndex(a => a.symbol === asset) : -1;
-    return idx >= 0 ? idx : 1;
-  });
+  const [calcAssetIdx, setCalcAssetIdx] = useState(1);
   const [collAmt,          setCollAmt]          = useState('1');
   const [ltv,              setLtv]              = useState(50);
-  const [activeTab,        setActiveTab]         = useState<'deposit' | 'withdraw' | 'borrow' | 'repay' | 'buy'>(() => {
-    if (typeof window === 'undefined') return 'deposit';
-    const tab = new URLSearchParams(window.location.search).get('tab');
-    if (tab === 'withdraw' || tab === 'borrow' || tab === 'repay' || tab === 'buy') return tab;
-    return 'deposit';
-  });
+  const [activeTab,        setActiveTab]         = useState<'deposit' | 'withdraw' | 'borrow' | 'repay' | 'buy'>('deposit');
+
+  // Read URL params client-side only (avoids SSR/client hydration mismatch)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab === 'withdraw' || tab === 'borrow' || tab === 'repay' || tab === 'buy') setActiveTab(tab);
+    const asset = params.get('asset')?.toUpperCase();
+    if (asset) {
+      const idx = ASSETS.findIndex(a => a.symbol === asset);
+      if (idx >= 0) setCalcAssetIdx(idx);
+    }
+  }, []);
   const [depositAmt,       setDepositAmt]        = useState('');
   const [withdrawAmt,      setWithdrawAmt]       = useState('');
   const [borrowAmt,        setBorrowAmt]         = useState('');
@@ -250,6 +252,36 @@ export default function Dashboard() {
     <Box sx={{ minHeight: '100vh', bgcolor: C.bg }}>
       <Box component="main" sx={{ maxWidth: 1320, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4 }}>
 
+        {/* ── Page Header ───────────────────────────────────────────────── */}
+        <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+          <Box>
+            <Typography variant="h4" sx={{ color: C.tp, fontWeight: 800, letterSpacing: '-0.5px', lineHeight: 1.1, mb: 0.5 }}>
+              Dashboard
+            </Typography>
+            <Typography variant="body2" sx={{ color: C.ts }}>
+              {isLive
+                ? `Connected · ${wallet.address?.slice(0, 6)}…${wallet.address?.slice(-4)} · Chain 31337`
+                : 'Connect MetaMask to access live lending'}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {isLive && (
+              <Chip label="● Live" size="small"
+                sx={{ bgcolor: `${C.teal}15`, color: C.teal, border: `1px solid ${C.teal}40`, fontWeight: 700, fontSize: 11 }} />
+            )}
+            {!wallet.isConnected && (
+              <Button variant="contained" size="small" onClick={wallet.connect}
+                sx={{ fontSize: 12, borderRadius: 2, px: 2 }}>
+                Connect Wallet
+              </Button>
+            )}
+            {wallet.isConnected && wallet.kycApproved && (
+              <Chip label="✓ KYC Verified" size="small"
+                sx={{ bgcolor: `${C.teal}12`, color: C.teal, border: `1px solid ${C.teal}30`, fontWeight: 600, fontSize: 11 }} />
+            )}
+          </Box>
+        </Box>
+
         {/* ── Protocol Stats Banner ─────────────────────────────────────── */}
         <Paper sx={{
           p: { xs: 2.5, sm: 3.5 }, mb: 4,
@@ -269,10 +301,15 @@ export default function Dashboard() {
             pointerEvents: 'none',
           }} />
           {[
-            { label: 'Total Value Locked', value: 'RM 892M',   sub: '+3.2% this week',   color: C.teal },
-            { label: 'Active Loans',       value: '2,847',     sub: 'Across all assets',  color: C.blue },
-            { label: 'Total Borrowed',     value: 'RM 534M',   sub: '59.9% utilisation',  color: C.gold },
-            { label: 'Base Borrow Rate',   value: '4.80% APR', sub: 'ETH collateral',     color: C.gold },
+            { label: 'Total Value Locked', value: 'RM 892M',   sub: '+3.2% this week',        color: C.teal },
+            { label: 'Active Loans',       value: '2,847',     sub: 'Across all assets',       color: C.blue },
+            { label: 'Total Borrowed',     value: 'RM 534M',   sub: '59.9% utilisation',       color: C.gold },
+            {
+              label: 'ETH / MYR Price',
+              value: loading ? '…' : `RM ${prices.ethereum.myr.toLocaleString()}`,
+              sub: `${prices.ethereum.change24h >= 0 ? '+' : ''}${prices.ethereum.change24h?.toFixed(2) ?? '0.00'}% 24h`,
+              color: (prices.ethereum.change24h ?? 0) >= 0 ? C.teal : C.red,
+            },
           ].map(s => (
             <InfoBlock key={s.label} label={s.label} value={s.value} sub={s.sub} color={s.color} />
           ))}
@@ -314,7 +351,9 @@ export default function Dashboard() {
                 <InfoBlock
                   label="Outstanding Debt"
                   value={isLive && liveBorMYR !== null ? rm(liveBorMYR, 2) : 'RM 129,000'}
-                  sub={isLive ? `${wallet.myrBalance} MYR balance` : '55.2% utilisation'}
+                  sub={isLive && wallet.loanInfo
+                    ? `+ RM ${(Number(wallet.loanInfo.accruedInterest) / 1e6).toFixed(4)} interest · ${wallet.myrBalance} MYR`
+                    : isLive ? `${wallet.myrBalance} MYR balance` : '55.2% utilisation'}
                   color={C.tp}
                 />
                 {isLive && !wallet.myrTokenAdded && (
@@ -879,7 +918,9 @@ export default function Dashboard() {
                       <Box>
                         <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>Outstanding Debt</Typography>
                         <Typography variant="body1" sx={{ color: C.tp, fontWeight: 700 }}>RM {borMYR}</Typography>
-                        <Typography variant="caption" sx={{ color: C.ts }}>{ltvNow}% of collateral</Typography>
+                        <Typography variant="caption" sx={{ color: C.gold }}>
+                          + RM {(Number(wallet.loanInfo.accruedInterest) / 1e6).toFixed(4)} interest
+                        </Typography>
                       </Box>
                     </Box>
 
@@ -915,10 +956,19 @@ export default function Dashboard() {
 
                     {/* Available credit */}
                     <Box sx={{ pt: 2, borderTop: `1px solid ${C.border}` }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75 }}>
                         <Typography variant="caption" sx={{ color: C.ts }}>Available credit</Typography>
                         <Typography variant="caption" sx={{ color: C.teal, fontWeight: 700 }}>RM {avMYR}</Typography>
                       </Box>
+                      {Number(borrowed) > 0 && (
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+                          <Typography variant="caption" sx={{ color: C.ts }}>Total due now</Typography>
+                          <Typography variant="caption" sx={{ color: C.gold, fontWeight: 700 }}>
+                            RM {((Number(borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6).toFixed(2)}
+                          </Typography>
+                        </Box>
+                      )}
+                      {Number(borrowed) === 0 && <Box sx={{ mb: 2 }} />}
                       <Box sx={{ display: 'flex', gap: 1 }}>
                         <Button fullWidth size="small" onClick={() => setActiveTab('deposit')}
                           sx={{ bgcolor: `rgba(16,21,28,0.04)`, color: C.tp, border: `1px solid ${C.border}`, fontSize: 12, borderRadius: 2,
@@ -934,20 +984,24 @@ export default function Dashboard() {
                   </Box>
                 ) : (
                   <Box sx={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', py: 5, textAlign: 'center',
-                    bgcolor: C.inner, border: `2px dashed ${C.border}`, borderRadius: 2.5,
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, textAlign: 'center',
+                    bgcolor: `${C.teal}05`, border: `2px dashed ${C.teal}25`, borderRadius: 2.5,
                   }}>
                     <Box sx={{
                       width: 56, height: 56, borderRadius: '50%', bgcolor: `${C.teal}12`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, mb: 2,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, mb: 2,
                       border: `1px solid ${C.teal}25`,
                     }}>💳</Box>
-                    <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.75 }}>No Active Credit Line</Typography>
-                    <Typography variant="caption" sx={{ color: C.ts, mb: 3, lineHeight: 1.6 }}>
-                      Deposit ETH as collateral to open your crypto credit line
+                    <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>No Active Credit Line</Typography>
+                    <Typography variant="caption" sx={{ color: C.ts, mb: 0.5, lineHeight: 1.6, display: 'block' }}>
+                      Deposit ETH to open your crypto credit line
                     </Typography>
-                    <Button size="small" variant="contained" onClick={() => setActiveTab('deposit')}>
-                      Open Credit Line
+                    <Typography variant="caption" sx={{ color: C.ts, mb: 2.5, lineHeight: 1.6, display: 'block' }}>
+                      Up to <Box component="span" sx={{ color: C.teal, fontWeight: 700 }}>70% LTV</Box> · 4.80% APR
+                    </Typography>
+                    <Button size="small" variant="contained" onClick={() => setActiveTab('deposit')}
+                      sx={{ borderRadius: 2, px: 2.5 }}>
+                      Deposit Collateral
                     </Button>
                   </Box>
                 );
@@ -1005,27 +1059,44 @@ export default function Dashboard() {
             {/* Deposit / Borrow / Repay */}
             <Paper sx={cardSx}>
               {/* Tab switcher */}
-              <Box sx={{ display: 'flex', bgcolor: C.inner, borderRadius: 2, p: 0.5, mb: 3 }}>
-                {(['deposit', 'withdraw', 'borrow', 'repay', 'buy'] as const).map(tab => (
+              <Box sx={{ display: 'flex', bgcolor: C.inner, borderRadius: 2, p: 0.5, mb: 3, gap: 0.5 }}>
+                {([
+                  { key: 'deposit',  label: 'Deposit',  icon: '↓' },
+                  { key: 'withdraw', label: 'Withdraw', icon: '↑' },
+                  { key: 'borrow',   label: 'Borrow',   icon: '💸' },
+                  { key: 'repay',    label: 'Repay',    icon: '↩' },
+                  { key: 'buy',      label: 'Buy MYR',  icon: '🛒' },
+                ] as const).map(({ key: tab, label, icon }) => (
                   <Box key={tab} onClick={() => setActiveTab(tab)}
                     sx={{
-                      flex: 1, py: 1, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer', transition: 'all 0.15s',
-                      bgcolor: activeTab === tab ? C.teal : 'transparent',
+                      flex: 1, py: 1, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer',
+                      transition: 'all 0.18s',
+                      bgcolor: activeTab === tab ? C.card : 'transparent',
+                      boxShadow: activeTab === tab ? '0 1px 4px rgba(0,0,0,0.09)' : 'none',
+                      border: `1px solid ${activeTab === tab ? C.border : 'transparent'}`,
                     }}>
-                    <Typography variant="caption" sx={{ color: activeTab === tab ? '#060D1F' : C.ts, fontWeight: 700, fontSize: 12 }}>
-                      {tab === 'buy' ? 'Buy MYR' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    <Typography sx={{ fontSize: 13, lineHeight: 1.2, mb: 0.15 }}>{icon}</Typography>
+                    <Typography variant="caption" sx={{
+                      color: activeTab === tab ? C.tp : C.ts,
+                      fontWeight: activeTab === tab ? 700 : 500,
+                      fontSize: 10, display: 'block', lineHeight: 1,
+                    }}>
+                      {label}
                     </Typography>
                   </Box>
                 ))}
               </Box>
 
               {!wallet.isConnected && (
-                <Box sx={{ mb: 2.5, p: 3, bgcolor: C.inner, border: `2px dashed ${C.border}`, borderRadius: 2.5, textAlign: 'center' }}>
-                  <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 2 }}>
-                    Connect MetaMask to use live transactions
+                <Box sx={{ mb: 2.5, p: 3, bgcolor: `${C.blue}06`, border: `2px dashed rgba(42,63,214,0.2)`, borderRadius: 2.5, textAlign: 'center' }}>
+                  <Typography sx={{ fontSize: 28, mb: 1.5 }}>🦊</Typography>
+                  <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>MetaMask Required</Typography>
+                  <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 2, lineHeight: 1.6 }}>
+                    Connect your wallet to deposit collateral, borrow MYR, and manage your loans.
                   </Typography>
-                  <Button size="small" variant="contained" onClick={wallet.connect}>
-                    Connect Wallet
+                  <Button variant="contained" onClick={wallet.connect}
+                    sx={{ borderRadius: 2, px: 3, background: `linear-gradient(135deg, ${C.blue}, #4458E8)`, boxShadow: `0 4px 14px ${C.blue}30` }}>
+                    Connect MetaMask
                   </Button>
                 </Box>
               )}
@@ -1093,9 +1164,10 @@ export default function Dashboard() {
                     );
                   })()}
 
-                  <Box sx={{ p: 1.75, bgcolor: `${C.teal}08`, border: `1px solid ${C.teal}20`, borderRadius: 2 }}>
-                    <Typography variant="caption" sx={{ color: C.teal }}>
-                      ✓ Your collateral is locked in a non-custodial smart contract. Only you can withdraw it after repaying.
+                  <Box sx={{ p: 1.75, bgcolor: `${C.teal}08`, border: `1px solid ${C.teal}20`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+                    <Typography sx={{ fontSize: 14, flexShrink: 0 }}>🔒</Typography>
+                    <Typography variant="caption" sx={{ color: C.teal, lineHeight: 1.6 }}>
+                      Collateral is locked in a non-custodial smart contract. Only you can withdraw it after repaying your loan.
                     </Typography>
                   </Box>
 
@@ -1150,6 +1222,21 @@ export default function Dashboard() {
                                              { label: 'Withdraw Collateral',      onClick: () => wallet.withdrawCollateral(withdrawAmt).then(() => setWithdrawAmt('')), disabled: false };
                 return (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {isLive && colEth <= 0 && (
+                    <Box sx={{ p: 3, bgcolor: C.inner, border: `2px dashed ${C.border}`, borderRadius: 2.5, textAlign: 'center' }}>
+                      <Typography sx={{ fontSize: 24, mb: 1 }}>🏦</Typography>
+                      <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>No Collateral Deposited</Typography>
+                      <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 2, lineHeight: 1.6 }}>
+                        Deposit ETH first to have something to withdraw.
+                      </Typography>
+                      <Button size="small" variant="outlined" onClick={() => setActiveTab('deposit')}
+                        sx={{ borderRadius: 2, fontSize: 12 }}>
+                        Go to Deposit →
+                      </Button>
+                    </Box>
+                  )}
+                  {(!isLive || colEth > 0) && (
+                  <>
                   <Box>
                     <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
                       ETH Amount to Withdraw
@@ -1173,8 +1260,8 @@ export default function Dashboard() {
 
                   <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Typography variant="caption" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>After Withdrawal</Typography>
-                    <Row label="Current collateral"          value={`${colEth.toFixed(4)} ETH`} />
-                    <Row label={`Withdraw`}                   value={`−${(wAmt || 0).toFixed(4)} ETH`} vc={C.gold} />
+                    <Row label="Current collateral"          value={`${colEth.toFixed(4)} ETH (${rm(colEth * price)})`} />
+                    <Row label="Withdraw"                    value={`−${(wAmt || 0).toFixed(4)} ETH`} vc={C.gold} />
                     <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
                       <Row label="Remaining collateral"       value={`${colAfter.toFixed(4)} ETH`} bold />
                       <Row label="Value"                       value={rm(colAfter * price)} />
@@ -1188,9 +1275,10 @@ export default function Dashboard() {
                   </Box>
 
                   {borMYR > 0 && (
-                    <Box sx={{ p: 1.75, bgcolor: `${C.gold}08`, border: `1px solid ${C.gold}20`, borderRadius: 2 }}>
-                      <Typography variant="caption" sx={{ color: C.gold }}>
-                        You have an open loan. You can only withdraw collateral above the amount needed to keep your loan within 70% LTV. Repay debt to free up more.
+                    <Box sx={{ p: 1.75, bgcolor: `${C.gold}08`, border: `1px solid ${C.gold}20`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+                      <Typography sx={{ fontSize: 14, flexShrink: 0 }}>⚠</Typography>
+                      <Typography variant="caption" sx={{ color: C.gold, lineHeight: 1.6 }}>
+                        Open loan: you can only withdraw above the 70% LTV minimum. Repay debt to unlock more collateral.
                       </Typography>
                     </Box>
                   )}
@@ -1201,6 +1289,8 @@ export default function Dashboard() {
                     sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5 }}>
                     {action.label}
                   </Button>
+                  </>
+                  )}
                 </Box>
                 );
               })()}
@@ -1504,10 +1594,16 @@ export default function Dashboard() {
                     );
                   })()}
 
-                  <Box sx={{ p: 1.75, bgcolor: `${C.blue}08`, border: `1px solid ${C.blue}20`, borderRadius: 2 }}>
-                    <Typography variant="caption" sx={{ color: C.ts }}>
-                      ℹ Two MetaMask confirmations: (1) Approve MYR spend, (2) Repay loan. Full repayment unlocks your collateral.
-                    </Typography>
+                  <Box sx={{ p: 1.75, bgcolor: `${C.blue}08`, border: `1px solid ${C.blue}20`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+                    <Typography sx={{ fontSize: 14, flexShrink: 0 }}>ℹ</Typography>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: C.ts, display: 'block', lineHeight: 1.6 }}>
+                        Two MetaMask confirmations: <b style={{ color: C.tp }}>① Approve MYR spend</b>, then <b style={{ color: C.tp }}>② Repay loan</b>.
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: C.ts, display: 'block', mt: 0.5, lineHeight: 1.6 }}>
+                        Full repayment unlocks your ETH collateral immediately.
+                      </Typography>
+                    </Box>
                   </Box>
 
                   <Button fullWidth variant="contained"
@@ -1536,12 +1632,21 @@ export default function Dashboard() {
                 return (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <Box sx={{ p: 2, bgcolor: `${C.teal}08`, border: `1px solid ${C.teal}25`, borderRadius: 2 }}>
-                      <Typography variant="caption" sx={{ color: C.teal, fontWeight: 700, display: 'block', mb: 0.5 }}>
-                        Need MYR to repay your loan?
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+                        <Typography sx={{ fontSize: 16 }}>🛒</Typography>
+                        <Typography variant="caption" sx={{ color: C.teal, fontWeight: 700 }}>Buy MYR with ETH</Typography>
+                      </Box>
+                      <Typography variant="caption" sx={{ color: C.ts, lineHeight: 1.6, display: 'block' }}>
+                        Swap ETH → MYR tokens at the on-chain oracle price. MYR is minted directly to your wallet, ready to repay your loan.
                       </Typography>
-                      <Typography variant="caption" sx={{ color: C.ts, lineHeight: 1.6 }}>
-                        Swap ETH for MYR tokens at the current on-chain price. MYR is minted directly to your wallet.
-                      </Typography>
+                      {isLive && wallet.loanInfo && Number(wallet.loanInfo.borrowed) > 0 && (
+                        <Box sx={{ mt: 1.25, pt: 1.25, borderTop: `1px solid ${C.teal}20`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Typography variant="caption" sx={{ color: C.ts }}>Your loan balance</Typography>
+                          <Typography variant="caption" sx={{ color: C.tp, fontWeight: 700 }}>
+                            RM {((Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6).toFixed(2)}
+                          </Typography>
+                        </Box>
+                      )}
                     </Box>
 
                     <Box>

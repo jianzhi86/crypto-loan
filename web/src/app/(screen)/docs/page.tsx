@@ -117,32 +117,6 @@ function InfoGrid({ items }: { items: { label: string; value: string; color?: st
   );
 }
 
-function DocTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
-  return (
-    <TableContainer component={Paper} sx={{ bgcolor: 'transparent', border: `1px solid ${C.border}`, borderRadius: 2 }}>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            {headers.map(h => (
-              <TableCell key={h} sx={{ color: C.slate, bgcolor: C.inner, fontSize: 12, fontWeight: 600 }}>{h}</TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows.map((row, i) => (
-            <TableRow key={i} sx={{ '&:last-child td': { border: 0 } }}>
-              {row.map((cell, j) => (
-                <TableCell key={j} sx={{ color: j === 0 ? C.ink : j === 1 ? C.blue : j === 2 ? C.gold : C.slate, fontWeight: j === 0 ? 500 : 400 }}>
-                  {cell}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
-  );
-}
 
 const FaqItem = ({ q, a }: { q: string; a: React.ReactNode }) => {
   const [open, setOpen] = useState(false);
@@ -276,20 +250,10 @@ export default function DocsPage() {
 Max borrow (MYR)        = Collateral value × 70%
 Current LTV             = Borrowed MYR ÷ Collateral value × 100%
 Health Factor           = (Collateral value × 80%) ÷ Total debt`}</CodeBlock>
-            <DocTable
-              headers={['Asset', 'Max LTV', 'Liq. Threshold', 'Liq. Penalty']}
-              rows={[
-                ['ETH (Hardhat)', '70%', '80%', '10%'],
-                ['BTC',  '70%', '80%', '10%'],
-                ['SOL',  '65%', '75%', '10%'],
-                ['BNB',  '65%', '75%', '10%'],
-                ['XRP',  '55%', '65%', '10%'],
-                ['AVAX', '60%', '70%', '10%'],
-                ['LINK', '60%', '70%', '10%'],
-                ['DOT',  '55%', '65%', '10%'],
-                ['ADA',  '50%', '60%', '10%'],
-              ]}
-            />
+            <Alert severity="info" sx={{ borderRadius: 2, fontSize: 13 }}>
+              Per-asset LTV limits, liquidation thresholds, and live prices are listed on the{' '}
+              <Box component="a" href="/markets" sx={{ color: '#2A3FD6', fontWeight: 600 }}>Markets</Box> page.
+            </Alert>
             <Alert severity="warning" sx={{ borderRadius: 2, fontSize: 13 }}>
               The on-chain ETH price is set by the deploy script (default <strong>RM 18,000</strong>). The live CoinGecko price shown in the navbar is for reference only — borrow limits use the contract price.
             </Alert>

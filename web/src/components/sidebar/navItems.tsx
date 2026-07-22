@@ -67,6 +67,36 @@ const SettingsIcon = (
   </svg>
 );
 
+const DepositIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>
+    <rect x="3" y="14" width="18" height="7" rx="2" />
+    <path d="M12 3v8M9 8l3 3 3-3" />
+  </svg>
+);
+
+const WithdrawIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>
+    <rect x="3" y="14" width="18" height="7" rx="2" />
+    <path d="M12 11V3M9 6l3-3 3 3" />
+  </svg>
+);
+
+const BorrowIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v2.5M12 14.5V17" />
+    <path d="M9.5 9.5C9.5 8.1 10.6 7 12 7s2.5 1.1 2.5 2.5c0 2.5-2.5 3-2.5 5" />
+  </svg>
+);
+
+const RepayIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>
+    <path d="M4 12a8 8 0 1 0 8-8" />
+    <path d="M4 7v5h5" />
+    <path d="M12 10v2.5l1.5 1.5" />
+  </svg>
+);
+
 const AdminIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>
     <path d="M12 2.5l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10v-6l8-3z" />
@@ -89,6 +119,15 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/markets',   label: 'Markets',   icon: MarketsIcon   },
       { href: '/portfolio', label: 'Portfolio', icon: PortfolioIcon, acl: { requiresAuth: true } },
       { href: '/docs',      label: 'Docs',      icon: DocsIcon      },
+    ],
+  },
+  {
+    title: 'Actions',
+    items: [
+      { href: '/dashboard?tab=deposit',  label: 'Deposit',  icon: DepositIcon,  acl: { requiresAuth: true } },
+      { href: '/dashboard?tab=withdraw', label: 'Withdraw', icon: WithdrawIcon, acl: { requiresAuth: true } },
+      { href: '/dashboard?tab=borrow',   label: 'Borrow',   icon: BorrowIcon,   acl: { requiresAuth: true } },
+      { href: '/dashboard?tab=repay',    label: 'Repay',    icon: RepayIcon,    acl: { requiresAuth: true } },
     ],
   },
   {

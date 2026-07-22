@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import Box from '@mui/material/Box';
 import Navbar from '@/components/Navbar';
 import Sidebar from './Sidebar';
@@ -13,7 +14,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <Navbar />
       <Box sx={{ display: 'flex', alignItems: 'stretch' }}>
-        <Sidebar />
+        <Suspense fallback={null}><Sidebar /></Suspense>
         <Box component="main" sx={{ flex: 1, minWidth: 0 }}>
           {children}
         </Box>
