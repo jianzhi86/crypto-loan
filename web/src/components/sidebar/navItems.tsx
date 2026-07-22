@@ -97,6 +97,15 @@ const RepayIcon = (
   </svg>
 );
 
+const BuyIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>
+    <path d="M3 6h2l3.5 9.5L9.5 17h9.5" />
+    <circle cx="10" cy="20" r="1.5" />
+    <circle cx="18" cy="20" r="1.5" />
+    <path d="M8.5 13h10l1.5-5H7" />
+  </svg>
+);
+
 const AdminIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>
     <path d="M12 2.5l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10v-6l8-3z" />
@@ -128,6 +137,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: '/dashboard?tab=withdraw', label: 'Withdraw', icon: WithdrawIcon, acl: { requiresAuth: true } },
       { href: '/dashboard?tab=borrow',   label: 'Borrow',   icon: BorrowIcon,   acl: { requiresAuth: true } },
       { href: '/dashboard?tab=repay',    label: 'Repay',    icon: RepayIcon,    acl: { requiresAuth: true } },
+      { href: '/dashboard?tab=buy',      label: 'Buy MYR',  icon: BuyIcon,      acl: { requiresAuth: true } },
     ],
   },
   {

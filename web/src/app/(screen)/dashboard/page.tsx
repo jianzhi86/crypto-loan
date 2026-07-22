@@ -1,7 +1,9 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ethers } from 'ethers';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -20,7 +22,9 @@ import TableRow from '@mui/material/TableRow';
 import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
 import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
+import IconButton from '@mui/material/IconButton';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 
@@ -150,25 +154,29 @@ function InfoBlock({ label, value, sub, color }: { label: string; value: string;
 
 export default function Dashboard() {
   const wallet  = useWallet();
-  const router  = useRouter();
+  const router        = useRouter();
+  const searchParams  = useSearchParams();
   const { prices, loading, flash } = usePrices();
 
   const [calcAssetIdx, setCalcAssetIdx] = useState(1);
   const [collAmt,          setCollAmt]          = useState('1');
   const [ltv,              setLtv]              = useState(50);
-  const [activeTab,        setActiveTab]         = useState<'deposit' | 'withdraw' | 'borrow' | 'repay' | 'buy'>('deposit');
+  const [activeTab,        setActiveTab]         = useState<'deposit' | 'withdraw' | 'borrow' | 'repay' | 'buy' | null>(null);
 
-  // Read URL params client-side only (avoids SSR/client hydration mismatch)
+  // Sync activeTab with URL ?tab= param (runs on mount + every sidebar nav)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = params.get('tab');
-    if (tab === 'withdraw' || tab === 'borrow' || tab === 'repay' || tab === 'buy') setActiveTab(tab);
-    const asset = params.get('asset')?.toUpperCase();
+    const tab = searchParams.get('tab');
+    if (tab === 'deposit' || tab === 'withdraw' || tab === 'borrow' || tab === 'repay' || tab === 'buy') {
+      setActiveTab(tab);
+    } else {
+      setActiveTab(null);
+    }
+    const asset = searchParams.get('asset')?.toUpperCase();
     if (asset) {
       const idx = ASSETS.findIndex(a => a.symbol === asset);
       if (idx >= 0) setCalcAssetIdx(idx);
     }
-  }, []);
+  }, [searchParams]);
   const [depositAmt,       setDepositAmt]        = useState('');
   const [withdrawAmt,      setWithdrawAmt]       = useState('');
   const [borrowAmt,        setBorrowAmt]         = useState('');
@@ -507,11 +515,8 @@ export default function Dashboard() {
           </Paper>
         )}
 
-        {/* ── Main 3:2 grid ────────────────────────────────────────────── */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '3fr 2fr' }, gap: 3 }}>
-
-          {/* ── LEFT column ── */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {/* ── Main content ──────────────────────────────────────────────── */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
 
             {/* Markets & Calculator — combined */}
             <Paper sx={cardSx}>
@@ -849,13 +854,9 @@ export default function Dashboard() {
               </Box>
               </Box>{/* end calculator wrapper */}
             </Paper>
-          </Box>
 
-          {/* ── RIGHT column ── */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-
-            {/* (My Credit Line card removed — position shown in top stats cards) */}
-            {false && <Paper sx={cardSx}>
+          {/* (right column removed — actions accessible via sidebar Actions menu) */}
+          {false && <Paper sx={cardSx}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
                 <Typography variant="h6" sx={{ color: C.tp, fontWeight: 700 }}>My Credit Line</Typography>
                 <Chip
@@ -1047,29 +1048,33 @@ export default function Dashboard() {
               )}
             </Paper>}
 
-            {/* Actions */}
-            <Paper sx={cardSx}>
-              {/* Tab switcher */}
-              <Box sx={{ display: 'flex', bgcolor: C.inner, borderRadius: 2, p: 0.5, mb: 3, gap: 0.5 }}>
-                {(['deposit', 'withdraw', 'borrow', 'repay', 'buy'] as const).map(tab => (
-                  <Box key={tab} onClick={() => setActiveTab(tab)}
-                    sx={{
-                      flex: 1, py: 1, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer',
-                      transition: 'all 0.18s',
-                      bgcolor: activeTab === tab ? C.card : 'transparent',
-                      boxShadow: activeTab === tab ? '0 1px 4px rgba(0,0,0,0.09)' : 'none',
-                      border: `1px solid ${activeTab === tab ? C.border : 'transparent'}`,
-                    }}>
-                    <Typography variant="caption" sx={{
-                      color: activeTab === tab ? C.tp : C.ts,
-                      fontWeight: activeTab === tab ? 700 : 500,
-                      fontSize: 11,
-                    }}>
-                      {tab === 'buy' ? 'Buy MYR' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
+        </Box>
+      </Box>
+
+
+      {/* Action Dialog — opened via sidebar Actions links (?tab=…) */}
+      <Dialog
+        open={activeTab !== null}
+        onClose={() => { setActiveTab(null); router.replace('/dashboard'); }}
+        maxWidth="sm"
+        fullWidth
+        slotProps={{ paper: { sx: { borderRadius: 3 } } }}
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1, pt: 2.5, px: 3 }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, fontSize: 17 }}>
+            {activeTab === 'deposit' ? 'Deposit Collateral'
+              : activeTab === 'withdraw' ? 'Withdraw Collateral'
+              : activeTab === 'borrow' ? 'Borrow MYR'
+              : activeTab === 'repay' ? 'Repay Loan'
+              : 'Buy MYR'}
+          </Typography>
+          <IconButton size="small" onClick={() => { setActiveTab(null); router.replace('/dashboard'); }} sx={{ color: C.ts }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ px: 3, pb: 3 }}>
 
               {!wallet.isConnected && (
                 <Box sx={{ mb: 2.5, p: 3, bgcolor: `${C.blue}06`, border: `2px dashed rgba(42,63,214,0.2)`, borderRadius: 2.5, textAlign: 'center' }}>
@@ -1675,10 +1680,8 @@ export default function Dashboard() {
                   </Box>
                 );
               })()}
-            </Paper>
-          </Box>
-        </Box>
-      </Box>
+        </DialogContent>
+      </Dialog>
 
       {/* KYC Dialog — shown once per session when deposit tab is active and KYC not done */}
       <Dialog open={kycDialogOpen} onClose={() => setKycDialogOpen(false)} maxWidth="xs" fullWidth
