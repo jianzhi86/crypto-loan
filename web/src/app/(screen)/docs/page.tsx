@@ -21,8 +21,8 @@ const SECTIONS = [
   { id: 'health',      label: 'Health Factor'     },
   { id: 'buy-myr',     label: 'Buy MYR'           },
   { id: 'interest',    label: 'Interest & Fees'   },
-  { id: 'setup',       label: 'Local Setup'       },
-  { id: 'contracts',   label: 'Smart Contracts'   },
+  // { id: 'setup',       label: 'Local Setup'       },
+  // { id: 'contracts',   label: 'Smart Contracts'   },
   { id: 'faq',         label: 'FAQ'               },
 ];
 
@@ -346,7 +346,7 @@ Example (RM 10,000 borrowed for 30 days):
           </Section>
 
           {/* ── LOCAL SETUP ──────────────────────────────────────────────────── */}
-          <Section id="setup" title="Local Setup">
+          {/* <Section id="setup" title="Local Setup">
             <P>Follow these steps to run the full stack locally. You need three separate terminal windows.</P>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {[
@@ -382,9 +382,9 @@ Example (RM 10,000 borrowed for 30 days):
             <Alert severity="success" sx={{ borderRadius: 2, fontSize: 13 }}>
               The deploy script automatically writes contract addresses to <InlineCode>src/lib/contractConfig.ts</InlineCode>. You never need to copy addresses manually — just redeploy and refresh the browser.
             </Alert>
-          </Section>
+          </Section> */}
 
-          {/* ── SMART CONTRACTS ──────────────────────────────────────────────── */}
+          {/* ── SMART CONTRACTS ────────────────────────────────────────────────
           <Section id="contracts" title="Smart Contracts">
             <P>Two contracts are deployed on the local Hardhat node:</P>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -423,7 +423,7 @@ Example (RM 10,000 borrowed for 30 days):
             <Alert severity="info" sx={{ borderRadius: 2, fontSize: 13 }}>
               To interact with contracts directly: <InlineCode>npx hardhat console --network localhost</InlineCode>, then use the ABI from <InlineCode>contractConfig.ts</InlineCode>.
             </Alert>
-          </Section>
+          </Section> */}
 
           {/* ── FAQ ──────────────────────────────────────────────────────────── */}
           <Section id="faq" title="FAQ">

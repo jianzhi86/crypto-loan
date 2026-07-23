@@ -17,7 +17,9 @@ web/coverage/
 # next.js
 web/.next/
 web/out/
-
+./node_modules
+.next
+.playwright-mcp
 # production
 web/build/
 

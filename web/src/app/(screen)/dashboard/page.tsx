@@ -24,6 +24,7 @@ import TableContainer from '@mui/material/TableContainer';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import IconButton from '@mui/material/IconButton';
+import CircularProgress from '@mui/material/CircularProgress';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 
@@ -213,6 +214,24 @@ export default function Dashboard() {
       setKycDialogOpen(true);
     }
   }, [wallet.isConnected, wallet.loanInfo, wallet.kycDbChecked, wallet.kycApproved, activeTab]);
+
+  // Auto-dismiss success banner after 3 seconds
+  useEffect(() => {
+    if (wallet.txStatus !== 'success') return;
+    const t = setTimeout(wallet.clearTx, 3000);
+    return () => clearTimeout(t);
+  }, [wallet.txStatus, wallet.clearTx]);
+
+  // Stop Lenis smooth scroll while the dialog is open so it doesn't intercept
+  // wheel events and cause the page to scroll behind the dialog.
+  useEffect(() => {
+    if (activeTab !== null) {
+      window.dispatchEvent(new Event('lenis:stop'));
+    } else {
+      window.dispatchEvent(new Event('lenis:start'));
+    }
+    return () => { window.dispatchEvent(new Event('lenis:start')); };
+  }, [activeTab]);
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const calcAsset  = ASSETS[calcAssetIdx];
@@ -1062,7 +1081,7 @@ export default function Dashboard() {
         onClose={() => { setActiveTab(null); router.replace('/dashboard'); }}
         maxWidth="sm"
         fullWidth
-        slotProps={{ paper: { sx: { borderRadius: 3, overflow: 'hidden' } } }}
+        slotProps={{ paper: { sx: { borderRadius: 3, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '90vh' } } }}
       >
         {/* Dialog header: title + close */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 2.5, pb: 0 }}>
@@ -1106,35 +1125,171 @@ export default function Dashboard() {
           </Box>
         </Box>
 
-        <DialogContent sx={{ px: 3, pb: 3, pt: 2 }}>
+        <DialogContent data-lenis-prevent sx={{ px: 3, pb: 3, pt: 2, overflowY: 'auto', flex: 1, overscrollBehavior: 'contain' }}>
+
+              {/* Transaction status banner */}
+              {wallet.txStatus !== 'idle' && (
+                <Box sx={{
+                  mb: 2.5, borderRadius: 2, overflow: 'hidden',
+                  border: `1px solid ${
+                    wallet.txStatus === 'success' ? C.teal + '50'
+                    : wallet.txStatus === 'error' ? C.red + '40'
+                    : C.border
+                  }`,
+                  bgcolor: wallet.txStatus === 'success' ? `${C.teal}08`
+                    : wallet.txStatus === 'error' ? `${C.red}06`
+                    : '#F7F9FC',
+                }}>
+                  {/* Multi-step progress bar for repay (2 steps) */}
+                  {wallet.txStatus === 'pending' && wallet.txTotalSteps > 1 && (
+                    <LinearProgress
+                      variant="determinate"
+                      value={((wallet.txStep - 1) / wallet.txTotalSteps) * 100}
+                      sx={{
+                        height: 3, borderRadius: 0,
+                        bgcolor: C.border,
+                        '& .MuiLinearProgress-bar': { bgcolor: C.blue, transition: 'transform 0.6s ease' },
+                      }}
+                    />
+                  )}
+                  {wallet.txStatus === 'pending' && wallet.txTotalSteps === 1 && (
+                    <LinearProgress
+                      sx={{
+                        height: 3, borderRadius: 0,
+                        bgcolor: C.border,
+                        '& .MuiLinearProgress-bar': { bgcolor: C.blue },
+                      }}
+                    />
+                  )}
+                  <Box sx={{ px: 2.5, py: 2, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                    {/* Spinner / icon */}
+                    <Box sx={{ flexShrink: 0, mt: 0.25 }}>
+                      {wallet.txStatus === 'pending' && (
+                        <CircularProgress size={20} thickness={3.5} sx={{ color: C.blue }} />
+                      )}
+                      {wallet.txStatus === 'success' && (
+                        <Box sx={{
+                          width: 22, height: 22, borderRadius: '50%', bgcolor: C.teal,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        </Box>
+                      )}
+                      {wallet.txStatus === 'error' && (
+                        <Box sx={{
+                          width: 22, height: 22, borderRadius: '50%', bgcolor: C.red,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                          </svg>
+                        </Box>
+                      )}
+                    </Box>
+
+                    {/* Message area */}
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      {wallet.txStatus === 'pending' && (
+                        <>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                            <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.tp }}>
+                              {wallet.txMessage}
+                            </Typography>
+                            {wallet.txTotalSteps > 1 && (
+                              <Box sx={{
+                                px: 1, py: 0.2, borderRadius: 1,
+                                bgcolor: `${C.blue}15`, border: `1px solid ${C.blue}25`,
+                              }}>
+                                <Typography sx={{ fontSize: 10.5, fontWeight: 700, color: C.blue, lineHeight: 1 }}>
+                                  Step {wallet.txStep} of {wallet.txTotalSteps}
+                                </Typography>
+                              </Box>
+                            )}
+                          </Box>
+                          <Typography sx={{ fontSize: 11.5, color: C.ts, lineHeight: 1.6 }}>
+                            {wallet.txTotalSteps > 1 && wallet.txStep === 1
+                              ? 'Approve this request in MetaMask — your MYR spend limit.'
+                              : 'Confirm the transaction in MetaMask and wait for the block to be mined.'}
+                          </Typography>
+                          <Typography sx={{ fontSize: 11, color: C.ts, mt: 0.5, opacity: 0.75 }}>
+                            Blockchain transactions typically take 15–30 seconds.
+                          </Typography>
+                        </>
+                      )}
+                      {wallet.txStatus === 'success' && (
+                        <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.teal }}>
+                          {wallet.txMessage}
+                        </Typography>
+                      )}
+                      {wallet.txStatus === 'error' && (
+                        <>
+                          <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.red, mb: 0.25 }}>
+                            Transaction Failed
+                          </Typography>
+                          <Typography sx={{ fontSize: 12, color: C.ts, lineHeight: 1.5 }}>
+                            {wallet.txMessage}
+                          </Typography>
+                        </>
+                      )}
+                    </Box>
+
+                    {/* Dismiss for success / error */}
+                    {(wallet.txStatus === 'success' || wallet.txStatus === 'error') && (
+                      <IconButton size="small" onClick={wallet.clearTx}
+                        sx={{ color: C.ts, mt: -0.25, mr: -0.5, '&:hover': { color: C.tp } }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </IconButton>
+                    )}
+                  </Box>
+                </Box>
+              )}
 
               {/* Position summary strip — only when wallet connected and has a position */}
               {isLive && wallet.isConnected && wallet.loanInfo && (Number(wallet.loanInfo.collateral) > 0 || Number(wallet.loanInfo.borrowed) > 0) && (() => {
                 const colEthPos  = parseFloat(ethers.formatEther(wallet.loanInfo!.collateral));
                 const borMYRPos  = Number(wallet.loanInfo!.borrowed) / 1e6;
-                const hfPos      = Number(wallet.loanInfo!.healthFactor) / 1e18;
+                const hfPos      = wallet.loanInfo!.healthFactor;
                 const hfColor    = hfPos < 1.2 ? C.red : hfPos < 1.5 ? C.gold : C.teal;
+                const hfLabel    = hfPos < 1.2 ? 'At Risk' : hfPos < 1.5 ? 'Moderate' : 'Healthy';
+                const hfBarPct   = Math.min((isFinite(hfPos) ? hfPos : 3) / 3 * 100, 100);
                 return (
-                  <Box sx={{ display: 'flex', gap: 0, mb: 2, borderRadius: 2, overflow: 'hidden', border: `1px solid ${C.border}` }}>
-                    {[
-                      { label: 'Collateral', value: `${colEthPos.toFixed(3)} ETH`, color: C.tp },
-                      { label: 'Borrowed',   value: borMYRPos > 0 ? `RM ${borMYRPos.toFixed(2)}` : '—', color: borMYRPos > 0 ? C.gold : C.ts },
-                      { label: 'Health',     value: borMYRPos > 0 ? hfPos.toFixed(2) : '—',            color: hfColor },
-                    ].map((item, i) => (
-                      <Box key={item.label} sx={{
-                        flex: 1, px: 1.5, py: 1.25,
-                        bgcolor: i % 2 === 1 ? `${C.inner}` : '#fff',
-                        borderRight: i < 2 ? `1px solid ${C.border}` : 'none',
-                        textAlign: 'center',
-                      }}>
-                        <Typography sx={{ fontSize: 10, color: C.ts, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.25 }}>
-                          {item.label}
-                        </Typography>
-                        <Typography sx={{ fontSize: 13, fontWeight: 700, color: item.color }}>
-                          {item.value}
-                        </Typography>
+                  <Box sx={{ mb: 2, borderRadius: 2, overflow: 'hidden', border: `1px solid ${C.border}`, bgcolor: '#fff' }}>
+                    <Box sx={{ display: 'flex' }}>
+                      {[
+                        { label: 'Collateral', value: `${colEthPos.toFixed(3)} ETH`, color: C.tp, sub: `≈ ${rm(colEthPos * wallet.ethPriceMYR)}` },
+                        { label: 'Borrowed',   value: borMYRPos > 0 ? `RM ${borMYRPos.toFixed(2)}` : '—', color: borMYRPos > 0 ? C.gold : C.ts, sub: borMYRPos > 0 ? '4.80% APR' : 'No debt' },
+                        { label: 'Health',     value: borMYRPos > 0 ? (isFinite(hfPos) ? hfPos.toFixed(2) : '∞') : '—', color: hfColor, sub: borMYRPos > 0 ? hfLabel : '—' },
+                      ].map((item, i) => (
+                        <Box key={item.label} sx={{
+                          flex: 1, px: 1.5, py: 1.25,
+                          borderRight: i < 2 ? `1px solid ${C.border}` : 'none',
+                          textAlign: 'center',
+                        }}>
+                          <Typography sx={{ fontSize: 10, color: C.ts, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.25 }}>
+                            {item.label}
+                          </Typography>
+                          <Typography sx={{ fontSize: 14, fontWeight: 700, color: item.color, lineHeight: 1.2 }}>
+                            {item.value}
+                          </Typography>
+                          <Typography sx={{ fontSize: 10, color: C.ts, mt: 0.25 }}>{item.sub}</Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                    {borMYRPos > 0 && (
+                      <Box sx={{ px: 1.5, pb: 1.25 }}>
+                        <LinearProgress variant="determinate" value={hfBarPct}
+                          sx={{ height: 4, borderRadius: 999, bgcolor: `${hfColor}20`,
+                            '& .MuiLinearProgress-bar': { bgcolor: hfColor, borderRadius: 999 } }} />
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                          <Typography sx={{ fontSize: 9.5, color: C.ts }}>Liquidation &lt;1.0</Typography>
+                          <Typography sx={{ fontSize: 9.5, color: C.ts }}>Safe 3.0+</Typography>
+                        </Box>
                       </Box>
-                    ))}
+                    )}
                   </Box>
                 );
               })()}
@@ -1162,23 +1317,48 @@ export default function Dashboard() {
                   {(!isLive || wallet.kycApproved) && (
                   <>
                   <Box>
-                    <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
-                      ETH Amount to Deposit
-                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
+                        ETH Amount
+                      </Typography>
+                      {wallet.isConnected && (
+                        <Typography variant="caption" sx={{ color: C.ts }}>
+                          Balance: <Box component="span" sx={{ color: C.tp, fontWeight: 600 }}>{wallet.ethBalance} ETH</Box>
+                        </Typography>
+                      )}
+                    </Box>
                     <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <Typography sx={{ fontSize: 20, fontWeight: 700, color: '#627EEA', lineHeight: 1 }}>Ξ</Typography>
+                      <Typography sx={{ fontSize: 22, fontWeight: 700, color: '#627EEA', lineHeight: 1 }}>Ξ</Typography>
                       <InputBase type="number" value={depositAmt} onChange={e => setDepositAmt(e.target.value)}
                         placeholder="0.00"
-                        sx={{ flex: 1, color: C.tp, fontSize: 20, fontWeight: 600, '& input': { p: 0 } }} />
-                      <Button size="small" onClick={() => setDepositAmt(Math.max(0, parseFloat(wallet.ethBalance || '0') - 0.01).toFixed(4))}
-                        sx={{ bgcolor: `${C.teal}15`, color: C.teal, fontSize: 11, minWidth: 'auto', py: 0.25, px: 1.25, borderRadius: 1.5 }}>
-                        MAX
-                      </Button>
+                        sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
+                      {depositAmt && (
+                        <Typography sx={{ fontSize: 12, color: C.ts, fontWeight: 500 }}>
+                          ≈ {rm(parseFloat(depositAmt || '0') * (isLive ? wallet.ethPriceMYR : ethPriceMYR))}
+                        </Typography>
+                      )}
                     </Box>
                     {wallet.isConnected && (
-                      <Typography variant="caption" sx={{ color: C.ts, mt: 0.75, display: 'block' }}>
-                        Wallet balance: {wallet.ethBalance} ETH
-                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
+                        {[25, 50, 75].map(pct => {
+                          const bal = parseFloat(wallet.ethBalance || '0');
+                          const val = Math.max(0, bal * pct / 100 - 0.001);
+                          return (
+                            <Box key={pct} onClick={() => setDepositAmt(val.toFixed(4))}
+                              sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: C.inner, borderRadius: 1.5,
+                                cursor: 'pointer', border: `1px solid ${C.border}`,
+                                '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
+                              <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.ts }}>{pct}%</Typography>
+                            </Box>
+                          );
+                        })}
+                        <Box onClick={() => setDepositAmt(Math.max(0, parseFloat(wallet.ethBalance || '0') - 0.01).toFixed(4))}
+                          sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: `${C.teal}10`, borderRadius: 1.5,
+                            cursor: 'pointer', border: `1px solid ${C.teal}30`,
+                            '&:hover': { bgcolor: `${C.teal}18` } }}>
+                          <Typography sx={{ fontSize: 11, fontWeight: 700, color: C.teal }}>MAX</Typography>
+                        </Box>
+                      </Box>
                     )}
                   </Box>
 
@@ -1192,34 +1372,35 @@ export default function Dashboard() {
                     const totalColMYR     = totalColAfter * price;
                     const newMaxBorrow    = totalColMYR * 0.70;
                     const newAvailable    = Math.max(0, newMaxBorrow - alreadyBorrowed);
+                    const headline        = isLive && alreadyBorrowed > 0 ? newAvailable : maxBorrow;
                     return (
-                      <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        <Typography variant="caption" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>Borrowing Power</Typography>
-                        <Row label="ETH Price (on-chain)"                                      value={rm(price)} />
-                        <Row label={`${depEth.toFixed(4)} ETH × ${rm(price)}`}                value={rm(colValue)} />
-                        <Row label="× Max LTV (70%)"                                           value={`= ${rm(maxBorrow)}`} vc={C.teal} />
-                        {isLive && alreadyBorrowed > 0 && (
-                          <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                            <Row label="Total collateral after"  value={`${totalColAfter.toFixed(4)} ETH`} />
-                            <Row label="New max borrowable"       value={rm(newMaxBorrow)} />
-                            <Row label="Already borrowed"         value={`−${rm(alreadyBorrowed, 2)}`} vc={C.gold} />
-                          </Box>
-                        )}
-                        <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
-                          <Row
-                            label={isLive && alreadyBorrowed > 0 ? 'Available after deposit' : 'Max you can borrow'}
-                            value={rm(isLive && alreadyBorrowed > 0 ? newAvailable : maxBorrow, 2) + ' MYR'}
-                            vc={C.teal} bold
-                          />
+                      <Box sx={{ borderRadius: 2, overflow: 'hidden', border: `1px solid ${C.border}` }}>
+                        <Box sx={{ px: 2, py: 1.5, bgcolor: `${C.teal}06` }}>
+                          <Typography sx={{ fontSize: 10, color: C.ts, textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.5 }}>
+                            {isLive && alreadyBorrowed > 0 ? 'Available to Borrow After' : 'Max You Can Borrow'}
+                          </Typography>
+                          <Typography sx={{ fontSize: 26, fontWeight: 700, color: headline > 0 ? C.teal : C.ts, lineHeight: 1.1 }}>
+                            {rm(headline, 0)} <Box component="span" sx={{ fontSize: 14, fontWeight: 500, color: C.ts }}>MYR</Box>
+                          </Typography>
+                        </Box>
+                        <Box sx={{ px: 2, py: 1.25, display: 'flex', flexDirection: 'column', gap: 0.75, borderTop: `1px solid ${C.border}`, bgcolor: '#fff' }}>
+                          <Row label="ETH Price (on-chain)"  value={rm(price)} />
+                          <Row label={`${depEth > 0 ? depEth.toFixed(4) : '0'} ETH value`} value={depEth > 0 ? rm(colValue) : '—'} />
+                          <Row label="Max LTV"               value="70%" />
+                          {isLive && alreadyBorrowed > 0 && <>
+                            <Row label="Already borrowed"    value={`−${rm(alreadyBorrowed, 2)}`} vc={C.gold} />
+                          </>}
                         </Box>
                       </Box>
                     );
                   })()}
 
-                  <Box sx={{ p: 1.75, bgcolor: `${C.teal}08`, border: `1px solid ${C.teal}20`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
-                    <Typography sx={{ fontSize: 14, flexShrink: 0 }}>🔒</Typography>
-                    <Typography variant="caption" sx={{ color: C.teal, lineHeight: 1.6 }}>
-                      Collateral is locked in a non-custodial smart contract. Only you can withdraw it after repaying your loan.
+                  <Box sx={{ p: 1.5, bgcolor: `${C.teal}07`, border: `1px solid ${C.teal}20`, borderRadius: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.teal} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>
+                    </svg>
+                    <Typography sx={{ fontSize: 11.5, color: C.teal, lineHeight: 1.5 }}>
+                      Non-custodial — only you can withdraw after repaying.
                     </Typography>
                   </Box>
 
@@ -1290,23 +1471,42 @@ export default function Dashboard() {
                   {(!isLive || colEth > 0) && (
                   <>
                   <Box>
-                    <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
-                      ETH Amount to Withdraw
-                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
+                        ETH Amount
+                      </Typography>
+                      {isLive && (
+                        <Typography variant="caption" sx={{ color: C.ts }}>
+                          Available: <Box component="span" sx={{ color: C.tp, fontWeight: 600 }}>{maxWithdraw.toFixed(4)} ETH</Box>
+                        </Typography>
+                      )}
+                    </Box>
                     <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <Typography sx={{ fontSize: 20, fontWeight: 700, color: '#627EEA', lineHeight: 1 }}>Ξ</Typography>
+                      <Typography sx={{ fontSize: 22, fontWeight: 700, color: '#627EEA', lineHeight: 1 }}>Ξ</Typography>
                       <InputBase type="number" value={withdrawAmt} onChange={e => setWithdrawAmt(e.target.value)}
                         placeholder="0.00"
-                        sx={{ flex: 1, color: C.tp, fontSize: 20, fontWeight: 600, '& input': { p: 0 } }} />
-                      <Button size="small" onClick={() => setWithdrawAmt((Math.floor(maxWithdraw * 10000) / 10000).toFixed(4))}
-                        sx={{ bgcolor: `${C.teal}15`, color: C.teal, fontSize: 11, minWidth: 'auto', py: 0.25, px: 1.25, borderRadius: 1.5 }}>
-                        MAX
-                      </Button>
+                        sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
+                      {withdrawAmt && (
+                        <Typography sx={{ fontSize: 12, color: C.ts }}>≈ {rm(parseFloat(withdrawAmt || '0') * price)}</Typography>
+                      )}
                     </Box>
-                    {isLive && (
-                      <Typography variant="caption" sx={{ color: C.ts, mt: 0.75, display: 'block' }}>
-                        Deposited: {colEth.toFixed(4)} ETH · Withdrawable now: {maxWithdraw.toFixed(4)} ETH
-                      </Typography>
+                    {isLive && maxWithdraw > 0 && (
+                      <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
+                        {[25, 50, 75].map(pct => (
+                          <Box key={pct} onClick={() => setWithdrawAmt((maxWithdraw * pct / 100).toFixed(4))}
+                            sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: C.inner, borderRadius: 1.5,
+                              cursor: 'pointer', border: `1px solid ${C.border}`,
+                              '&:hover': { borderColor: C.gold, bgcolor: `${C.gold}08` } }}>
+                            <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.ts }}>{pct}%</Typography>
+                          </Box>
+                        ))}
+                        <Box onClick={() => setWithdrawAmt((Math.floor(maxWithdraw * 10000) / 10000).toFixed(4))}
+                          sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: `${C.gold}10`, borderRadius: 1.5,
+                            cursor: 'pointer', border: `1px solid ${C.gold}30`,
+                            '&:hover': { bgcolor: `${C.gold}18` } }}>
+                          <Typography sx={{ fontSize: 11, fontWeight: 700, color: C.gold }}>MAX</Typography>
+                        </Box>
+                      </Box>
                     )}
                   </Box>
 
@@ -1568,29 +1768,43 @@ export default function Dashboard() {
               {activeTab === 'repay' && (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Box>
-                    <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
-                      Repay Amount (MYR)
-                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
+                        Repay Amount (MYR)
+                      </Typography>
+                      {isLive && (
+                        <Typography variant="caption" sx={{ color: C.ts }}>
+                          Balance: <Box component="span" sx={{ color: C.tp, fontWeight: 600 }}>RM {wallet.myrBalance}</Box>
+                        </Typography>
+                      )}
+                    </Box>
                     <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <Typography variant="body2" sx={{ color: C.teal, fontWeight: 800, fontSize: 15 }}>RM</Typography>
+                      <Typography variant="body2" sx={{ color: C.teal, fontWeight: 800, fontSize: 17 }}>RM</Typography>
                       <InputBase type="number" value={repayAmt} onChange={e => setRepayAmt(e.target.value)}
                         placeholder="0.00"
-                        sx={{ flex: 1, color: C.tp, fontSize: 20, fontWeight: 600, '& input': { p: 0 } }} />
-                      <Button size="small"
-                        onClick={() => {
-                          if (!isLive || !wallet.loanInfo) return;
-                          const due = (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6;
-                          setRepayAmt(due.toFixed(2));
-                        }}
-                        sx={{ bgcolor: `${C.teal}15`, color: C.teal, fontSize: 11, minWidth: 'auto', py: 0.25, px: 1.25, borderRadius: 1.5 }}>
-                        FULL
-                      </Button>
+                        sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
                     </Box>
-                    {isLive && (
-                      <Typography variant="caption" sx={{ color: C.ts, mt: 0.75, display: 'block' }}>
-                        MYR balance: {wallet.myrBalance}
-                      </Typography>
-                    )}
+                    {isLive && wallet.loanInfo && (() => {
+                      const due = (Number(wallet.loanInfo!.borrowed) + Number(wallet.loanInfo!.accruedInterest)) / 1e6;
+                      return (
+                        <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
+                          {[25, 50, 75].map(pct => (
+                            <Box key={pct} onClick={() => setRepayAmt((due * pct / 100).toFixed(2))}
+                              sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: C.inner, borderRadius: 1.5,
+                                cursor: 'pointer', border: `1px solid ${C.border}`,
+                                '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
+                              <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.ts }}>{pct}%</Typography>
+                            </Box>
+                          ))}
+                          <Box onClick={() => setRepayAmt(due.toFixed(2))}
+                            sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: `${C.teal}10`, borderRadius: 1.5,
+                              cursor: 'pointer', border: `1px solid ${C.teal}30`,
+                              '&:hover': { bgcolor: `${C.teal}18` } }}>
+                            <Typography sx={{ fontSize: 11, fontWeight: 700, color: C.teal }}>FULL</Typography>
+                          </Box>
+                        </Box>
+                      );
+                    })()}
                   </Box>
 
                   <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
