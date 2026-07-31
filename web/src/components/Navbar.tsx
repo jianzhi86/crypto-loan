@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 import { useAuth } from '@/hooks/useAuth';
+import { useViewer } from '@/lib/ViewerContext';
 
 // const NAV = [
 //   { href: '/dashboard',          label: 'Dashboard' },
@@ -44,7 +45,12 @@ export default function Navbar() {
   const wallet   = useWallet();
   const { prices, loading } = usePrices();
   const { user, logout } = useAuth();
+  const viewer = useViewer();
   const [copied, setCopied] = useState(false);
+  // The server said this document belongs to a signed-in account, or the client
+  // session agrees. Either alone is enough to offer Logout — hiding it because
+  // one of the two answers hiccuped strands people in a session they cannot end.
+  const signedIn = viewer.isAuthenticated || !!user;
 
   const copyAddress = () => {
     if (!wallet.address) return;
@@ -57,9 +63,13 @@ export default function Navbar() {
   return (
     <>
       <AppBar position="sticky" sx={{ zIndex: 1200 }}>
-        {/* Main nav */}
+        {/* Main nav. Full-width, not a centred column: the app has a left
+            sidebar hugging the viewport edge, and a navbar centred at 1320px
+            left the logo floating a few hundred pixels inward on wide screens
+            with nothing above the sidebar. Flush left lines the logo up with
+            the rail below it. */}
         <Toolbar sx={{
-          maxWidth: 1320, width: '100%', mx: 'auto',
+          width: '100%',
           px: { xs: 2, sm: 3 }, minHeight: '64px !important',
         }}>
           {/* Logo */}
@@ -147,21 +157,25 @@ export default function Navbar() {
                   },
                 }}
               >
-                {wallet.kycApproved ? '✓ KYC Verified' : '⚠ KYC Required'}
+                {wallet.kycApproved ? 'KYC Verified' : 'KYC Required'}
               </Button>
             )}
 
             {/* User email + logout */}
-            {user && (
+            {signedIn && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {user.email && (
+                {user?.email && (
                   <Typography variant="caption" sx={{ color: '#5A6675', display: { xs: 'none', md: 'block' }, fontSize: 12 }}>
                     {user.email}
                   </Typography>
                 )}
                 <Button
                   size="small"
-                  onClick={() => { wallet.disconnect(); logout(); router.push('/login'); }}
+                  // Full navigation, mirroring login: the cookie just changed,
+                  // and a client-side push would carry the signed-in document's
+                  // server-resolved state (viewer verdict, seeded session) into
+                  // the signed-out world.
+                  onClick={async () => { wallet.disconnect(); await logout(); window.location.assign('/login'); }}
                   sx={{ color: '#5A6675', fontSize: 11, px: 1, minWidth: 'auto', borderRadius: 2, '&:hover': { color: '#E5484D' } }}
                 >
                   Logout

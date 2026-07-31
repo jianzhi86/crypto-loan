@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/auth-jwt';
 import { prisma } from '@/lib/db/prisma';
+import { requireUser, requireActiveUser } from '@/lib/authz';
+import { featureBlocked } from '@/lib/features-server';
 import crypto from 'crypto';
 
 export async function GET() {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const guard = await requireUser();
+  if (!guard.ok) return guard.response;
+  const user = guard.user;
 
   const transfers = await prisma.bankTransfer.findMany({
     where: { userId: user.id },
@@ -17,8 +19,12 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const guard = await requireActiveUser();
+  if (!guard.ok) return guard.response;
+  const user = guard.user;
+
+  const blocked = await featureBlocked('action.transfer', { isAdmin: user.isAdmin });
+  if (blocked) return blocked;
 
   const { amountMYR } = await req.json() as { amountMYR: number };
   if (!amountMYR || amountMYR <= 0) {

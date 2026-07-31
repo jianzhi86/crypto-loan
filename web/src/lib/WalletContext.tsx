@@ -510,7 +510,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         writeMyrAdded(s.address);
         setS(p => ({ ...p, myrTokenAdded: true }));
       }
-    } catch (e) { console.error('watchAsset', e); }
+    } catch (e) {
+      // Dismissing the MetaMask prompt rejects with EIP-1193 code 4001. That is
+      // the user answering "no", not a failure — logging it as an error made a
+      // normal cancel look like a crash in the console. Anything else is worth
+      // surfacing, but the raw object serialises to "{}" (its fields are on the
+      // prototype), so pull the useful parts out by hand.
+      const err = e as { code?: number; message?: string };
+      if (err?.code === 4001) return;
+      console.warn('[wallet] could not add the MYR token:', err?.message ?? err, err?.code ? `(code ${err.code})` : '');
+    }
   }, [s.address]);
 
   // Check DB approval status when the wallet connects, then keep polling so an

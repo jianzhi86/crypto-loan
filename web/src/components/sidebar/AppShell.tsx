@@ -3,6 +3,7 @@
 import { Suspense } from 'react';
 import Box from '@mui/material/Box';
 import Navbar from '@/components/Navbar';
+import AccountStatusBanner from '@/components/AccountStatusBanner';
 import Sidebar from './Sidebar';
 
 /**
@@ -13,6 +14,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Navbar />
+      <AccountStatusBanner />
       <Box sx={{ display: 'flex', alignItems: 'stretch' }}>
         <Suspense fallback={null}><Sidebar /></Suspense>
         <Box component="main" sx={{ flex: 1, minWidth: 0 }}>

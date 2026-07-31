@@ -13,6 +13,7 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import Divider from '@mui/material/Divider';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BankIcon } from '@/components/Icons';
 
 const BANKS = [
   'Maybank', 'CIMB Bank', 'Public Bank', 'RHB Bank', 'Hong Leong Bank',
@@ -185,8 +186,8 @@ export default function SettingsPage() {
         {/* Bank Account section */}
         <Paper sx={cardSx}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
-            <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: 'rgba(42,63,214,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
-              🏦
+            <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: 'rgba(42,63,214,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2A3FD6' }}>
+              <BankIcon size={20} />
             </Box>
             <Box>
               <Typography sx={{ fontWeight: 600, color: 'text.primary' }}>

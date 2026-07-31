@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useWallet } from '@/lib/WalletContext';
 import Link from 'next/link';
 import Box from '@mui/material/Box';
@@ -13,16 +13,16 @@ import Alert from '@mui/material/Alert';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BoltIcon, EyeIcon, EyeOffIcon, LockIcon, ShieldIcon, TrendUpIcon, WalletIcon } from '@/components/Icons';
 
 const FEATURES = [
-  { icon: '🔒', text: 'Non-custodial — your keys, your crypto' },
-  { icon: '⚡', text: 'Instant MYR loans against crypto collateral' },
-  { icon: '📈', text: 'Up to 75% LTV with competitive APR' },
-  { icon: '🛡️', text: 'KYC-verified and compliance-ready' },
+  { icon: <LockIcon size={18} />, text: 'Non-custodial — your keys, your crypto' },
+  { icon: <BoltIcon size={18} />, text: 'Instant MYR loans against crypto collateral' },
+  { icon: <TrendUpIcon size={18} />, text: 'Up to 75% LTV with competitive APR' },
+  { icon: <ShieldIcon size={18} />, text: 'KYC-verified and compliance-ready' },
 ];
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') ?? '/dashboard';
   const wallet = useWallet();
@@ -45,7 +45,13 @@ function LoginForm() {
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Login failed'); setLoading(false); return; }
       await wallet.tryAutoConnect();
-      router.push(data.isAdmin ? '/admin' : nextPath);
+      // Full navigation, not router.push: signing in changes the auth cookie,
+      // and everything the server resolves per document — the viewer verdict,
+      // the seeded session, the maintenance decision — was computed for the
+      // *previous* identity. A client-side push keeps all of that alive, which
+      // is how an admin could land on /admin with a sidebar still locked for
+      // the stranger they used to be. A document load re-runs the root layout.
+      window.location.assign(data.isAdmin ? '/admin' : nextPath);
     } catch {
       setError('Network error. Please try again.');
       setLoading(false);
@@ -70,7 +76,8 @@ function LoginForm() {
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Wallet login failed'); setWalletLoading(false); return; }
       await wallet.tryAutoConnect();
-      router.push(nextPath);
+      // Full navigation — same reasoning as the email form above.
+      window.location.assign(data.isAdmin ? '/admin' : nextPath);
     } catch (e: unknown) {
       const code = (e as { code?: number }).code;
       if (code !== 4001) setError('Wallet sign-in failed. Please try again.');
@@ -129,7 +136,7 @@ function LoginForm() {
             <Box key={f.text} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: 'rgba(42,63,214,0.08)',
                           border: '1px solid rgba(42,63,214,0.15)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2A3FD6', flexShrink: 0 }}>
                 {f.icon}
               </Box>
               <Typography variant="body2" color="text.secondary">{f.text}</Typography>
@@ -188,7 +195,7 @@ function LoginForm() {
                     <InputAdornment position="end">
                       <IconButton size="small" onClick={() => setShowPwd(p => !p)} edge="end"
                         sx={{ color: '#64748B', mr: -0.5 }}>
-                        <Typography sx={{ fontSize: 15, userSelect: 'none' }}>{showPwd ? '🙈' : '👁'}</Typography>
+                        {showPwd ? <EyeOffIcon size={17} /> : <EyeIcon size={17} />}
                       </IconButton>
                     </InputAdornment>
                   ),
@@ -231,7 +238,7 @@ function LoginForm() {
               <CircularProgress size={20} sx={{ color: '#2A3FD6' }} />
             ) : (
               <>
-                <Typography sx={{ fontSize: 20, lineHeight: 1 }}>🦊</Typography>
+                <WalletIcon size={19} />
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>Continue with MetaMask</Typography>
               </>
             )}

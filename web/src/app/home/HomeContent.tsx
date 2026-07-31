@@ -8,6 +8,7 @@ import TextScramble from '@/components/TextScramble';
 import FaqAccordion from '@/components/FaqAccordion';
 import CtaButton from '@/components/CtaButton';
 import FadeInSection from '@/components/FadeInSection';
+import { BankIcon, BoltIcon, LockIcon, RefreshIcon, ShieldIcon, TrendDownIcon } from '@/components/Icons';
 
 const C = {
   bg: '#F4F6F8',
@@ -41,12 +42,12 @@ const STATEMENT = [
 ];
 
 const FEATURES = [
-  { icon: '🔒', title: 'Keep your crypto', body: 'Borrow against ETH, BTC, SOL and more — your collateral is never sold, so you keep all the upside.' },
-  { icon: '📉', title: 'Rates from 4.8% APR', body: 'Transparent, competitive interest with no hidden fees. Pay only for the days you borrow.' },
-  { icon: '⚡', title: 'No credit checks', body: 'Your crypto is your credit. Get an instant decision based on collateral, not paperwork or a credit score.' },
-  { icon: '🏦', title: 'Instant MYR via DuitNow', body: 'Receive Malaysian Ringgit straight to your bank account through DuitNow, or take it as MYRC tokens.' },
-  { icon: '🛡️', title: 'Non-custodial escrow', body: 'Collateral is locked in audited smart contracts — not held by a company. You stay in control on-chain.' },
-  { icon: '🔄', title: 'Repay anytime', body: 'No fixed schedule, no early-repayment penalty. Repay whenever you like and unlock your collateral instantly.' },
+  { icon: <LockIcon size={22} />, title: 'Keep your crypto', body: 'Borrow against ETH, BTC, SOL and more — your collateral is never sold, so you keep all the upside.' },
+  { icon: <TrendDownIcon size={22} />, title: 'Rates from 4.8% APR', body: 'Transparent, competitive interest with no hidden fees. Pay only for the days you borrow.' },
+  { icon: <BoltIcon size={22} />, title: 'No credit checks', body: 'Your crypto is your credit. Get an instant decision based on collateral, not paperwork or a credit score.' },
+  { icon: <BankIcon size={22} />, title: 'Instant MYR via DuitNow', body: 'Receive Malaysian Ringgit straight to your bank account through DuitNow, or take it as MYRC tokens.' },
+  { icon: <ShieldIcon size={22} />, title: 'Non-custodial escrow', body: 'Collateral is locked in audited smart contracts — not held by a company. You stay in control on-chain.' },
+  { icon: <RefreshIcon size={22} />, title: 'Repay anytime', body: 'No fixed schedule, no early-repayment penalty. Repay whenever you like and unlock your collateral instantly.' },
 ];
 
 const STEPS = [
@@ -229,7 +230,7 @@ export default function HomeContent() {
                     '&:hover': { borderColor: 'rgba(42,63,214,0.4)', boxShadow: '0 8px 24px rgba(16,21,28,0.07)', transform: 'translateY(-2px)' },
                   }}
                 >
-                  <Box sx={{ width: 44, height: 44, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, bgcolor: 'rgba(42,63,214,0.07)', border: '1px solid rgba(42,63,214,0.15)', mb: 2 }}>
+                  <Box sx={{ width: 44, height: 44, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2A3FD6', bgcolor: 'rgba(42,63,214,0.07)', border: '1px solid rgba(42,63,214,0.15)', mb: 2 }}>
                     {f.icon}
                   </Box>
                   <Typography sx={{ fontSize: 17.5, fontWeight: 700, mb: 0.75, color: C.ink }}>{f.title}</Typography>

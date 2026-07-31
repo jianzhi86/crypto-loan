@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
+import { PATHNAME_HEADER } from '@/lib/maintenance';
 
 const SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET ?? 'crypto-lend-jwt-dev-fallback'
@@ -20,7 +21,11 @@ async function decodeToken(token: string): Promise<TokenPayload | null> {
 }
 
 // Paths reachable without authentication.
-const PUBLIC_PATHS = ['/', '/login', '/signup', '/home'];
+// /explorer is public because it only ever serves contract events, which are
+// readable by anyone on-chain regardless — gating it would protect nothing.
+// Whether it appears at all is controlled by the `page.explorer` feature flag,
+// enforced server-side in its segment layout rather than here.
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/home', '/explorer'];
 // Auth-only paths that an already-authenticated user should be redirected away from.
 const AUTH_PATHS = ['/login', '/signup'];
 // Paths only accessible to admin users (isAdmin: true in JWT).
@@ -51,7 +56,12 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
-  return NextResponse.next();
+  // Forward the path to the server components. A layout cannot read the
+  // pathname on its own, and the root layout needs it to decide which routes
+  // site-wide maintenance should cover — it must never cover the sign-in page.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set(PATHNAME_HEADER, pathname);
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {

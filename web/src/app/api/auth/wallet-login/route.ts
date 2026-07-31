@@ -3,6 +3,7 @@ import { verifyMessage } from 'ethers';
 import { prisma } from '@/lib/db/prisma';
 import { createToken, setAuthCookie } from '@/lib/auth-jwt';
 import { consumeNonce } from '@/lib/nonce-store';
+import { featureBlocked } from '@/lib/features-server';
 
 export async function POST(req: Request) {
   const { address, signature, nonce } = await req.json();
@@ -25,6 +26,11 @@ export async function POST(req: Request) {
   try {
     user = await prisma.user.findUnique({ where: { walletAddress: address } });
     if (!user) {
+      // First sight of this wallet — that is a registration, so it obeys the
+      // sign-up switch rather than the sign-in one.
+      const closed = await featureBlocked('auth.signup');
+      if (closed) return closed;
+
       user = await prisma.user.create({
         data: {
           walletAddress: address,
@@ -37,13 +43,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Database error' }, { status: 500 });
   }
 
+  if (!user.isAdmin) {
+    const blocked = await featureBlocked('auth.login');
+    if (blocked) return blocked;
+  }
+
   try {
-    const token = await createToken({ id: user.id, email: user.email, name: user.name, walletAddress: address });
+    // isAdmin was previously omitted here, so an admin signing in by wallet
+    // silently lost their admin rights until they used the email form.
+    const token = await createToken({
+      id: user.id, email: user.email, name: user.name, walletAddress: address,
+      isAdmin: user.isAdmin, epoch: user.sessionEpoch,
+    });
     await setAuthCookie(token);
   } catch (err) {
     console.error('[wallet-login] Token error:', err);
     return NextResponse.json({ error: 'Failed to create session' }, { status: 500 });
   }
 
-  return NextResponse.json({ id: user.id, name: user.name, walletAddress: address });
+  return NextResponse.json({
+    id: user.id, name: user.name, walletAddress: address,
+    isAdmin: user.isAdmin, status: user.status,
+  });
 }

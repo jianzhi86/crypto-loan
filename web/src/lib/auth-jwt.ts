@@ -11,6 +11,10 @@ export interface AuthPayload {
   name?: string | null;
   walletAddress?: string | null;
   isAdmin?: boolean;
+  /** Snapshot of User.sessionEpoch when this token was minted. A mismatch
+   *  against the DB means the token was revoked (e.g. admin password reset).
+   *  Absent on tokens issued before session revocation existed — treated as 0. */
+  epoch?: number;
 }
 
 export async function createToken(payload: AuthPayload): Promise<string> {

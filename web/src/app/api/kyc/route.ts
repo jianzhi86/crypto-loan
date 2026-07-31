@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
+import { requireActiveUser, requireAdmin, audit } from '@/lib/authz';
+import { featureBlocked } from '@/lib/features-server';
 
 // Keep only valid image data URIs; anything else becomes undefined so we don't
 // overwrite an existing image with junk.
@@ -9,6 +11,12 @@ function cleanDataUri(dataUri: string | undefined): string | undefined {
 
 // POST /api/kyc — save KYC form data + document uploads
 export async function POST(req: NextRequest) {
+  const guard = await requireActiveUser();
+  if (!guard.ok) return guard.response;
+
+  const blocked = await featureBlocked('page.kyc', { isAdmin: guard.user.isAdmin });
+  if (blocked) return blocked;
+
   try {
     const body = await req.json();
     const {
@@ -86,11 +94,18 @@ export async function GET(req: NextRequest) {
 
 // DELETE /api/kyc?wallet=0x... — remove a KYC submission (admin action)
 export async function DELETE(req: NextRequest) {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard.response;
+
   const wallet = req.nextUrl.searchParams.get('wallet');
   if (!wallet) return NextResponse.json({ error: 'wallet param required' }, { status: 400 });
 
   try {
-    await prisma.kycSubmission.delete({ where: { wallet: wallet.toLowerCase() } });
+    const walletKey = wallet.toLowerCase();
+    await prisma.kycSubmission.delete({ where: { wallet: walletKey } });
+    // Off-chain deletion only. If this wallet was already approved on-chain the
+    // contract's KYC flag stays set — the admin surface never revokes on chain.
+    await audit(guard.user, 'KYC_DELETE', 'kyc', walletKey);
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('[DELETE /api/kyc]', err);

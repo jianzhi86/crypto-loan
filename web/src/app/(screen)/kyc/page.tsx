@@ -19,6 +19,7 @@ import StepLabel from '@mui/material/StepLabel';
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
 import { useWallet } from '@/lib/WalletContext';
+import { ChipGlyph, ClockIcon } from '@/components/Icons';
 
 const MY_STATES = [
   'Johor','Kedah','Kelantan','Melaka','Negeri Sembilan','Pahang',
@@ -274,11 +275,11 @@ export default function KYCPage() {
           <Paper sx={{ p: 5, textAlign: 'center', bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 3 }}>
             <Box sx={{ width: 80, height: 80, borderRadius: '50%', bgcolor: '#E7EAFF',
                        display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2.5 }}>
-              <Typography sx={{ fontSize: 40 }}>⏳</Typography>
+              <ClockIcon size={34} />
             </Box>
             <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 1 }}>Application Submitted</Typography>
 
-            <Chip label="● Pending Review" size="small"
+            <Chip icon={<ChipGlyph><ClockIcon size={13} /></ChipGlyph>} label="Pending Review" size="small"
               sx={{ bgcolor: '#E7EAFF', color: '#2A3FD6', border: '1px solid #2A3FD633', fontWeight: 600, mb: 3 }} />
 
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
@@ -364,11 +365,11 @@ export default function KYCPage() {
           <Paper sx={{ p: 5, textAlign: 'center', bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 3 }}>
             <Box sx={{ width: 80, height: 80, borderRadius: '50%', bgcolor: '#E7EAFF',
                        display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2.5 }}>
-              <Typography sx={{ fontSize: 40 }}>⏳</Typography>
+              <ClockIcon size={34} />
             </Box>
             <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 1 }}>KYC Under Review</Typography>
 
-            <Chip label="● Pending Review" size="small"
+            <Chip icon={<ChipGlyph><ClockIcon size={13} /></ChipGlyph>} label="Pending Review" size="small"
               sx={{ bgcolor: '#E7EAFF', color: '#2A3FD6', border: '1px solid #2A3FD633', fontWeight: 600, mb: 3 }} />
 
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>

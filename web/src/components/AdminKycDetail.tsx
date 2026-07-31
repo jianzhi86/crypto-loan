@@ -215,7 +215,7 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
               )}
               <Button size="small" onClick={() => setConfirmDelete(true)}
                 sx={{ color: '#E5484D', mr: 'auto', '&:hover': { bgcolor: 'rgba(229,72,77,0.08)' } }}>
-                🗑 Delete Submission
+                Delete Submission
               </Button>
               <Button size="small" variant="outlined" onClick={handleClose}
                 sx={{ borderColor: '#E2E7EE', color: '#5A6675', '&:hover': { borderColor: '#CBD3DD', bgcolor: '#EEF1F5' } }}>

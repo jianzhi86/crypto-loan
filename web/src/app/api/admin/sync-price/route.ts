@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import { CONTRACT_ADDRESSES } from '@/lib/contractConfig';
+import { requireAdmin, audit } from '@/lib/authz';
 
 const RPC_URL   = process.env.HARDHAT_RPC_URL ?? 'http://127.0.0.1:8545';
 const LOAN_ADDR = CONTRACT_ADDRESSES.CryptoLoan as string;
@@ -15,6 +16,10 @@ const ABI = [
 // POST /api/admin/sync-price
 // Fetches live ETH/MYR and walks the on-chain price toward it in ≤20% steps.
 export async function POST() {
+  // Signs with the contract owner key — admin only.
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard.response;
+
   // ── Pre-flight checks ───────────────────────────────────────────────
   if (!process.env.OWNER_PRIVATE_KEY) {
     return NextResponse.json({ error: 'OWNER_PRIVATE_KEY not set in .env' }, { status: 500 });
@@ -87,6 +92,8 @@ export async function POST() {
       )(BigInt(price));
       await tx.wait();
     }
+
+    await audit(guard.user, 'PRICE_SYNC', 'system', 'CryptoLoan.ethPrice', { newPrice: target, steps: steps.length });
 
     return NextResponse.json({
       success:  true,

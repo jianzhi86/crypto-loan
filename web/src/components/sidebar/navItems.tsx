@@ -120,37 +120,49 @@ export const LockIcon = (
   </svg>
 );
 
+const ExplorerIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" {...stroke}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="M16.5 16.5L21 21" />
+    <path d="M8 11h6M8 8.5h6M8 13.5h3.5" />
+  </svg>
+);
+
 export const NAV_SECTIONS: NavSection[] = [
+  // Administration sits first: it is admin-only, so it is hidden entirely for
+  // everyone else, and putting it last buried it below the fold on shorter
+  // screens — exactly the item an admin reaches for most.
+  {
+    title: 'Administration',
+    items: [
+      { href: '/admin', label: 'Admin', icon: AdminIcon, acl: { requiresAdmin: true } },
+    ],
+  },
   {
     title: 'Menu',
     items: [
       { href: '/dashboard', label: 'Dashboard', icon: DashboardIcon },
-      { href: '/markets',   label: 'Markets',   icon: MarketsIcon   },
-      { href: '/portfolio', label: 'Portfolio', icon: PortfolioIcon, acl: { requiresAuth: true } },
-      { href: '/docs',      label: 'Docs',      icon: DocsIcon      },
+      { href: '/markets',   label: 'Markets',   icon: MarketsIcon,   acl: { feature: 'page.markets'   } },
+      { href: '/portfolio', label: 'Portfolio', icon: PortfolioIcon, acl: { requiresAuth: true, feature: 'page.portfolio' } },
+      { href: '/explorer',  label: 'Explorer',  icon: ExplorerIcon,  acl: { feature: 'page.explorer'  } },
+      { href: '/docs',      label: 'Docs',      icon: DocsIcon,      acl: { feature: 'page.docs'      } },
     ],
   },
   {
     title: 'Actions',
     items: [
-      { href: '/dashboard?tab=deposit',  label: 'Deposit',  icon: DepositIcon,  acl: { requiresAuth: true } },
-      { href: '/dashboard?tab=withdraw', label: 'Withdraw', icon: WithdrawIcon, acl: { requiresAuth: true } },
-      { href: '/dashboard?tab=borrow',   label: 'Borrow',   icon: BorrowIcon,   acl: { requiresAuth: true } },
-      { href: '/dashboard?tab=repay',    label: 'Repay',    icon: RepayIcon,    acl: { requiresAuth: true } },
-      { href: '/dashboard?tab=buy',      label: 'Buy MYR',  icon: BuyIcon,      acl: { requiresAuth: true } },
+      { href: '/dashboard?tab=deposit',  label: 'Deposit',  icon: DepositIcon,  acl: { requiresAuth: true, feature: 'action.deposit'  } },
+      { href: '/dashboard?tab=withdraw', label: 'Withdraw', icon: WithdrawIcon, acl: { requiresAuth: true, feature: 'action.withdraw' } },
+      { href: '/dashboard?tab=borrow',   label: 'Borrow',   icon: BorrowIcon,   acl: { requiresAuth: true, feature: 'action.borrow'   } },
+      { href: '/dashboard?tab=repay',    label: 'Repay',    icon: RepayIcon,    acl: { requiresAuth: true, feature: 'action.repay'    } },
+      { href: '/dashboard?tab=buy',      label: 'Buy MYR',  icon: BuyIcon,      acl: { requiresAuth: true, feature: 'action.buy'      } },
     ],
   },
   {
     title: 'Account',
     items: [
-      { href: '/kyc',      label: 'KYC',      icon: KycIcon,      acl: { requiresAuth: true } },
-      { href: '/settings', label: 'Settings', icon: SettingsIcon, acl: { requiresAuth: true } },
-    ],
-  },
-  {
-    title: 'Administration',
-    items: [
-      { href: '/admin', label: 'Admin', icon: AdminIcon, acl: { requiresAdmin: true } },
+      { href: '/kyc',      label: 'KYC',      icon: KycIcon,      acl: { requiresAuth: true, feature: 'page.kyc'      } },
+      { href: '/settings', label: 'Settings', icon: SettingsIcon, acl: { requiresAuth: true, feature: 'page.settings' } },
     ],
   },
 ];

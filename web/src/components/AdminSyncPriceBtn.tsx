@@ -46,7 +46,7 @@ export function AdminSyncPriceBtn() {
       </Button>
       {result?.price && (
         <Typography variant="caption" sx={{ fontWeight: 600, color: '#0E9F6E' }}>
-          ✓ RM {result.price.toLocaleString()} on-chain
+          RM {result.price.toLocaleString()} on-chain
         </Typography>
       )}
       {result?.error && (

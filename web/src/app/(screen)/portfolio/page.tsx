@@ -14,6 +14,7 @@ import Alert from '@mui/material/Alert';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices } from '@/hooks/usePrices';
 import { useTransactionHistory, ICONS, LABELS, COLORS } from '@/hooks/useTransactionHistory';
+import { AlertIcon, BankIcon, ClipboardIcon, InboxIcon } from '@/components/Icons';
 
 interface BankTransfer {
   id: string;
@@ -122,8 +123,8 @@ export default function PortfolioPage() {
         <Box sx={{ maxWidth: 480, mx: 'auto', px: 3, py: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
           <Box sx={{ width: 80, height: 80, borderRadius: 3, bgcolor: 'rgba(42,63,214,0.08)',
                       border: '1px solid rgba(42,63,214,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 36, mb: 3 }}>
-            🏦
+                      color: '#2A3FD6', mb: 3 }}>
+            <BankIcon size={32} />
           </Box>
           <Typography variant="h4" color="text.primary" sx={{ fontWeight: 700, mb: 1.5 }}>Your Portfolio</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 4, maxWidth: 360 }}>
@@ -158,7 +159,7 @@ export default function PortfolioPage() {
 
         {/* Risk alert */}
         {isLive && isFinite(hf) && hf < 1.5 && borMYR > 0 && (
-          <Alert severity="error" icon={<Typography sx={{ fontSize: 18 }}>⚠️</Typography>}
+          <Alert severity="error" icon={<AlertIcon size={18} />}
             sx={{ mb: 3, bgcolor: '#E5484D15', color: '#E5484D', border: '1px solid #E5484D40',
                   '& .MuiAlert-icon': { color: '#E5484D' }, borderRadius: 2 }}
             action={
@@ -299,7 +300,7 @@ export default function PortfolioPage() {
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 5, textAlign: 'center',
                             bgcolor: '#F4F6F8', border: '1px dashed #E2E7EE', borderRadius: 2 }}>
-                  <Typography sx={{ fontSize: 36, mb: 1.5 }}>📭</Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1.5, color: '#A9B2BD' }}><InboxIcon size={30} /></Box>
                   <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500, mb: 0.5 }}>No open position</Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ mb: 2.5 }}>Deposit ETH collateral to start borrowing</Typography>
                   <Button component={Link} href="/dashboard" variant="contained"
@@ -392,7 +393,7 @@ export default function PortfolioPage() {
                 ) : txHistory.length === 0 ? (
                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, textAlign: 'center',
                               bgcolor: '#F4F6F8', border: '1px dashed #E2E7EE', borderRadius: 2 }}>
-                    <Typography sx={{ fontSize: 28, mb: 1 }}>📋</Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1, color: '#A9B2BD' }}><ClipboardIcon size={26} /></Box>
                     <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500, mb: 0.5 }}>No transactions yet</Typography>
                     <Typography variant="caption" color="text.secondary">Deposit collateral or borrow MYR to see history</Typography>
                   </Box>
@@ -441,7 +442,7 @@ export default function PortfolioPage() {
 
               {transfers.length === 0 ? (
                 <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <Typography sx={{ fontSize: 32, mb: 1 }}>🏦</Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1, color: '#A9B2BD' }}><BankIcon size={28} /></Box>
                   <Typography variant="body2" color="text.secondary">No bank transfers yet.</Typography>
                   <Typography variant="caption" color="text.secondary">
                     When you borrow and choose "Bank Transfer", disbursements will appear here.
@@ -455,8 +456,8 @@ export default function PortfolioPage() {
                       <Box key={t.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5,
                                             bgcolor: '#F4F6F8', border: '1px solid #E2E7EE', borderRadius: 2 }}>
                         <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: 'rgba(42,63,214,0.1)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
-                          🏦
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2A3FD6', flexShrink: 0 }}>
+                          <BankIcon size={18} />
                         </Box>
                         <Box sx={{ flex: 1, minWidth: 0 }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>

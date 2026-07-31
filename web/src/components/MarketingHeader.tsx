@@ -3,12 +3,16 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
+import Tooltip from '@mui/material/Tooltip';
 import { useWallet } from '@/lib/WalletContext';
+import { useAuth } from '@/hooks/useAuth';
+import { CheckIcon } from '@/components/Icons';
 
 const LINKS = [
   { href: '#features', label: 'Features' },
@@ -20,6 +24,8 @@ function short(addr: string) { return addr.slice(0, 6) + '…' + addr.slice(-4);
 
 export default function MarketingHeader() {
   const wallet = useWallet();
+  const { user, logout } = useAuth();
+  const router = useRouter();
   const [copied, setCopied] = useState(false);
 
   const copyAddress = () => {
@@ -28,6 +34,18 @@ export default function MarketingHeader() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  // Mirrors the in-app navbar: drop the wallet connection and the session
+  // together, so signing out here does not leave a wallet still attached.
+  const signOut = () => {
+    wallet.disconnect();
+    logout();
+    router.push('/home');
+  };
+
+  // Either half can be true on its own — a wallet may be connected without a
+  // session, and an email session exists without a wallet.
+  const signedIn = wallet.isConnected || !!user;
 
   return (
     <AppBar position="sticky" sx={{ zIndex: 1200 }}>
@@ -97,7 +115,9 @@ export default function MarketingHeader() {
 
         {/* Right CTAs */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, ml: { xs: 'auto', md: 0 } }}>
-          {wallet.isConnected ? (
+          {/* Wallet chip only when a wallet is actually attached — an email
+              session has no address, and this used to read wallet.address!. */}
+          {wallet.isConnected && wallet.address ? (
             <Box
               onClick={copyAddress}
               sx={{
@@ -115,14 +135,25 @@ export default function MarketingHeader() {
                 width: 8, height: 8, borderRadius: '50%', bgcolor: '#0E9F6E',
                 boxShadow: '0 0 6px #0E9F6E',
               }} />
-              <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#10151C', letterSpacing: 0.5 }}>
-                {copied ? '✓ Copied' : short(wallet.address!)}
+              <Typography
+                variant="caption"
+                sx={{ fontFamily: 'monospace', color: '#10151C', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}
+              >
+                {copied ? <><CheckIcon size={12} strokeWidth={2.4} /> Copied</> : short(wallet.address)}
               </Typography>
               <Box sx={{ width: 1, height: 14, bgcolor: 'rgba(16,21,28,0.15)' }} />
               <Typography variant="caption" sx={{ color: '#5A6675', fontSize: 11 }}>
                 {wallet.ethBalance} ETH
               </Typography>
             </Box>
+          ) : user ? (
+            // Signed in by email, no wallet attached.
+            <Typography
+              variant="caption"
+              sx={{ display: { xs: 'none', sm: 'block' }, color: '#5A6675', fontSize: 12.5, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {user.email ?? user.name}
+            </Typography>
           ) : (
             <Button
               component={Link}
@@ -141,6 +172,30 @@ export default function MarketingHeader() {
               Log in
             </Button>
           )}
+
+          {/* Only shown when there is actually something to sign out of. This
+              header is the one place a signed-in visitor could previously get
+              stuck: the landing page offered no way out of the session. */}
+          {signedIn && (
+            <Tooltip title={user?.email ? `Signed in as ${user.email}` : 'Disconnect wallet and sign out'}>
+              <Button
+                size="small"
+                onClick={signOut}
+                sx={{
+                  color: '#5A6675',
+                  fontSize: 13,
+                  px: 1.75,
+                  borderRadius: 2.5,
+                  border: '1px solid #E2E7EE',
+                  whiteSpace: 'nowrap',
+                  '&:hover': { color: '#E5484D', borderColor: 'rgba(229,72,77,0.4)', bgcolor: 'rgba(229,72,77,0.04)' },
+                }}
+              >
+                Log out
+              </Button>
+            </Tooltip>
+          )}
+
           <Button
             component={Link}
             href="/dashboard"

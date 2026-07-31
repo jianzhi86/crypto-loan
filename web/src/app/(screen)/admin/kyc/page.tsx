@@ -16,7 +16,8 @@ import { AdminDeleteBtn } from '@/components/AdminDeleteBtn';
 import { AdminSyncPriceBtn } from '@/components/AdminSyncPriceBtn';
 import { AdminKycDetail } from '@/components/AdminKycDetail';
 import { AdminAutoRefresh } from '@/components/AdminAutoRefresh';
-import { Container } from '@mui/material';
+import { ClockIcon } from '@/components/Icons';
+import { EmptyState } from '@/components/admin/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,9 +47,9 @@ export default async function AdminPage() {
   const approved = submissions.filter(s => s.status === 'approved').length;
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', color: 'text.primary', p: 4 }}>
+    <Box sx={{ color: 'text.primary', p: { xs: 2, md: 4 } }}>
       <AdminAutoRefresh />
-      <Box sx={{ maxWidth: 1280, mx: 'auto' }}>
+      <Box sx={{ maxWidth: 1440, mx: 'auto' }}>
 
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 4 }}>
@@ -63,16 +64,12 @@ export default async function AdminPage() {
             <AdminSyncPriceBtn />
             {pending > 0 && (
               <Chip
-                label={`⏳ ${pending} Pending`}
+                icon={<Box sx={{ display: 'flex', ml: '9px !important', mr: '-3px !important', color: 'inherit' }}><ClockIcon size={13} /></Box>}
+                label={`${pending} Pending`}
                 size="small"
                 sx={{ bgcolor: 'rgba(199,119,0,0.1)', color: '#C77700', border: '1px solid rgba(199,119,0,0.2)', fontWeight: 600 }}
               />
             )}
-            <Chip
-              label="● Database Connected"
-              size="small"
-              sx={{ bgcolor: 'rgba(14,159,110,0.1)', color: '#0E9F6E', border: '1px solid rgba(14,159,110,0.2)', fontWeight: 600 }}
-            />
           </Box>
         </Box>
 
@@ -91,17 +88,17 @@ export default async function AdminPage() {
             ))}
           </Box>
         )}
-        <Card sx={{ border: '1px solid #E2E7EE', borderRadius: 3 }}>
-          <Container>
-            {submissions.length === 0 ? (
-              <Paper sx={{ p: 8, textAlign: 'center', bgcolor: '#FFFFFF', border: '1px dashed #E2E7EE', borderRadius: 3 }}>
-                <Typography sx={{ fontSize: 32, mb: 1.5 }}>📭</Typography>
-                <Typography variant="body1" color="text.primary" gutterBottom sx={{ fontWeight: 500 }}>No KYC submissions yet</Typography>
-                <Typography variant="body2" color="text.secondary">Submit a KYC form from the /kyc page to see records here</Typography>
-              </Paper>
-            ) : (
-              <Card sx={{ border: '1px solid #E2E7EE', borderRadius: 3 }}>
-                <TableContainer sx={{ overflowX: 'auto' }}>
+        {/* One Card wrapping one TableContainer. This used to be
+            Card > Container > Card: MUI's Container applies its own max-width
+            and gutters, so the 1100px-wide table overflowed it and ran off the
+            side of the page instead of scrolling inside its own box. */}
+        {submissions.length === 0 ? (
+          <EmptyState icon="inbox" title="No KYC submissions yet" hint="Submit a KYC form from the /kyc page to see records here" />
+        ) : (
+              <Card sx={{ border: '1px solid #E2E7EE', borderRadius: 3, boxShadow: 'none', overflow: 'hidden' }}>
+                {/* Lenis swallows wheel events page-wide, which stops horizontal
+                    trackpad scrolling inside this table. */}
+                <TableContainer data-lenis-prevent sx={{ overflowX: 'auto', maxWidth: '100%' }}>
                   <Table size="small" sx={{ minWidth: 1100 }}>
                     <TableHead>
                       <TableRow>
@@ -161,9 +158,7 @@ export default async function AdminPage() {
                   </Table>
                 </TableContainer>
               </Card>
-            )}
-          </Container>
-        </Card>
+        )}
 
       </Box>
     </Box>

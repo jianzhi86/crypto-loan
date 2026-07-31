@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -13,6 +12,7 @@ import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
 import LinearProgress from '@mui/material/LinearProgress';
+import { BoltIcon, EyeIcon, EyeOffIcon, LockIcon, ShieldIcon, TrendUpIcon, WalletIcon } from '@/components/Icons';
 
 function passwordStrength(pwd: string): { score: number; label: string; color: string } {
   let score = 0;
@@ -33,7 +33,6 @@ function passwordStrength(pwd: string): { score: number; label: string; color: s
 }
 
 export default function SignupPage() {
-  const router = useRouter();
   const [name,      setName]      = useState('');
   const [email,     setEmail]     = useState('');
   const [password,  setPassword]  = useState('');
@@ -59,7 +58,10 @@ export default function SignupPage() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Sign up failed'); setLoading(false); return; }
-      router.push('/dashboard');
+      // Full navigation: the auth cookie just changed, and everything the
+      // server resolves per document was computed for the anonymous visitor.
+      // See the same pattern in login/page.tsx.
+      window.location.assign('/dashboard');
     } catch {
       setError('Network error. Please try again.');
       setLoading(false);
@@ -83,7 +85,8 @@ export default function SignupPage() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Wallet sign-up failed'); setWalletLoading(false); return; }
-      router.push('/dashboard');
+      // Full navigation — same reasoning as the email form above.
+      window.location.assign('/dashboard');
     } catch (e: unknown) {
       const code = (e as { code?: number }).code;
       if (code !== 4001) setError('Wallet sign-up failed. Please try again.');
@@ -203,7 +206,7 @@ export default function SignupPage() {
                       <InputAdornment position="end">
                         <IconButton size="small" onClick={() => setShowPwd(p => !p)} edge="end"
                           sx={{ color: '#64748B', mr: -0.5 }}>
-                          <Typography sx={{ fontSize: 15, userSelect: 'none' }}>{showPwd ? '🙈' : '👁'}</Typography>
+                          {showPwd ? <EyeOffIcon size={17} /> : <EyeIcon size={17} />}
                         </IconButton>
                       </InputAdornment>
                     ),
@@ -256,7 +259,7 @@ export default function SignupPage() {
               <CircularProgress size={20} sx={{ color: '#2A3FD6' }} />
             ) : (
               <>
-                <Typography sx={{ fontSize: 20, lineHeight: 1 }}>🦊</Typography>
+                <WalletIcon size={19} />
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>Continue with MetaMask</Typography>
               </>
             )}

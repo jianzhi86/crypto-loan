@@ -120,3 +120,13 @@ html { scroll-behavior: smooth; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #CBD3DD; border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: #A9B4C2; }
+
+/* ── Live indicator dot (see components/Icons.tsx) ──────── */
+@keyframes liveDotPulse {
+  0%   { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  70%  { box-shadow: 0 0 0 5px transparent; opacity: 0.85; }
+  100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes liveDotPulse { 0%, 100% { box-shadow: none; opacity: 1; } }
+}

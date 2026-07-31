@@ -17,11 +17,12 @@ import TableContainer from '@mui/material/TableContainer';
 import LinearProgress from '@mui/material/LinearProgress';
 import MuiSkeleton from '@mui/material/Skeleton';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
+import { SolanaIcon } from '@/components/Icons';
 
 const MARKETS = [
   { symbol: 'BTC',   name: 'Bitcoin',   icon: '₿', color: '#F7931A', id: 'bitcoin',     supplyAPR: 2.1, borrowAPR: 5.2, maxLTV: 70, liqThresh: 80, liquidity: 'RM 11.2B', totalBorrowed: 'RM 7.8B',  util: 70 },
   { symbol: 'ETH',   name: 'Ethereum',  icon: 'Ξ', color: '#627EEA', id: 'ethereum',    supplyAPR: 1.8, borrowAPR: 4.8, maxLTV: 75, liqThresh: 85, liquidity: 'RM 8.5B',  totalBorrowed: 'RM 5.3B',  util: 62 },
-  { symbol: 'SOL',   name: 'Solana',    icon: '◎', color: '#9945FF', id: 'solana',      supplyAPR: 3.2, borrowAPR: 6.5, maxLTV: 65, liqThresh: 75, liquidity: 'RM 1.9B',  totalBorrowed: 'RM 1.1B',  util: 58 },
+  { symbol: 'SOL',   name: 'Solana',    icon: <SolanaIcon size={18} />, color: '#9945FF', id: 'solana',      supplyAPR: 3.2, borrowAPR: 6.5, maxLTV: 65, liqThresh: 75, liquidity: 'RM 1.9B',  totalBorrowed: 'RM 1.1B',  util: 58 },
   { symbol: 'BNB',   name: 'BNB Chain', icon: 'B', color: '#F3BA2F', id: 'binancecoin', supplyAPR: 2.4, borrowAPR: 5.8, maxLTV: 65, liqThresh: 75, liquidity: 'RM 3.1B',  totalBorrowed: 'RM 1.7B',  util: 55 },
   { symbol: 'XRP',   name: 'XRP',       icon: 'X', color: '#00AAE4', id: 'ripple',      supplyAPR: 4.8, borrowAPR: 7.8, maxLTV: 55, liqThresh: 65, liquidity: 'RM 720M',  totalBorrowed: 'RM 288M',  util: 40 },
   { symbol: 'AVAX',  name: 'Avalanche', icon: 'A', color: '#E84142', id: 'avax',        supplyAPR: 4.1, borrowAPR: 7.2, maxLTV: 60, liqThresh: 70, liquidity: 'RM 840M',  totalBorrowed: 'RM 420M',  util: 50 },

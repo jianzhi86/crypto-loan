@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import { ICO_ADDRESSES } from '@/lib/icoConfig';
+import { requireAdmin, audit } from '@/lib/authz';
 
 const RPC_URL  = process.env.HARDHAT_RPC_URL ?? 'http://127.0.0.1:8545';
 const ICO_ADDR = ICO_ADDRESSES.ICO as string;
@@ -14,6 +15,10 @@ const ABI = [
 // POST /api/admin/sync-ico-price
 // Fetches live ETH/MYR and re-pegs the ICO so 1 MYR = RM 1 (price = 1e18 / rate).
 export async function POST() {
+  // Signs with the contract owner key — admin only.
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard.response;
+
   if (!process.env.OWNER_PRIVATE_KEY) {
     return NextResponse.json({ error: 'OWNER_PRIVATE_KEY not set in .env' }, { status: 500 });
   }
@@ -46,6 +51,8 @@ export async function POST() {
     const contract = new ethers.Contract(ICO_ADDR, ABI, signer);
     const tx = await (contract.setPrice as (p: bigint) => Promise<ethers.TransactionResponse>)(priceWei);
     await tx.wait();
+
+    await audit(guard.user, 'PRICE_SYNC', 'system', 'ICO.price', { rate, priceWei: priceWei.toString() });
 
     return NextResponse.json({ success: true, rate, priceWei: priceWei.toString() });
   } catch (err) {

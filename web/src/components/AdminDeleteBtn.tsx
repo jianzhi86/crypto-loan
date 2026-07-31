@@ -58,7 +58,7 @@ export function AdminDeleteBtn({ wallet }: { wallet: string }) {
         fontSize: 10, py: 0.25, px: 0.75, minWidth: 'auto', whiteSpace: 'nowrap',
         '&:hover': { bgcolor: 'rgba(229,72,77,0.08)', borderColor: '#E5484D' },
       }}>
-      🗑 Delete
+      Delete
     </Button>
   );
 }

@@ -1,18 +1,23 @@
 import { NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/auth-jwt';
 import { prisma } from '@/lib/db/prisma';
+import { requireUser, requireActiveUser } from '@/lib/authz';
+import { featureBlocked } from '@/lib/features-server';
 
 export async function GET() {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const guard = await requireUser();
+  if (!guard.ok) return guard.response;
 
-  const account = await prisma.bankAccount.findUnique({ where: { userId: user.id } });
+  const account = await prisma.bankAccount.findUnique({ where: { userId: guard.user.id } });
   return NextResponse.json({ account });
 }
 
 export async function PUT(req: Request) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const guard = await requireActiveUser();
+  if (!guard.ok) return guard.response;
+  const user = guard.user;
+
+  const blocked = await featureBlocked('page.settings', { isAdmin: user.isAdmin });
+  if (blocked) return blocked;
 
   const { bankName, accountNumber, accountHolder, recipientAddress } = await req.json() as {
     bankName: string;

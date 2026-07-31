@@ -1,31 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-
-export interface AuthUser {
-  id: string;
-  email?: string | null;
-  name?: string | null;
-  walletAddress?: string | null;
-  isAdmin?: boolean;
-}
-
-export function useAuth() {
-  const [user, setUser]       = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = () =>
-    fetch('/api/auth/me')
-      .then(r => r.ok ? r.json() : { user: null })
-      .then(d => { setUser(d.user ?? null); setLoading(false); })
-      .catch(() => setLoading(false));
-
-  useEffect(() => { refresh(); }, []);
-
-  const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    setUser(null);
-  };
-
-  return { user, loading, refresh, logout };
-}
+/**
+ * Session access for components.
+ *
+ * This used to own the fetch itself, which meant every consumer issued its own
+ * /api/auth/me request and could reach a different conclusion from its
+ * neighbours. The state now lives in a single provider; this stays as the entry
+ * point so existing imports keep working.
+ */
+export { useAuthContext as useAuth } from '@/lib/AuthContext';
+export type { AuthUser } from '@/lib/AuthContext';

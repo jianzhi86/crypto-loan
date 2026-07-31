@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
+import { requireUser } from '@/lib/authz';
 
 // POST /api/loan-tx — save a transaction after it's confirmed on-chain
 export async function POST(req: NextRequest) {
+  // requireUser, not requireActiveUser: this only mirrors a transaction that
+  // already settled on-chain. Refusing it for a restricted user would silently
+  // punch holes in the ledger rather than prevent anything.
+  const guard = await requireUser();
+  if (!guard.ok) return guard.response;
+
   const { wallet, type, amount, txHash, blockNumber } = await req.json();
   if (!wallet || !type || !amount || !txHash || blockNumber == null) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 });

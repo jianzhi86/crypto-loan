@@ -17,9 +17,47 @@ model User {
   password      String?
   walletAddress String?       @unique
   isAdmin       Boolean       @default(false)
+  /// ACTIVE = normal. RESTRICTED = may sign in and read, but every write is refused.
+  /// Off-chain only: a RESTRICTED user can still call the contract directly from
+  /// their own wallet — see lib/authz.ts for the full caveat.
+  status        String        @default("ACTIVE")
+  statusReason  String?
+  statusChangedAt DateTime?
+  /// Bumped to invalidate every JWT already issued to this user (password reset).
+  sessionEpoch  Int           @default(0)
   createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @default(now()) @updatedAt
   bankAccount   BankAccount?
   transfers     BankTransfer[]
+}
+
+/// Admin-controlled toggle for a single feature. Only keys declared in
+/// lib/features.ts are meaningful; rows here are overrides on top of the
+/// registry defaults, so an empty table means "everything on".
+model FeatureFlag {
+  key       String   @id
+  /// 'ON' | 'MAINTENANCE' (visible but blocked) | 'HIDDEN' (invisible)
+  state     String   @default("ON")
+  message   String   @default("")
+  updatedAt DateTime @default(now()) @updatedAt
+  updatedBy String?
+}
+
+/// Append-only record of every admin mutation. Never edited or deleted by the app.
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actorEmail String?
+  action     String
+  targetType String
+  targetId   String
+  /// JSON blob of the change ({ before, after }); stored as text to stay
+  /// portable across the raw-SQL paths this app uses.
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([targetType, targetId])
 }
 
 model BankAccount {

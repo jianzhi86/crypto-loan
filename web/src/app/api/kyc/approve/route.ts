@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { setKycOnChain } from '@/lib/kyc/chain';
+import { requireAdmin, audit } from '@/lib/authz';
 
 // POST /api/kyc/approve — admin approves a KYC submission on-chain,
 // OR re-syncs on-chain KYC for a wallet that is already DB-approved (resync flow).
 export async function POST(req: NextRequest) {
+  // This route hands out on-chain KYC via the contract owner key, so it is the
+  // single most privileged endpoint in the app. Admin check comes first.
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard.response;
+
   const { wallet } = await req.json();
   if (!wallet) return NextResponse.json({ error: 'wallet required' }, { status: 400 });
 
@@ -23,6 +29,8 @@ export async function POST(req: NextRequest) {
     });
 
     await setKycOnChain(wallet, true);
+
+    await audit(guard.user, 'KYC_APPROVE', 'kyc', walletKey, { fullName: record.fullName });
 
     return NextResponse.json({ success: true });
   } catch (err) {

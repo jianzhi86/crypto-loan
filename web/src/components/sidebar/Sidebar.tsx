@@ -6,11 +6,20 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
+import Dialog from '@mui/material/Dialog';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Button from '@mui/material/Button';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useWallet } from '@/lib/WalletContext';
+import { useFeatures } from '@/lib/FeatureContext';
+import { useViewer } from '@/lib/ViewerContext';
+import { ON } from '@/lib/features';
+import { isMaintenanceExempt } from '@/lib/maintenance';
+import { WrenchIcon } from '@/components/Icons';
 import { NAV_SECTIONS, LockIcon, type NavItem } from './navItems';
-import { checkAcl, lockReason, type AclContext } from './acl';
+import { checkAcl, lockKind, lockReason, type AclContext } from './acl';
 
 const WIDTH_OPEN = 232;
 const WIDTH_CLOSED = 64;
@@ -25,11 +34,13 @@ const C = {
   muted:  '#A9B2BD',
 };
 
-function NavRow({ item, open, status, reason }: {
+function NavRow({ item, open, status, reason, kind, onMaintenance }: {
   item: NavItem;
   open: boolean;
   status: 'allowed' | 'locked';
   reason: string;
+  kind: ReturnType<typeof lockKind>;
+  onMaintenance: (item: NavItem, message: string) => void;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -40,9 +51,19 @@ function NavRow({ item, open, status, reason }: {
     : pathname === item.href;
   const locked = status === 'locked';
 
+  // A locked row is not a link, so clicking it has to do something sensible.
+  // Which "something" depends on why it is locked — previously every lock sent
+  // the user to /login, which for a signed-in user bounced them to the home
+  // page with no explanation of why the feature was unavailable.
+  const handleLockedClick = () => {
+    if (kind === 'maintenance') { onMaintenance(item, reason); return; }
+    if (kind === 'kyc')         { router.push('/kyc'); return; }
+    router.push('/login');
+  };
+
   const row = (
     <Box
-      onClick={locked ? () => router.push('/login') : undefined}
+      onClick={locked ? handleLockedClick : undefined}
       sx={{
         position: 'relative',
         display: 'flex', alignItems: 'center',
@@ -101,8 +122,11 @@ function NavRow({ item, open, status, reason }: {
 export default function Sidebar() {
   const [open, setOpen] = useState(true);
   const [hydrated, setHydrated] = useState(false);
-  const { user } = useAuth();
+  const [paused, setPaused] = useState<{ label: string; message: string } | null>(null);
+  const { user, loading: authLoading, unavailable: authUnavailable } = useAuth();
   const wallet = useWallet();
+  const { flags, message } = useFeatures();
+  const viewer = useViewer();
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -119,14 +143,62 @@ export default function Sidebar() {
 
   const acl: AclContext = {
     // A connected wallet counts as authenticated for sidebar access.
-    isAuthenticated: !!user || wallet.isConnected,
-    isAdmin: !!user?.isAdmin,
+    isAuthenticated: viewer.isAuthenticated || !!user || wallet.isConnected,
+    // The server's answer wins, and the client's can only add to it. An admin
+    // whose /api/auth/me call fails or answers without the cookie still gets
+    // their Administration link and an unrestricted nav — losing it was how an
+    // admin ended up staring at a sidebar containing nothing but Explorer.
+    isAdmin: viewer.isAdmin || !!user?.isAdmin,
     kycApproved: !!wallet.kycApproved,
+    flags,
+  };
+
+  // During site-wide maintenance the exempt pages (explorer, landing) stay open,
+  // so the sidebar is still on screen — and every app link in it led straight to
+  // the maintenance popup. Keep the whole nav visible but locked: the layout
+  // stays familiar and clicking a locked row explains the pause in place,
+  // instead of the sidebar collapsing to a single item as if the rest of the
+  // product had vanished.
+  //
+  // Only hidden once someone has *positively* answered "not an admin". The
+  // server's per-document verdict settles it when it resolved; when it did not
+  // (session lookup threw in the root layout), fall back to waiting for the
+  // client's answer. Acting on an unknown would strip an admin's own
+  // navigation, and an admin is precisely who needs to reach the switch.
+  // Access itself is enforced server-side, so waiting costs nothing.
+  const sessionKnown = viewer.resolved || (!authLoading && !authUnavailable);
+  const siteDown = sessionKnown && !acl.isAdmin && (flags['site.maintenance']?.state ?? ON) !== ON;
+
+  const resolve = (item: NavItem) => {
+    const blockedBySite = siteDown && !isMaintenanceExempt(item.href.split('?')[0]);
+    if (blockedBySite) {
+      return {
+        item,
+        status: 'locked' as const,
+        kind: 'maintenance' as const,
+        reason: message('site.maintenance'),
+        // Named for the whole product, since it is not this one page that is down.
+        title: 'CryptoLend',
+      };
+    }
+    return {
+      item,
+      status: checkAcl(item.acl, acl),
+      kind: lockKind(item.acl, acl),
+      reason: lockReason(item.acl, acl),
+      title: item.label,
+    };
   };
 
   return (
+    <>
     <Box
       component="nav"
+      // Lenis intercepts every wheel event on the page, which left this column
+      // unscrollable — items past the fold were simply unreachable. This
+      // attribute tells Lenis to leave wheel events over the sidebar alone so
+      // its own overflow scrolling works.
+      data-lenis-prevent
       sx={{
         width: open ? WIDTH_OPEN : WIDTH_CLOSED,
         flexShrink: 0,
@@ -141,7 +213,15 @@ export default function Sidebar() {
         alignSelf: 'flex-start',
         overflowX: 'hidden',
         overflowY: 'auto',
+        // Clears the browser/dev-tools badge that sits in the bottom-left
+        // corner and used to cover the last nav item once scrolled to the end.
+        pb: 7,
         zIndex: 1100,
+        // Slim scrollbar so it does not crowd a 232px column.
+        scrollbarWidth: 'thin',
+        '&::-webkit-scrollbar': { width: 6 },
+        '&::-webkit-scrollbar-thumb': { bgcolor: '#D9DFE7', borderRadius: 3 },
+        '&::-webkit-scrollbar-thumb:hover': { bgcolor: C.muted },
       }}
     >
       {/* Collapse / expand toggle */}
@@ -167,9 +247,7 @@ export default function Sidebar() {
       </Box>
 
       {NAV_SECTIONS.map(section => {
-        const rows = section.items
-          .map(item => ({ item, status: checkAcl(item.acl, acl) }))
-          .filter(({ status }) => status !== 'hidden');
+        const rows = section.items.map(resolve).filter(({ status }) => status !== 'hidden');
         if (rows.length === 0) return null;
         return (
           <Box key={section.title} sx={{ mb: 1 }}>
@@ -186,18 +264,60 @@ export default function Sidebar() {
                 <Box sx={{ width: '100%', height: '1px', bgcolor: C.border, mx: 0.5 }} />
               )}
             </Box>
-            {rows.map(({ item, status }) => (
+            {rows.map(({ item, status, kind, reason, title }) => (
               <NavRow
                 key={item.href}
                 item={item}
                 open={open}
                 status={status as 'allowed' | 'locked'}
-                reason={lockReason(item.acl, acl)}
+                reason={reason}
+                kind={kind}
+                onMaintenance={() => setPaused({ label: title, message: reason })}
               />
             ))}
           </Box>
         );
       })}
     </Box>
+
+    {/* Explains a paused feature in place. Clicking one of these used to call
+        router.push('/login'), which for a signed-in user redirected to the home
+        page and looked like the app had simply thrown them out. */}
+    <Dialog
+      open={!!paused}
+      onClose={() => setPaused(null)}
+      maxWidth="xs"
+      fullWidth
+      slotProps={{ paper: { sx: { borderRadius: 3 } } }}
+    >
+      <DialogContent sx={{ textAlign: 'center', pt: 4, px: 4 }}>
+        <Box sx={{
+          width: 52, height: 52, mx: 'auto', mb: 2.25, borderRadius: '50%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          bgcolor: 'rgba(42,63,214,0.07)', color: C.blue,
+        }}>
+          <WrenchIcon size={24} />
+        </Box>
+        <Typography sx={{ fontWeight: 700, fontSize: 17, color: C.ink, mb: 1 }}>
+          {paused?.label} is under maintenance
+        </Typography>
+        <Typography sx={{ fontSize: 13.5, color: C.slate, lineHeight: 1.7 }}>
+          {paused?.message}
+        </Typography>
+        <Typography sx={{ fontSize: 12, color: C.muted, mt: 2.5, lineHeight: 1.6 }}>
+          Sorry for the interruption — your funds and positions are unaffected, and
+          this feature will come back automatically once it is switched on.
+        </Typography>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 3, justifyContent: 'center' }}>
+        <Button
+          variant="contained" disableElevation onClick={() => setPaused(null)}
+          sx={{ textTransform: 'none', borderRadius: 2, px: 4 }}
+        >
+          Got it
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 }
