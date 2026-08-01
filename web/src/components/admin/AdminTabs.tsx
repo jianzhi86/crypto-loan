@@ -18,7 +18,7 @@ export default function AdminTabs() {
   const pathname = usePathname();
 
   return (
-    <Box sx={{ borderBottom: '1px solid #E2E7EE', bgcolor: '#FFFFFF', px: { xs: 2, md: 4 } }}>
+    <Box sx={{ borderBottom: '1px solid rgba(255,255,255,0.12)', bgcolor: '#111B38', px: { xs: 2, md: 4 } }}>
       <Box sx={{ maxWidth: 1440, mx: 'auto', display: 'flex', gap: 0.5, overflowX: 'auto' }}>
         {TABS.map(t => {
           // Overview is an exact match; the rest match their subtree so a detail
@@ -29,10 +29,10 @@ export default function AdminTabs() {
               <Box sx={{
                 px: 2, py: 1.75, position: 'relative', whiteSpace: 'nowrap',
                 borderBottom: '2px solid',
-                borderColor: active ? '#2A3FD6' : 'transparent',
+                borderColor: active ? '#6E8BFF' : 'transparent',
                 transition: 'color .15s, border-color .15s',
-                '&:hover': { color: '#2A3FD6' },
-                color: active ? '#2A3FD6' : '#5A6675',
+                '&:hover': { color: '#6E8BFF' },
+                color: active ? '#6E8BFF' : 'rgba(255,255,255,0.65)',
               }}>
                 <Typography sx={{ fontSize: 13.5, fontWeight: active ? 650 : 500, color: 'inherit' }}>
                   {t.label}

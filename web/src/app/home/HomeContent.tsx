@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Container from '@mui/material/Container';
@@ -84,16 +85,10 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+// The real brand mark (transparent PNG), replacing the old letter-in-a-box
+// stand-in so the landing page matches the actual logo everywhere else.
 function Mark({ size = 32 }: { size?: number }) {
-  return (
-    <Box sx={{
-      width: size, height: size, borderRadius: size * 0.28, bgcolor: C.indigo,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      boxShadow: '0 2px 8px rgba(42,63,214,0.3)',
-    }}>
-      <Typography sx={{ fontFamily: DISPLAY, color: '#fff', fontSize: size * 0.5, fontWeight: 700, lineHeight: 1 }}>C</Typography>
-    </Box>
-  );
+  return <Image src="/logo-mark.png" alt="CryptoLend mark" width={size} height={size} />;
 }
 
 export default function HomeContent() {
@@ -323,6 +318,95 @@ export default function HomeContent() {
           </Container>
         </FadeInSection>
       </Box>
+
+      {/* ── Vision & Mission ─────────────────────────────── */}
+      {/* The brand-board values (CryptoLend_Img/Vision & Mission.png) rebuilt
+          natively on the dark-background brand treatment, so it stays sharp
+          and responsive instead of shipping a flat white screenshot. */}
+      <FadeInSection delay={150}>
+        <Box sx={{ position: 'relative', overflow: 'hidden', bgcolor: '#0B1226' }}>
+          <Box sx={{ position: 'absolute', top: -120, left: '-8%', width: 420, height: 420, borderRadius: '50%', pointerEvents: 'none',
+                     background: 'radial-gradient(circle, rgba(42,63,214,0.35) 0%, transparent 70%)' }} />
+          <Box sx={{ position: 'absolute', bottom: -140, right: '-6%', width: 460, height: 460, borderRadius: '50%', pointerEvents: 'none',
+                     background: 'radial-gradient(circle, rgba(74,125,255,0.22) 0%, transparent 70%)' }} />
+          <Container maxWidth="lg" sx={{ position: 'relative', py: { xs: 7, md: 10 } }}>
+            <Box sx={{ textAlign: 'center', mb: { xs: 5, md: 6 } }}>
+              <Typography sx={{ color: '#8FA0FF', fontSize: 13, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700, mb: 1.5 }}>
+                Vision &amp; Mission
+              </Typography>
+              <Typography component="h2" sx={{ fontFamily: DISPLAY, fontSize: { xs: 28, md: 40 }, fontWeight: 700, letterSpacing: '-1px', color: '#FFFFFF', lineHeight: 1.15 }}>
+                Borrow ringgit,{' '}
+                <Box component="span" sx={{
+                  background: 'linear-gradient(90deg, #6E8BFF, #3D5BF5)',
+                  WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                }}>
+                  not your future.
+                </Box>
+              </Typography>
+              <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: 15.5, lineHeight: 1.7, maxWidth: 590, mx: 'auto', mt: 2 }}>
+                CryptoLend exists so Malaysians never have to choose between cash today and
+                the assets they believe in for tomorrow.
+              </Typography>
+            </Box>
+
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2 }}>
+              {[
+                {
+                  title: 'Modern & Minimal',
+                  body:  'Clean, simple borrowing — easy to understand from your first day.',
+                  icon:  <Image src="/logo-mark.png" alt="" width={26} height={26} />,
+                  tile:  '#FFFFFF',
+                },
+                {
+                  title: 'Trust & Security',
+                  body:  'Non-custodial and transparent — your keys, your crypto, always.',
+                  icon:  <ShieldIcon size={24} color="#fff" />,
+                },
+                {
+                  title: 'Growth & Liquidity',
+                  body:  'Unlock ringgit liquidity while your assets keep their upside.',
+                  icon:  (
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M5 20V13M12 20V8M19 20V4" />
+                    </svg>
+                  ),
+                },
+                {
+                  title: 'Built for Malaysia',
+                  body:  'Tailored for MYR lending, DuitNow payouts and BNM-aligned KYC.',
+                  icon:  (
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="8.75" />
+                      <circle cx="12" cy="12" r="4.75" />
+                      <circle cx="12" cy="12" r="1" />
+                    </svg>
+                  ),
+                },
+              ].map((v) => (
+                <Box key={v.title} sx={{
+                  p: 3, borderRadius: 3,
+                  bgcolor: 'rgba(255,255,255,0.045)',
+                  border: '1px solid rgba(255,255,255,0.09)',
+                  backdropFilter: 'blur(4px)',
+                  transition: 'all 0.2s',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.07)', borderColor: 'rgba(110,139,255,0.45)', transform: 'translateY(-3px)' },
+                }}>
+                  <Box sx={{
+                    width: 46, height: 46, borderRadius: 2.25, mb: 2,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: v.tile ?? 'linear-gradient(135deg, #2A3FD6, #4A7DFF)',
+                    boxShadow: '0 6px 18px rgba(42,63,214,0.35)',
+                  }}>
+                    {v.icon}
+                  </Box>
+                  <Typography sx={{ color: '#FFFFFF', fontWeight: 700, fontSize: 15.5, mb: 0.75 }}>{v.title}</Typography>
+                  <Typography sx={{ color: 'rgba(255,255,255,0.62)', fontSize: 13.5, lineHeight: 1.65 }}>{v.body}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </Container>
+        </Box>
+      </FadeInSection>
 
       {/* ── FAQ ──────────────────────────────────────────── */}
       <FadeInSection delay={150}>

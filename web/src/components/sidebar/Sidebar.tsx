@@ -26,12 +26,15 @@ const WIDTH_CLOSED = 64;
 const EASE = 'cubic-bezier(0.4, 0, 0.2, 1)';
 const STORAGE_KEY = 'sidebar-open';
 
+// Navy chrome palette — the sidebar shares the navbar's dark ground (see
+// lib/theme.ts MuiAppBar), framing the light content surfaces.
 const C = {
-  border: '#E2E7EE',
-  blue:   '#2A3FD6',
-  ink:    '#10151C',
-  slate:  '#5A6675',
-  muted:  '#A9B2BD',
+  bg:     '#0B1226',
+  border: 'rgba(255,255,255,0.08)',
+  blue:   '#6E8BFF',                  // active accent, brightened for dark ground
+  ink:    '#F2F5FF',
+  slate:  'rgba(255,255,255,0.65)',
+  muted:  'rgba(255,255,255,0.35)',
 };
 
 function NavRow({ item, open, status, reason, kind, onMaintenance }: {
@@ -71,9 +74,9 @@ function NavRow({ item, open, status, reason, kind, onMaintenance }: {
         pl: '12px', overflow: 'hidden', whiteSpace: 'nowrap',
         cursor: 'pointer',
         color: active ? C.blue : locked ? C.muted : C.slate,
-        bgcolor: active ? 'rgba(42,63,214,0.08)' : 'transparent',
+        bgcolor: active ? 'rgba(110,139,255,0.14)' : 'transparent',
         transition: `background-color 0.15s, color 0.15s`,
-        '&:hover': { bgcolor: active ? 'rgba(42,63,214,0.08)' : 'rgba(42,63,214,0.05)' },
+        '&:hover': { bgcolor: active ? 'rgba(110,139,255,0.14)' : 'rgba(255,255,255,0.05)' },
         // Active indicator bar
         '&::before': {
           content: '""', position: 'absolute', left: 0, top: 10, bottom: 10,
@@ -204,7 +207,7 @@ export default function Sidebar() {
         flexShrink: 0,
         transition: hydrated ? `width 0.28s ${EASE}` : 'none',
         borderRight: `1px solid ${C.border}`,
-        bgcolor: '#FFFFFF',
+        bgcolor: C.bg,
         display: { xs: 'none', md: 'flex' },
         flexDirection: 'column',
         position: 'sticky',
@@ -220,7 +223,7 @@ export default function Sidebar() {
         // Slim scrollbar so it does not crowd a 232px column.
         scrollbarWidth: 'thin',
         '&::-webkit-scrollbar': { width: 6 },
-        '&::-webkit-scrollbar-thumb': { bgcolor: '#D9DFE7', borderRadius: 3 },
+        '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 3 },
         '&::-webkit-scrollbar-thumb:hover': { bgcolor: C.muted },
       }}
     >
@@ -230,7 +233,7 @@ export default function Sidebar() {
           size="small"
           onClick={toggle}
           aria-label={open ? 'Collapse sidebar' : 'Expand sidebar'}
-          sx={{ color: C.slate, '&:hover': { color: C.blue, bgcolor: 'rgba(42,63,214,0.06)' } }}
+          sx={{ color: C.slate, '&:hover': { color: C.blue, bgcolor: 'rgba(110,139,255,0.1)' } }}
         >
           <Box component="span" sx={{
             display: 'flex',
@@ -290,21 +293,23 @@ export default function Sidebar() {
       fullWidth
       slotProps={{ paper: { sx: { borderRadius: 3 } } }}
     >
+      {/* The dialog sits on light paper, not the navy rail — it keeps the
+          light-surface ink/slate colours rather than the sidebar's tokens. */}
       <DialogContent sx={{ textAlign: 'center', pt: 4, px: 4 }}>
         <Box sx={{
           width: 52, height: 52, mx: 'auto', mb: 2.25, borderRadius: '50%',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          bgcolor: 'rgba(42,63,214,0.07)', color: C.blue,
+          bgcolor: 'rgba(110,139,255,0.07)', color: '#6E8BFF',
         }}>
           <WrenchIcon size={24} />
         </Box>
-        <Typography sx={{ fontWeight: 700, fontSize: 17, color: C.ink, mb: 1 }}>
+        <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#F2F5FF', mb: 1 }}>
           {paused?.label} is under maintenance
         </Typography>
-        <Typography sx={{ fontSize: 13.5, color: C.slate, lineHeight: 1.7 }}>
+        <Typography sx={{ fontSize: 13.5, color: 'rgba(255,255,255,0.65)', lineHeight: 1.7 }}>
           {paused?.message}
         </Typography>
-        <Typography sx={{ fontSize: 12, color: C.muted, mt: 2.5, lineHeight: 1.6 }}>
+        <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', mt: 2.5, lineHeight: 1.6 }}>
           Sorry for the interruption — your funds and positions are unaffected, and
           this feature will come back automatically once it is switched on.
         </Typography>

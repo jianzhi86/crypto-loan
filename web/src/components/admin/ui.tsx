@@ -9,22 +9,22 @@ import { ClipboardIcon, InboxIcon, LockIcon, SearchIcon } from '@/components/Ico
 /** Shared visual language for the admin screens, matched to the existing KYC table. */
 
 export const C = {
-  border: '#E2E7EE',
-  head:   '#EEF1F5',
-  slate:  '#5A6675',
-  ink:    '#10151C',
-  muted:  '#A9B2BD',
-  blue:   '#2A3FD6',
-  green:  '#0E9F6E',
-  amber:  '#C77700',
+  border: 'rgba(255,255,255,0.12)',
+  head:   '#0F1730',
+  slate:  'rgba(255,255,255,0.65)',
+  ink:    '#F2F5FF',
+  muted:  'rgba(255,255,255,0.4)',
+  blue:   '#6E8BFF',
+  green:  '#2BD9A2',
+  amber:  '#FFB224',
   red:    '#E5484D',
 };
 
 const TONES: Record<string, { bg: string; color: string }> = {
-  green:   { bg: 'rgba(14,159,110,0.10)', color: C.green },
-  amber:   { bg: 'rgba(199,119,0,0.10)',  color: C.amber },
+  green:   { bg: 'rgba(43,217,162,0.10)', color: C.green },
+  amber:   { bg: 'rgba(255,178,36,0.10)',  color: C.amber },
   red:     { bg: 'rgba(229,72,77,0.10)',  color: C.red   },
-  blue:    { bg: 'rgba(42,63,214,0.10)',  color: C.blue  },
+  blue:    { bg: 'rgba(110,139,255,0.10)',  color: C.blue  },
   neutral: { bg: 'rgba(90,102,117,0.10)', color: C.slate },
 };
 
@@ -89,7 +89,7 @@ export function ReadOnlyNotice({ children }: { children: React.ReactNode }) {
     <Box sx={{
       display: 'flex', gap: 1.5, alignItems: 'flex-start',
       p: 1.75, mb: 2.5, borderRadius: 2,
-      bgcolor: 'rgba(42,63,214,0.04)', border: '1px solid rgba(42,63,214,0.15)',
+      bgcolor: 'rgba(110,139,255,0.04)', border: '1px solid rgba(110,139,255,0.15)',
     }}>
       <Box sx={{ color: C.blue, mt: '1px' }}><LockIcon size={16} /></Box>
       <Typography variant="body2" sx={{ color: C.slate, fontSize: 12.5, lineHeight: 1.6 }}>
@@ -114,7 +114,7 @@ export function EmptyState({ icon = 'inbox', title, hint }: {
       <Box sx={{
         width: 48, height: 48, mx: 'auto', mb: 2, borderRadius: '50%',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        bgcolor: '#F4F6F8', color: C.muted,
+        bgcolor: '#0B1226', color: C.muted,
       }}>
         <Glyph size={22} />
       </Box>

@@ -25,20 +25,21 @@ import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
 import { useWallet, type LoanInfo } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
-import { AlertIcon, BankIcon, CashIcon, CheckIcon, ChipGlyph, ClockIcon, IdCardIcon, LiveDot, LockIcon, SolanaIcon, WalletIcon } from '@/components/Icons';
+import AccountSetupBanner from '@/components/AccountSetupBanner';
+import { AlertIcon, BankIcon, CardIcon, CartIcon, CashIcon, CheckIcon, ChipGlyph, ClockIcon, CoinIcon, IdCardIcon, LiveDot, LockIcon, SolanaIcon, WalletIcon } from '@/components/Icons';
 
 // ── Color tokens ────────────────────────────────────────────────────────────
 const C = {
-  bg:     '#F4F6F8',   // cool paper
-  card:   '#FFFFFF',   // white cards
-  inner:  '#EEF1F5',   // inset panels
-  border: '#E2E7EE',   // hairline
-  teal:   '#0E9F6E',   // status: gain / safe / live
-  gold:   '#C77700',   // status: caution / interest / moderate
+  bg:     '#0B1226',   // cool paper
+  card:   '#111B38',   // raised navy cards
+  inner:  '#0F1730',   // inset panels
+  border: 'rgba(255,255,255,0.12)',   // hairline
+  teal:   '#2BD9A2',   // status: gain / safe / live
+  gold:   '#FFB224',   // status: caution / interest / moderate
   red:    '#E5484D',   // status: loss / risk / liquidation
-  blue:   '#2A3FD6',   // brand: indigo
-  tp:     '#10151C',   // ink
-  ts:     '#5A6675',   // slate
+  blue:   '#6E8BFF',   // brand: indigo
+  tp:     '#F2F5FF',   // ink
+  ts:     'rgba(255,255,255,0.65)',   // slate
 };
 
 const ASSETS = [
@@ -102,19 +103,19 @@ const innerSx = { p: 2, bgcolor: C.inner, border: `1px solid ${C.border}`, borde
 function KycRequiredCard({ onStart, action, kycStatus }: { onStart: () => void; action: string; kycStatus: 'none' | 'pending' | 'approved' }) {
   if (kycStatus === 'pending') {
     return (
-      <Box sx={{ p: 3, bgcolor: 'rgba(42,63,214,0.06)', border: `1px solid rgba(42,63,214,0.25)`, borderRadius: 2.5, textAlign: 'center' }}>
+      <Box sx={{ p: 3, bgcolor: 'rgba(110,139,255,0.06)', border: `1px solid rgba(110,139,255,0.25)`, borderRadius: 2.5, textAlign: 'center' }}>
         <Box sx={{
-          width: 48, height: 48, borderRadius: '50%', bgcolor: 'rgba(42,63,214,0.12)',
+          width: 48, height: 48, borderRadius: '50%', bgcolor: 'rgba(110,139,255,0.12)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.blue, mx: 'auto', mb: 1.5,
         }}><ClockIcon size={22} /></Box>
         <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.75 }}>KYC Under Review</Typography>
         <Chip icon={<ChipGlyph><ClockIcon size={13} /></ChipGlyph>} label="Pending Review" size="small"
-          sx={{ bgcolor: 'rgba(42,63,214,0.1)', color: C.blue, border: '1px solid rgba(42,63,214,0.25)', fontWeight: 600, mb: 1.5, fontSize: 11 }} />
+          sx={{ bgcolor: 'rgba(110,139,255,0.1)', color: C.blue, border: '1px solid rgba(110,139,255,0.25)', fontWeight: 600, mb: 1.5, fontSize: 11 }} />
         <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 2, lineHeight: 1.6 }}>
           Your identity verification is being reviewed by our compliance team. You will be able to {action} once your KYC is approved (1–3 business days).
         </Typography>
         <Button variant="outlined" onClick={onStart}
-          sx={{ borderColor: C.blue, color: C.blue, fontSize: 12, '&:hover': { bgcolor: 'rgba(42,63,214,0.06)' } }}>
+          sx={{ borderColor: C.blue, color: C.blue, fontSize: 12, '&:hover': { bgcolor: 'rgba(110,139,255,0.06)' } }}>
           View KYC Status →
         </Button>
       </Box>
@@ -123,9 +124,9 @@ function KycRequiredCard({ onStart, action, kycStatus }: { onStart: () => void; 
   return (
     <Box sx={{ p: 3, bgcolor: `${C.gold}08`, border: `1px solid ${C.gold}30`, borderRadius: 2.5, textAlign: 'center' }}>
       <Box sx={{
-        width: 48, height: 48, borderRadius: '50%', bgcolor: `${C.gold}15`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, mx: 'auto', mb: 1.5,
-      }}>🪪</Box>
+        width: 48, height: 48, borderRadius: '50%', bgcolor: `${C.gold}15`, color: C.gold,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 1.5,
+      }}><IdCardIcon size={22} /></Box>
       <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.75 }}>KYC Verification Required</Typography>
       <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 2, lineHeight: 1.6 }}>
         Complete identity verification before {action}, as required by Malaysian regulations (BNM AML/CFT).
@@ -195,6 +196,10 @@ function Dashboard() {
   const [transferError,    setTransferError]     = useState('');
   const [kycDialogOpen,    setKycDialogOpen]     = useState(false);
   const kycDialogShown = useRef(false);
+  // One automatic price-sync attempt per page visit — enough to self-heal the
+  // usual case (node redeployed with a stale price) without hammering the
+  // endpoint if CoinGecko or the chain is down.
+  const autoSyncTried = useRef(false);
 
   // Show KYC dialog once per session when wallet connects and deposit tab is active.
   // Wait for BOTH loanInfo (chain read done) AND kycDbChecked (DB check done) before
@@ -271,6 +276,39 @@ function Dashboard() {
   const priceDiffPct    = onChainPrice > 0 ? Math.abs((mktEthPrice - onChainPrice) / onChainPrice) * 100 : 0;
   const hasPriceMismatch = isLive && priceDiffPct > 3;
 
+  // Keeper call: nudges the on-chain price to the live market price. The
+  // server fetches the target itself, so this is safe for any signed-in user —
+  // it used to hit the admin-only route, which greeted normal users with
+  // "Forbidden" on a warning they never asked to see.
+  const doPriceSync = async () => {
+    setSyncError('');
+    setSyncing(true);
+    try {
+      const res  = await fetch('/api/sync-price', { method: 'POST' });
+      const data = await res.json() as { error?: string; steps?: number; newPrice?: number };
+      if (!res.ok) {
+        setSyncError(data.error ?? 'Sync failed');
+      } else {
+        await wallet.refresh();
+      }
+    } catch {
+      setSyncError('Network error — is the dev server running?');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // Self-heal the price drift as soon as it is noticed, instead of showing a
+  // warning and expecting the user to fix it. Once per visit; the manual
+  // button remains as the retry path if this attempt fails.
+  useEffect(() => {
+    if (!isLive || !hasPriceMismatch || autoSyncTried.current) return;
+    autoSyncTried.current = true;
+    const id = setTimeout(() => { void doPriceSync(); }, 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLive, hasPriceMismatch]);
+
   const borrowMYR    = parseFloat(borrowAmt || '0');
   const panelMonthly = (borrowMYR * 4.8 / 100) / 12;
   const panelInterest = (borrowMYR * 4.8 / 100) * (loanTermDays / 365);
@@ -281,6 +319,11 @@ function Dashboard() {
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: C.bg }}>
       <Box component="main" sx={{ maxWidth: 1320, mx: 'auto', px: { xs: 2, sm: 3 }, py: 4 }}>
+
+        {/* Nexo-style onboarding rail — THE first thing on the page, above
+            everything else, so a new user knows their next step before they
+            read anything. Renders nothing once the account is verified. */}
+        <AccountSetupBanner />
 
         {/* ── Page Header ───────────────────────────────────────────────── */}
         <Box sx={{ mb: 4, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
@@ -318,8 +361,8 @@ function Dashboard() {
           display: 'grid',
           gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, 1fr)' },
           gap: { xs: 2, sm: 4 },
-          background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F7FB 100%)',
-          border: '1px solid rgba(42,63,214,0.18)',
+          background: 'linear-gradient(135deg, #131F44 0%, #0F1A3D 100%)',
+          border: '1px solid rgba(110,139,255,0.18)',
           borderRadius: 3,
           position: 'relative', overflow: 'hidden',
         }}>
@@ -327,7 +370,7 @@ function Dashboard() {
           <Box sx={{
             position: 'absolute', top: -60, right: -60,
             width: 200, height: 200, borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(42,63,214,0.1) 0%, transparent 70%)',
+            background: 'radial-gradient(circle, rgba(110,139,255,0.1) 0%, transparent 70%)',
             pointerEvents: 'none',
           }} />
           {[
@@ -354,10 +397,10 @@ function Dashboard() {
               {/* Collateral */}
               <Paper sx={{
                 p: 3, bgcolor: C.card, borderRadius: 3,
-                border: '1px solid rgba(14,159,110,0.3)',
+                border: '1px solid rgba(43,217,162,0.3)',
                 position: 'relative', overflow: 'hidden',
               }}>
-                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #0E9F6E, transparent)' }} />
+                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #2BD9A2, transparent)' }} />
                 <InfoBlock
                   label="My Collateral"
                   value={isLive && liveColMktMYR !== null ? rm(liveColMktMYR) : 'RM 233,838'}
@@ -374,10 +417,10 @@ function Dashboard() {
               {/* Debt */}
               <Paper sx={{
                 p: 3, bgcolor: C.card, borderRadius: 3,
-                border: '1px solid rgba(199,119,0,0.2)',
+                border: '1px solid rgba(255,178,36,0.2)',
                 position: 'relative', overflow: 'hidden',
               }}>
-                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #C77700, transparent)' }} />
+                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #FFB224, transparent)' }} />
                 <InfoBlock
                   label="Outstanding Debt"
                   value={isLive && liveBorMYR !== null ? rm(liveBorMYR, 2) : 'RM 129,000'}
@@ -394,10 +437,10 @@ function Dashboard() {
                       mt: 1.5, px: 1.25, py: 0.25, minWidth: 0,
                       fontSize: 11, fontWeight: 600,
                       color: C.gold,
-                      bgcolor: 'rgba(199,119,0,0.1)',
-                      border: '1px solid rgba(199,119,0,0.25)',
+                      bgcolor: 'rgba(255,178,36,0.1)',
+                      border: '1px solid rgba(255,178,36,0.25)',
                       borderRadius: 2,
-                      '&:hover': { bgcolor: 'rgba(199,119,0,0.18)' },
+                      '&:hover': { bgcolor: 'rgba(255,178,36,0.18)' },
                     }}
                     title="Import the MYR token into MetaMask so the balance shows in your wallet"
                   >
@@ -417,7 +460,7 @@ function Dashboard() {
                 border: `1px solid ${C.border}`,
                 position: 'relative', overflow: 'hidden',
               }}>
-                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #2A3FD6, transparent)' }} />
+                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #6E8BFF, transparent)' }} />
                 <InfoBlock
                   label="Net Position"
                   value={isLive && mktNetPos !== null ? rm(mktNetPos) : 'RM 104,838'}
@@ -458,39 +501,26 @@ function Dashboard() {
             severity="warning"
             icon={<AlertIcon size={17} />}
             sx={{
-              mb: 3, bgcolor: 'rgba(199,119,0,0.08)', color: C.gold,
-              border: '1px solid rgba(199,119,0,0.25)',
+              mb: 3, bgcolor: 'rgba(255,178,36,0.08)', color: C.gold,
+              border: '1px solid rgba(255,178,36,0.25)',
               '& .MuiAlert-icon': { color: C.gold }, borderRadius: 2,
             }}
             action={
               <Button size="small" disabled={syncing}
-                onClick={async () => {
-                  setSyncError('');
-                  setSyncing(true);
-                  try {
-                    const res  = await fetch('/api/admin/sync-price', { method: 'POST' });
-                    const data = await res.json() as { error?: string; steps?: number; newPrice?: number };
-                    if (!res.ok) {
-                      setSyncError(data.error ?? 'Sync failed');
-                    } else {
-                      await wallet.refresh();
-                    }
-                  } catch {
-                    setSyncError('Network error — is the dev server running?');
-                  } finally {
-                    setSyncing(false);
-                  }
-                }}
-                sx={{ color: C.teal, border: '1px solid rgba(14,159,110,0.3)', fontSize: 11, borderRadius: 2, whiteSpace: 'nowrap' }}>
+                onClick={() => { void doPriceSync(); }}
+                sx={{ color: C.teal, border: '1px solid rgba(43,217,162,0.3)', fontSize: 11, borderRadius: 2, whiteSpace: 'nowrap' }}>
                 {syncing ? 'Syncing…' : '⟳ Sync Price'}
               </Button>
             }
           >
-            <Typography variant="body2" sx={{ fontWeight: 700, color: C.gold }}>On-chain price differs from live market</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(199,119,0,0.7)', display: 'block', mt: 0.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: C.gold }}>
+              {syncing ? 'Syncing on-chain price to live market…' : 'On-chain price differs from live market'}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,178,36,0.7)', display: 'block', mt: 0.5 }}>
               Contract: <b style={{ color: C.gold }}>{rm(onChainPrice)}/ETH</b>
               {' · '}Live: <b style={{ color: C.gold }}>{rm(mktEthPrice)}/ETH</b>
               {' '}({priceDiffPct.toFixed(1)}% diff)
+              {syncing ? ' — updating automatically, this takes a few seconds' : ''}
             </Typography>
             {syncError && (
               <Typography variant="caption" sx={{ color: C.red, display: 'block', mt: 0.75, fontWeight: 600 }}>
@@ -549,7 +579,7 @@ function Dashboard() {
                   label={loading ? 'Loading prices…' : 'Live MYR'}
                   size="small"
                   sx={{
-                    bgcolor: loading ? 'rgba(16,21,28,0.04)' : `${C.teal}15`,
+                    bgcolor: loading ? 'rgba(0,0,0,0.04)' : `${C.teal}15`,
                     color: loading ? C.ts : C.teal,
                     border: `1px solid ${loading ? C.border : C.teal + '40'}`,
                     fontSize: 11, fontWeight: 600,
@@ -578,7 +608,7 @@ function Dashboard() {
                           sx={{
                             cursor: 'pointer', transition: 'background 0.15s',
                             bgcolor: sel ? `${a.color}08` : 'transparent',
-                            '&:hover': { bgcolor: sel ? `${a.color}12` : 'rgba(14,159,110,0.06)' },
+                            '&:hover': { bgcolor: sel ? `${a.color}12` : 'rgba(43,217,162,0.06)' },
                           }}>
                           <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -715,7 +745,7 @@ function Dashboard() {
                 {/* Header */}
                 <Box sx={{
                   p: 2, mb: 2, borderRadius: 2.5,
-                  background: 'linear-gradient(135deg, rgba(14,159,110,0.08) 0%, rgba(42,63,214,0.08) 100%)',
+                  background: 'linear-gradient(135deg, rgba(43,217,162,0.08) 0%, rgba(110,139,255,0.08) 100%)',
                   border: `1px solid ${C.teal}25`,
                 }}>
                   <Typography variant="body2" sx={{ color: C.teal, fontWeight: 700, mb: 0.5 }}>
@@ -798,7 +828,7 @@ function Dashboard() {
                 <Box sx={{
                   mt: 1.5, p: 2, borderRadius: 2.5,
                   background: netAdvantage >= 0
-                    ? 'linear-gradient(135deg, rgba(14,159,110,0.08), rgba(14,159,110,0.06))'
+                    ? 'linear-gradient(135deg, rgba(43,217,162,0.08), rgba(43,217,162,0.06))'
                     : 'linear-gradient(135deg, rgba(229,72,77,0.08), rgba(229,72,77,0.04))',
                   border: `1px solid ${netAdvantage >= 0 ? C.teal + '30' : C.red + '30'}`,
                 }}>
@@ -835,7 +865,7 @@ function Dashboard() {
               {/* Calculator result */}
               <Box sx={{
                 p: 3, borderRadius: 2.5,
-                background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F7FB 100%)',
+                background: 'linear-gradient(135deg, #131F44 0%, #0F1A3D 100%)',
                 border: `1px solid ${C.teal}25`,
               }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2.5 }}>
@@ -887,7 +917,7 @@ function Dashboard() {
                   label={isLive ? 'Live' : 'Demo'}
                   size="small"
                   sx={{
-                    bgcolor: isLive ? `${C.teal}15` : 'rgba(16,21,28,0.04)',
+                    bgcolor: isLive ? `${C.teal}15` : 'rgba(0,0,0,0.04)',
                     color: isLive ? C.teal : C.ts,
                     border: `1px solid ${isLive ? C.teal + '40' : C.border}`,
                     fontSize: 11, fontWeight: 700,
@@ -958,7 +988,7 @@ function Dashboard() {
                           value={Math.min((isFinite(hf) ? hf : 3) / 3 * 100, 100)}
                           sx={{
                             height: 8, borderRadius: 999,
-                            bgcolor: '#E7EBF1',
+                            bgcolor: 'rgba(255,255,255,0.12)',
                             '& .MuiLinearProgress-bar': { bgcolor: hc, borderRadius: 999, boxShadow: `0 0 8px ${hc}60` },
                           }}
                         />
@@ -993,8 +1023,8 @@ function Dashboard() {
                       {Number(borrowed) === 0 && <Box sx={{ mb: 2 }} />}
                       <Box sx={{ display: 'flex', gap: 1 }}>
                         <Button fullWidth size="small" onClick={() => setActiveTab('deposit')}
-                          sx={{ bgcolor: `rgba(16,21,28,0.04)`, color: C.tp, border: `1px solid ${C.border}`, fontSize: 12, borderRadius: 2,
-                                '&:hover': { bgcolor: 'rgba(16,21,28,0.07)' } }}>
+                          sx={{ bgcolor: `rgba(0,0,0,0.04)`, color: C.tp, border: `1px solid ${C.border}`, fontSize: 12, borderRadius: 2,
+                                '&:hover': { bgcolor: 'rgba(0,0,0,0.07)' } }}>
                           + Collateral
                         </Button>
                         <Button fullWidth size="small" variant="contained" onClick={() => setActiveTab('repay')}
@@ -1010,10 +1040,10 @@ function Dashboard() {
                     bgcolor: `${C.teal}05`, border: `2px dashed ${C.teal}25`, borderRadius: 2.5,
                   }}>
                     <Box sx={{
-                      width: 56, height: 56, borderRadius: '50%', bgcolor: `${C.teal}12`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, mb: 2,
+                      width: 56, height: 56, borderRadius: '50%', bgcolor: `${C.teal}12`, color: C.teal,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2,
                       border: `1px solid ${C.teal}25`,
-                    }}>💳</Box>
+                    }}><CardIcon size={25} /></Box>
                     <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>No Active Credit Line</Typography>
                     <Typography variant="caption" sx={{ color: C.ts, mb: 0.5, lineHeight: 1.6, display: 'block' }}>
                       Deposit ETH to open your crypto credit line
@@ -1116,8 +1146,8 @@ function Dashboard() {
                   sx={{
                     flex: 1, py: 0.75, textAlign: 'center', borderRadius: 1.5, cursor: 'pointer',
                     transition: 'all 0.15s',
-                    bgcolor: active ? '#fff' : 'transparent',
-                    boxShadow: active ? '0 1px 4px rgba(10,15,28,0.10)' : 'none',
+                    bgcolor: active ? '#3D5BF5' : 'transparent',
+                    boxShadow: active ? '0 2px 8px rgba(61,91,245,0.4)' : 'none',
                   }}>
                   <Typography variant="caption" sx={{
                     fontSize: 11.5, fontWeight: active ? 700 : 500,
@@ -1264,7 +1294,7 @@ function Dashboard() {
                 const hfLabel    = hfPos < 1.2 ? 'At Risk' : hfPos < 1.5 ? 'Moderate' : 'Healthy';
                 const hfBarPct   = Math.min((isFinite(hfPos) ? hfPos : 3) / 3 * 100, 100);
                 return (
-                  <Box sx={{ mb: 2, borderRadius: 2, overflow: 'hidden', border: `1px solid ${C.border}`, bgcolor: '#fff' }}>
+                  <Box sx={{ mb: 2, borderRadius: 2, overflow: 'hidden', border: `1px solid ${C.border}`, bgcolor: '#111B38' }}>
                     <Box sx={{ display: 'flex' }}>
                       {[
                         { label: 'Collateral', value: `${colEthPos.toFixed(3)} ETH`, color: C.tp, sub: `≈ ${rm(colEthPos * wallet.ethPriceMYR)}` },
@@ -1302,7 +1332,7 @@ function Dashboard() {
               })()}
 
               {!wallet.isConnected && (
-                <Box sx={{ mb: 2.5, p: 3, bgcolor: `${C.blue}06`, border: `2px dashed rgba(42,63,214,0.2)`, borderRadius: 2.5, textAlign: 'center' }}>
+                <Box sx={{ mb: 2.5, p: 3, bgcolor: `${C.blue}06`, border: `2px dashed rgba(110,139,255,0.2)`, borderRadius: 2.5, textAlign: 'center' }}>
                   <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1.5, color: C.blue }}><WalletIcon size={26} /></Box>
                   <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>MetaMask Required</Typography>
                   <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 2, lineHeight: 1.6 }}>
@@ -1390,7 +1420,7 @@ function Dashboard() {
                             {rm(headline, 0)} <Box component="span" sx={{ fontSize: 14, fontWeight: 500, color: C.ts }}>MYR</Box>
                           </Typography>
                         </Box>
-                        <Box sx={{ px: 2, py: 1.25, display: 'flex', flexDirection: 'column', gap: 0.75, borderTop: `1px solid ${C.border}`, bgcolor: '#fff' }}>
+                        <Box sx={{ px: 2, py: 1.25, display: 'flex', flexDirection: 'column', gap: 0.75, borderTop: `1px solid ${C.border}`, bgcolor: '#111B38' }}>
                           <Row label="ETH Price (on-chain)"  value={rm(price)} />
                           <Row label={`${depEth > 0 ? depEth.toFixed(4) : '0'} ETH value`} value={depEth > 0 ? rm(colValue) : '—'} />
                           <Row label="Max LTV"               value="70%" />
@@ -1629,7 +1659,7 @@ function Dashboard() {
                         </Typography>
                         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
                           {([
-                            { key: 'token', icon: '🪙', title: 'MYR Token',    sub: 'MockMYR to wallet' },
+                            { key: 'token', icon: <CoinIcon size={18} />, title: 'MYR Token',    sub: 'MockMYR to wallet' },
                             { key: 'bank',  icon: <BankIcon size={18} />, title: 'Bank Transfer', sub: 'DuitNow transfer' },
                           ] as const).map(opt => (
                             <Box key={opt.key}
@@ -1640,7 +1670,7 @@ function Dashboard() {
                                 bgcolor: deliveryMethod === opt.key ? `${C.teal}08` : C.inner,
                                 '&:hover': { borderColor: C.teal + '40' },
                               }}>
-                              <Typography sx={{ fontSize: 18, mb: 0.5 }}>{opt.icon}</Typography>
+                              <Box sx={{ display: 'flex', mb: 0.5, color: deliveryMethod === opt.key ? C.teal : C.ts }}>{opt.icon}</Box>
                               <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, color: deliveryMethod === opt.key ? C.teal : C.tp }}>
                                 {opt.title}
                               </Typography>
@@ -1890,6 +1920,12 @@ function Dashboard() {
 
               {/* BUY MYR */}
               {activeTab === 'buy' && (() => {
+                // Buying MYR is a funding action, gated on account verification
+                // like deposit and borrow (withdraw/repay stay open so users
+                // can always exit).
+                if (isLive && !wallet.kycApproved) {
+                  return <KycRequiredCard onStart={() => router.push('/kyc')} action="buying MYR" kycStatus={wallet.kycStatus} />;
+                }
                 const buyMyrNum    = parseFloat(buyAmt || '0');
                 const ethCost      = isLive && wallet.ethPriceMYR > 0 ? buyMyrNum / wallet.ethPriceMYR : 0;
                 const overBalance  = wallet.isConnected && ethCost > parseFloat(wallet.ethBalance || '0');
@@ -1905,8 +1941,8 @@ function Dashboard() {
                 return (
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <Box sx={{ p: 2, bgcolor: `${C.teal}08`, border: `1px solid ${C.teal}25`, borderRadius: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
-                        <Typography sx={{ fontSize: 16 }}>🛒</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75, color: C.teal }}>
+                        <CartIcon size={16} />
                         <Typography variant="caption" sx={{ color: C.teal, fontWeight: 700 }}>Buy MYR with ETH</Typography>
                       </Box>
                       <Typography variant="caption" sx={{ color: C.ts, lineHeight: 1.6, display: 'block' }}>
@@ -1974,12 +2010,12 @@ function Dashboard() {
           {wallet.kycStatus === 'pending' ? (
             <>
               <Box sx={{
-                width: 64, height: 64, borderRadius: '50%', bgcolor: 'rgba(42,63,214,0.1)',
+                width: 64, height: 64, borderRadius: '50%', bgcolor: 'rgba(110,139,255,0.1)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.blue, mx: 'auto', mb: 2,
               }}><ClockIcon size={28} /></Box>
               <Typography variant="h6" sx={{ color: C.tp, fontWeight: 700, mb: 1 }}>KYC Under Review</Typography>
               <Chip icon={<ChipGlyph><ClockIcon size={13} /></ChipGlyph>} label="Pending Review" size="small"
-                sx={{ bgcolor: 'rgba(42,63,214,0.1)', color: C.blue, border: '1px solid rgba(42,63,214,0.25)', fontWeight: 600, mb: 2 }} />
+                sx={{ bgcolor: 'rgba(110,139,255,0.1)', color: C.blue, border: '1px solid rgba(110,139,255,0.25)', fontWeight: 600, mb: 2 }} />
               <Typography variant="body2" sx={{ color: C.ts, lineHeight: 1.7, mb: 3 }}>
                 Your identity verification is being reviewed by our compliance team. Depositing collateral will be unlocked once your KYC is approved.
               </Typography>
@@ -2002,9 +2038,9 @@ function Dashboard() {
           ) : (
             <>
               <Box sx={{
-                width: 64, height: 64, borderRadius: '50%', bgcolor: `${C.gold}15`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30, mx: 'auto', mb: 2,
-              }}>🪪</Box>
+                width: 64, height: 64, borderRadius: '50%', bgcolor: `${C.gold}15`, color: C.gold,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2,
+              }}><IdCardIcon size={28} /></Box>
               <Typography variant="h6" sx={{ color: C.tp, fontWeight: 700, mb: 1 }}>Verify Your Identity First</Typography>
               <Typography variant="body2" sx={{ color: C.ts, lineHeight: 1.7, mb: 2 }}>
                 Before depositing collateral, you need to complete KYC (Know Your Customer) verification.
@@ -2048,7 +2084,7 @@ function Dashboard() {
         }}>
           <Box sx={{
             width: 28, height: 28, borderRadius: 1.5,
-            background: '#2A3FD6',
+            background: '#6E8BFF',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
             <Typography sx={{ color: '#fff', fontSize: 12, fontWeight: 800 }}>C</Typography>
@@ -2056,10 +2092,10 @@ function Dashboard() {
           <Typography variant="body2" sx={{ color: C.ts, fontWeight: 600 }}>
             Crypto<Box component="span" sx={{ color: C.teal }}>Lend</Box>
           </Typography>
-          <Typography variant="caption" sx={{ color: 'rgba(16,21,28,0.25)' }}>·</Typography>
+          <Typography variant="caption" sx={{ color: 'rgba(0,0,0,0.25)' }}>·</Typography>
           <Typography variant="caption" sx={{ color: C.ts }}>© 2026</Typography>
         </Box>
-        <Typography variant="caption" sx={{ color: '#8B96A5', maxWidth: 520, mx: 'auto', display: 'block', lineHeight: 1.8 }}>
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', maxWidth: 520, mx: 'auto', display: 'block', lineHeight: 1.8 }}>
           Decentralised Crypto-Backed Lending · Hardhat Testnet (Chain ID 31337)
           <br />
           Demonstration app for educational purposes. Not financial advice. Crypto lending carries liquidation risk.

@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { requireActiveUser, requireAdmin, audit } from '@/lib/authz';
+import { getSessionUser, requireActiveUser, requireAdmin, audit } from '@/lib/authz';
 import { featureBlocked } from '@/lib/features-server';
+
+/**
+ * KYC identity model: verification belongs to the *account*, anchored by the
+ * account's linked wallet (User.walletAddress, unique).
+ *
+ * The submission row is keyed by wallet because that is what the contract's
+ * onlyKYC check keys on — but which submission is "yours" is decided by the
+ * wallet linked to your signed-in account, never by whichever wallet MetaMask
+ * happens to expose. Hardhat hands everyone the same twenty test accounts, so
+ * a brand-new sign-up used to inherit "verified" the moment MetaMask
+ * auto-connected a previously approved address. Linking itself happens in
+ * POST /api/wallet/link, gated on a personal_sign ownership proof; this route
+ * only accepts submissions for the wallet already linked to the account.
+ */
 
 // Keep only valid image data URIs; anything else becomes undefined so we don't
 // overwrite an existing image with junk.
@@ -40,6 +54,24 @@ export async function POST(req: NextRequest) {
     const icBackData  = cleanDataUri(icBack);
     const selfieData  = cleanDataUri(selfie);
 
+    // ── Wallet must already be linked ─────────────────────────────────────
+    // Linking is its own signature-proved step (POST /api/wallet/link) — KYC
+    // no longer links as a side effect, because that let any signed-in user
+    // claim an unowned address they merely typed in, with no proof they hold
+    // its key. The KYC page performs the link (nonce + personal_sign) right
+    // before submitting, so a user never sees these errors in the normal flow.
+    const linked = guard.user.walletAddress?.toLowerCase();
+    if (!linked) {
+      return NextResponse.json({
+        error: 'No wallet is linked to your account yet. Connect your wallet and sign the ownership message first.',
+      }, { status: 400 });
+    }
+    if (linked !== walletKey) {
+      return NextResponse.json({
+        error: `Your account is linked to wallet ${linked.slice(0, 6)}…${linked.slice(-4)}. Connect that wallet to submit KYC.`,
+      }, { status: 409 });
+    }
+
     const record = await prisma.kycSubmission.upsert({
       where:  { wallet: walletKey },
       update: {
@@ -68,15 +100,23 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/kyc?wallet=0x... — fetch KYC record by wallet (excludes heavy image
+// GET /api/kyc — the signed-in account's own KYC status (excludes heavy image
 // blobs; use GET /api/kyc/documents to fetch images).
-export async function GET(req: NextRequest) {
-  const wallet = req.nextUrl.searchParams.get('wallet');
-  if (!wallet) return NextResponse.json({ error: 'wallet param required' }, { status: 400 });
-
+//
+// Deliberately takes no wallet parameter. It used to, and that was the leak:
+// the client asked "is wallet X verified?" for whatever account MetaMask
+// auto-connected, so a fresh sign-up inherited a stranger's verification.
+// Status is resolved from the session cookie → the account's linked wallet.
+export async function GET() {
   try {
+    const user = await getSessionUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // No linked wallet yet ⇒ this account has never submitted KYC.
+    if (!user.walletAddress) return NextResponse.json({ exists: false }, { status: 200 });
+
     const record = await prisma.kycSubmission.findUnique({
-      where: { wallet: wallet.toLowerCase() },
+      where: { wallet: user.walletAddress.toLowerCase() },
     });
     if (!record) return NextResponse.json({ exists: false }, { status: 200 });
     // Strip the heavy image blobs from the status response — images are fetched

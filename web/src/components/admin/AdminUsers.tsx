@@ -50,7 +50,7 @@ const KYC_TONE: Record<string, 'green' | 'amber' | 'red'> = {
   approved: 'green', pending: 'amber', rejected: 'red',
 };
 
-const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#fff' } };
+const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#111B38' } };
 
 export default function AdminUsers() {
   const [users, setUsers]     = useState<AdminUser[]>([]);
@@ -292,7 +292,7 @@ function UserRow({ user, striped, onEdit, onDone }: {
 
   return (
     <>
-      <TableRow sx={{ bgcolor: striped ? '#FAFBFC' : '#FFFFFF', '&:hover': { bgcolor: '#EEF1F5' }, opacity: busy ? 0.55 : 1 }}>
+      <TableRow sx={{ bgcolor: striped ? '#0F1A3D' : '#111B38', '&:hover': { bgcolor: '#0F1730' }, opacity: busy ? 0.55 : 1 }}>
         <TableCell sx={{ ...cellSx, color: C.ink, fontWeight: 500, fontSize: 13 }}>
           {user.name || <span style={{ color: C.muted }}>—</span>}
         </TableCell>
@@ -453,7 +453,7 @@ function EditUserDialog({ user, onClose, onSaved }: {
           />
 
           {/* Read-only context: these are either on-chain or belong elsewhere. */}
-          <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#F4F6F8', border: `1px solid ${C.border}` }}>
+          <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#0B1226', border: `1px solid ${C.border}` }}>
             <Typography variant="caption" sx={{ color: C.slate, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', fontSize: 10.5 }}>
               Not editable here
             </Typography>
