@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -114,12 +115,16 @@ export default function SignupPage() {
         <Box sx={{ position: 'absolute', bottom: '25%', left: '-60px', width: 280, height: 280,
                     borderRadius: '50%', background: 'radial-gradient(circle, rgba(42,63,214,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 6 }}>
-          <Box sx={{ width: 44, height: 44, borderRadius: 2, background: 'linear-gradient(135deg, #2A3FD6, #2A3FD6)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Typography sx={{ color: 'white', fontSize: 20, fontWeight: 700 }}>C</Typography>
-          </Box>
-          <Typography variant="h5" sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#10151C', fontWeight: 700, letterSpacing: '-0.3px' }}>CryptoLend</Typography>
+        {/* Logo — full wordmark with tagline, transparent background */}
+        <Box sx={{ mb: 6 }}>
+          <Image
+            src="/logo-full.png"
+            alt="CryptoLend — Borrow Ringgit, Not Your Future"
+            width={300}
+            height={86}
+            priority
+            style={{ width: 300, height: 'auto' }}
+          />
         </Box>
 
         <Typography variant="h3" color="text.primary" sx={{ fontWeight: 800, lineHeight: 1.2, mb: 2, letterSpacing: '-1px' }}>

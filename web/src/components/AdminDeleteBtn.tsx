@@ -34,7 +34,7 @@ export function AdminDeleteBtn({ wallet }: { wallet: string }) {
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
         <Box sx={{ display: 'flex', gap: 0.5 }}>
           <Button size="small" onClick={() => setConfirm(false)} disabled={deleting}
-            sx={{ fontSize: 10, py: 0.25, px: 0.75, minWidth: 'auto', whiteSpace: 'nowrap', color: '#5A6675' }}>
+            sx={{ fontSize: 10, py: 0.25, px: 0.75, minWidth: 'auto', whiteSpace: 'nowrap', color: 'rgba(255,255,255,0.65)' }}>
             Cancel
           </Button>
           <Button size="small" variant="contained" onClick={handleDelete} disabled={deleting}

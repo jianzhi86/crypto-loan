@@ -51,22 +51,22 @@ export default async function FeatureGate({
 
 function MaintenancePanel({ title, message }: { title: string; message: string }) {
   return (
-    <Box sx={{ minHeight: 'calc(100vh - 95px)', bgcolor: '#F4F6F8', p: { xs: 2, md: 4 }, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+    <Box sx={{ minHeight: 'calc(100vh - 95px)', bgcolor: '#0B1226', p: { xs: 2, md: 4 }, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
       <Paper sx={{
         maxWidth: 520, width: '100%', mt: { xs: 4, md: 10 }, p: { xs: 3, sm: 5 },
-        textAlign: 'center', border: '1px solid #E2E7EE', borderRadius: 4,
+        textAlign: 'center', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4,
       }}>
         <Box sx={{
           width: 52, height: 52, mx: 'auto', mb: 2.25, borderRadius: '50%',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          bgcolor: 'rgba(42,63,214,0.07)', color: '#2A3FD6',
+          bgcolor: 'rgba(110,139,255,0.07)', color: '#6E8BFF',
         }}>
           <WrenchIcon size={24} />
         </Box>
-        <Typography variant="h6" sx={{ fontWeight: 700, color: '#10151C', mb: 1 }}>
+        <Typography variant="h6" sx={{ fontWeight: 700, color: '#F2F5FF', mb: 1 }}>
           {title} is under maintenance
         </Typography>
-        <Typography variant="body2" sx={{ color: '#5A6675', lineHeight: 1.7, mb: 3 }}>
+        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.65)', lineHeight: 1.7, mb: 3 }}>
           {message}
         </Typography>
         {/* Plain href rather than `component={Link}`: this is a Server

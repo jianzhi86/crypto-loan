@@ -34,7 +34,7 @@ export function AdminApproveBtn({ wallet, initialStatus }: { wallet: string; ini
   if (status === 'approved') {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#0E9F6E' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#2BD9A2' }}>
           <CheckIcon size={13} strokeWidth={2.2} />
           <Typography variant="caption" sx={{ color: 'inherit', fontWeight: 500 }}>Approved</Typography>
         </Box>
@@ -45,8 +45,8 @@ export function AdminApproveBtn({ wallet, initialStatus }: { wallet: string; ini
           variant="outlined"
           startIcon={loading ? undefined : <RefreshIcon size={12} />}
           sx={{
-            borderColor: '#E2E7EE',
-            color: '#5A6675',
+            borderColor: 'rgba(255,255,255,0.12)',
+            color: 'rgba(255,255,255,0.65)',
             fontSize: 10,
             py: 0.25,
             px: 0.75,
@@ -72,15 +72,15 @@ export function AdminApproveBtn({ wallet, initialStatus }: { wallet: string; ini
         disabled={loading}
         variant="outlined"
         sx={{
-          borderColor: '#0E9F6E',
-          color: '#0E9F6E',
-          bgcolor: 'rgba(14,159,110,0.08)',
+          borderColor: '#2BD9A2',
+          color: '#2BD9A2',
+          bgcolor: 'rgba(43,217,162,0.08)',
           fontSize: 11,
           py: 0.25,
           px: 1,
           minWidth: 'auto',
           whiteSpace: 'nowrap',
-          '&:hover': { bgcolor: 'rgba(14,159,110,0.15)', borderColor: '#0E9F6E' },
+          '&:hover': { bgcolor: 'rgba(43,217,162,0.15)', borderColor: '#2BD9A2' },
           '&.Mui-disabled': { opacity: 0.4 },
         }}
       >

@@ -45,7 +45,7 @@ const TRANSFER_TONE: Record<string, 'green' | 'amber' | 'red' | 'neutral'> = {
   COMPLETED: 'green', PROCESSING: 'amber', PENDING: 'amber', FAILED: 'red',
 };
 
-const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#fff' } };
+const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#111B38' } };
 
 export default function AdminTransactions() {
   const [source, setSource] = useState<'loan' | 'transfer'>('loan');
@@ -230,7 +230,7 @@ function LoanTable({ rows }: { rows: LoanTx[] }) {
       </TableHead>
       <TableBody>
         {rows.map((t, i) => (
-          <TableRow key={t.id} sx={{ bgcolor: i % 2 ? '#FAFBFC' : '#FFFFFF', '&:hover': { bgcolor: '#EEF1F5' } }}>
+          <TableRow key={t.id} sx={{ bgcolor: i % 2 ? '#0F1A3D' : '#111B38', '&:hover': { bgcolor: '#0F1730' } }}>
             <TableCell sx={cellSx}>
               <Badge label={TX_LABELS[t.type] ?? t.type} tone={TYPE_TONE[t.type] ?? 'neutral'} />
             </TableCell>
@@ -273,7 +273,7 @@ function TransferTable({ rows }: { rows: TransferTx[] }) {
       </TableHead>
       <TableBody>
         {rows.map((t, i) => (
-          <TableRow key={t.id} sx={{ bgcolor: i % 2 ? '#FAFBFC' : '#FFFFFF', '&:hover': { bgcolor: '#EEF1F5' } }}>
+          <TableRow key={t.id} sx={{ bgcolor: i % 2 ? '#0F1A3D' : '#111B38', '&:hover': { bgcolor: '#0F1730' } }}>
             <TableCell sx={monoSx}>{t.referenceNo}</TableCell>
             <TableCell sx={{ ...cellSx, color: C.ink, fontWeight: 600, fontSize: 13 }}>
               RM {t.amountMYR.toLocaleString('en-MY', { minimumFractionDigits: 2 })}

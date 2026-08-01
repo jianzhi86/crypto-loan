@@ -220,6 +220,92 @@ export const CashIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconPro
   </svg>
 );
 
+/** Document / file placeholder. */
+export const DocIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconProps) => (
+  <svg {...base(size, strokeWidth, color, style)}>
+    <path d="M6 2.75h7.5L19 8.25V19a2.25 2.25 0 0 1-2.25 2.25h-9.5A2.25 2.25 0 0 1 5 19V5A2.25 2.25 0 0 1 6 2.75z" />
+    <path d="M13.5 2.75v5.5H19" />
+    <path d="M8.5 12.5h7M8.5 16h7" />
+  </svg>
+);
+
+/** Token / coin. */
+export const CoinIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconProps) => (
+  <svg {...base(size, strokeWidth, color, style)}>
+    <circle cx="12" cy="12" r="8.75" />
+    <path d="M15 9.4c-.5-.9-1.6-1.5-3-1.5-1.7 0-3 .9-3 2.05 0 2.9 6 1.2 6 4.1 0 1.15-1.3 2.05-3 2.05-1.4 0-2.5-.6-3-1.5" />
+    <path d="M12 6.25v1.65M12 16.1v1.65" />
+  </svg>
+);
+
+/** Buy / purchase. */
+export const CartIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconProps) => (
+  <svg {...base(size, strokeWidth, color, style)}>
+    <path d="M3 6h2l3.5 9.5L9.5 17h9.5" />
+    <circle cx="10" cy="20" r="1.5" />
+    <circle cx="18" cy="20" r="1.5" />
+    <path d="M8.5 13h10l1.5-5H7" />
+  </svg>
+);
+
+/** Credit line / card. */
+export const CardIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconProps) => (
+  <svg {...base(size, strokeWidth, color, style)}>
+    <rect x="2.75" y="5.5" width="18.5" height="13" rx="2.5" />
+    <path d="M2.75 9.75h18.5" />
+    <path d="M6.25 14.75h4" />
+  </svg>
+);
+
+/** Confirmed / complete. */
+export const CheckCircleIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconProps) => (
+  <svg {...base(size, strokeWidth, color, style)}>
+    <circle cx="12" cy="12" r="8.75" />
+    <path d="M8.25 12.25l2.5 2.5 5-5" />
+  </svg>
+);
+
+/** Informational note. */
+export const InfoIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconProps) => (
+  <svg {...base(size, strokeWidth, color, style)}>
+    <circle cx="12" cy="12" r="8.75" />
+    <path d="M12 11v5" />
+    <path d="M12 7.75h.01" />
+  </svg>
+);
+
+/** Health / vital signs. */
+export const PulseIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconProps) => (
+  <svg {...base(size, strokeWidth, color, style)}>
+    <path d="M2.75 12h4l2.5-6.5 5.5 13 2.5-6.5h4" />
+  </svg>
+);
+
+/** FAQ / help. */
+export const HelpIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconProps) => (
+  <svg {...base(size, strokeWidth, color, style)}>
+    <circle cx="12" cy="12" r="8.75" />
+    <path d="M9.5 9.3c.3-1.3 1.3-2.05 2.5-2.05 1.4 0 2.5 1 2.5 2.25 0 2.2-2.5 2.3-2.5 4.25" />
+    <path d="M12 16.9h.01" />
+  </svg>
+);
+
+/** Funds in — deposit into the protocol. */
+export const TrayDownIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconProps) => (
+  <svg {...base(size, strokeWidth, color, style)}>
+    <rect x="3" y="14" width="18" height="7" rx="2" />
+    <path d="M12 3v8M9 8l3 3 3-3" />
+  </svg>
+);
+
+/** Funds out — withdraw from the protocol. */
+export const TrayUpIcon = ({ size = 24, color, strokeWidth = 1.5, style }: IconProps) => (
+  <svg {...base(size, strokeWidth, color, style)}>
+    <rect x="3" y="14" width="18" height="7" rx="2" />
+    <path d="M12 11V3M9 6l3-3 3 3" />
+  </svg>
+);
+
 /**
  * Small breathing dot for "live" indicators, replacing the ● character —
  * which has no consistent size across fonts and cannot animate.

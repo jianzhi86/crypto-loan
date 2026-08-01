@@ -10,6 +10,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
+import { DocIcon } from '@/components/Icons';
 
 export interface KycRecord {
   id: number;
@@ -40,7 +41,7 @@ export interface KycRecord {
 
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1, borderBottom: '1px solid #E2E7EE' }}>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
       <Typography variant="caption" color="text.secondary">{label}</Typography>
       <Typography variant="caption" sx={{ color: 'text.primary', textAlign: 'right', maxWidth: '60%', fontWeight: 500, fontFamily: mono ? 'monospace' : 'inherit' }}>
         {value || '—'}
@@ -52,10 +53,10 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <Box sx={{ mb: 2.5 }}>
-      <Typography variant="caption" sx={{ color: '#5A6675', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600, display: 'block', mb: 1 }}>
+      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600, display: 'block', mb: 1 }}>
         {title}
       </Typography>
-      <Box sx={{ bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 2, px: 2, py: 0.5 }}>
+      <Box sx={{ bgcolor: '#111B38', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, px: 2, py: 0.5 }}>
         {children}
       </Box>
     </Box>
@@ -63,8 +64,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 const statusColors: Record<string, { bg: string; color: string }> = {
-  pending:  { bg: 'rgba(199,119,0,0.1)', color: '#C77700' },
-  approved: { bg: 'rgba(14,159,110,0.1)', color: '#0E9F6E' },
+  pending:  { bg: 'rgba(255,178,36,0.1)', color: '#FFB224' },
+  approved: { bg: 'rgba(43,217,162,0.1)', color: '#2BD9A2' },
   rejected: { bg: 'rgba(229,72,77,0.1)', color: '#E5484D' },
 };
 
@@ -104,22 +105,22 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
   return (
     <>
       <Button size="small" onClick={() => setOpen(true)}
-        sx={{ bgcolor: 'rgba(42,63,214,0.08)', color: '#2A3FD6', border: '1px solid rgba(42,63,214,0.2)',
-              fontSize: 11, py: 0.25, px: 1, minWidth: 'auto', '&:hover': { bgcolor: 'rgba(42,63,214,0.15)' } }}>
+        sx={{ bgcolor: 'rgba(110,139,255,0.08)', color: '#6E8BFF', border: '1px solid rgba(110,139,255,0.2)',
+              fontSize: 11, py: 0.25, px: 1, minWidth: 'auto', '&:hover': { bgcolor: 'rgba(110,139,255,0.15)' } }}>
         View
       </Button>
 
       <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth scroll="paper">
-        <DialogTitle sx={{ position: 'sticky', top: 0, zIndex: 10, bgcolor: '#FFFFFF',
-              borderBottom: '1px solid #E2E7EE', display: 'flex', alignItems: 'center',
+        <DialogTitle sx={{ position: 'sticky', top: 0, zIndex: 10, bgcolor: '#111B38',
+              borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center',
               justifyContent: 'space-between', p: 2.5 }}>
           <Box>
-            <Typography variant="caption" sx={{ color: '#5A6675', fontFamily: 'monospace', display: 'block' }}>{ref}</Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', display: 'block' }}>{ref}</Typography>
             <Typography variant="h6" color="text.primary" sx={{ fontWeight: 700 }}>{record.fullName}</Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Chip label={record.status} size="small" sx={{ bgcolor: sc.bg, color: sc.color, fontWeight: 600, height: 22 }} />
-            <IconButton size="small" onClick={handleClose} sx={{ color: '#5A6675' }}>
+            <IconButton size="small" onClick={handleClose} sx={{ color: 'rgba(255,255,255,0.65)' }}>
               <Typography sx={{ fontSize: 16, lineHeight: 1 }}>✕</Typography>
             </IconButton>
           </Box>
@@ -127,8 +128,8 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
 
         <DialogContent sx={{ p: 3 }} data-lenis-prevent>
           {/* IC Number highlight */}
-          <Box sx={{ p: 2, mb: 2.5, background: 'linear-gradient(135deg, rgba(42,63,214,0.08), rgba(42,63,214,0.02))', border: '1px solid rgba(42,63,214,0.25)', borderRadius: 2 }}>
-            <Typography variant="caption" sx={{ color: '#2A3FD6', display: 'block', mb: 0.5 }}>{docLabel} Number</Typography>
+          <Box sx={{ p: 2, mb: 2.5, background: 'linear-gradient(135deg, rgba(110,139,255,0.08), rgba(110,139,255,0.02))', border: '1px solid rgba(110,139,255,0.25)', borderRadius: 2 }}>
+            <Typography variant="caption" sx={{ color: '#6E8BFF', display: 'block', mb: 0.5 }}>{docLabel} Number</Typography>
             <Typography variant="h5" sx={{ fontWeight: 700, fontFamily: 'monospace', letterSpacing: 2, color: 'text.primary' }}>
               {record.icNumber}
             </Typography>
@@ -139,7 +140,7 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
 
           {/* Documents */}
           <Box sx={{ mb: 2.5 }}>
-            <Typography variant="caption" sx={{ color: '#5A6675', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600, display: 'block', mb: 1 }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600, display: 'block', mb: 1 }}>
               Documents
             </Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5 }}>
@@ -150,14 +151,14 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
               ].map(d => {
                 const src = d.has ? `/api/kyc/documents?wallet=${record.wallet}&type=${d.type}` : null;
                 return (
-                  <Box key={d.label} sx={{ bgcolor: '#FFFFFF', border: '1px solid #E2E7EE', borderRadius: 2, overflow: 'hidden' }}>
+                  <Box key={d.label} sx={{ bgcolor: '#111B38', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, overflow: 'hidden' }}>
                     {src ? (
                       <a href={src} target="_blank" rel="noreferrer">
                         <Box component="img" src={src} alt={d.label} sx={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', display: 'block' }} />
                       </a>
                     ) : (
-                      <Box sx={{ aspectRatio: '4/3', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                        <Typography sx={{ fontSize: 24, mb: 0.5 }}>📄</Typography>
+                      <Box sx={{ aspectRatio: '4/3', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.4)' }}>
+                        <DocIcon size={24} style={{ marginBottom: 4 }} />
                         <Typography variant="caption" color="text.secondary">Not uploaded</Typography>
                       </Box>
                     )}
@@ -193,14 +194,14 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
           </Section>
         </DialogContent>
 
-        <DialogActions sx={{ position: 'sticky', bottom: 0, bgcolor: '#FFFFFF', borderTop: '1px solid #E2E7EE', p: 2, gap: 1 }}>
+        <DialogActions sx={{ position: 'sticky', bottom: 0, bgcolor: '#111B38', borderTop: '1px solid rgba(255,255,255,0.12)', p: 2, gap: 1 }}>
           {confirmDelete ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%' }}>
               <Typography variant="caption" sx={{ color: '#E5484D', fontWeight: 500, flex: 1 }}>
                 Delete this submission? This can&apos;t be undone.
               </Typography>
               <Button size="small" onClick={() => setConfirmDelete(false)} disabled={deleting}
-                sx={{ color: '#5A6675' }}>
+                sx={{ color: 'rgba(255,255,255,0.65)' }}>
                 Cancel
               </Button>
               <Button size="small" variant="contained" onClick={handleDelete} disabled={deleting}
@@ -218,7 +219,7 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
                 Delete Submission
               </Button>
               <Button size="small" variant="outlined" onClick={handleClose}
-                sx={{ borderColor: '#E2E7EE', color: '#5A6675', '&:hover': { borderColor: '#CBD3DD', bgcolor: '#EEF1F5' } }}>
+                sx={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.65)', '&:hover': { borderColor: 'rgba(255,255,255,0.3)', bgcolor: '#0F1730' } }}>
                 Close
               </Button>
             </>

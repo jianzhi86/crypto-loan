@@ -151,11 +151,15 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Actions',
     items: [
-      { href: '/dashboard?tab=deposit',  label: 'Deposit',  icon: DepositIcon,  acl: { requiresAuth: true, feature: 'action.deposit'  } },
+      // Money-in actions need a verified identity (Nexo-style: browse freely,
+      // verify before funding). Withdraw and Repay stay KYC-free on purpose —
+      // a user must always be able to reduce risk and take their money out,
+      // the same reasoning features.ts gives for pausing repay reluctantly.
+      { href: '/dashboard?tab=deposit',  label: 'Deposit',  icon: DepositIcon,  acl: { requiresAuth: true, requiresKyc: true, feature: 'action.deposit'  } },
       { href: '/dashboard?tab=withdraw', label: 'Withdraw', icon: WithdrawIcon, acl: { requiresAuth: true, feature: 'action.withdraw' } },
-      { href: '/dashboard?tab=borrow',   label: 'Borrow',   icon: BorrowIcon,   acl: { requiresAuth: true, feature: 'action.borrow'   } },
+      { href: '/dashboard?tab=borrow',   label: 'Borrow',   icon: BorrowIcon,   acl: { requiresAuth: true, requiresKyc: true, feature: 'action.borrow'   } },
       { href: '/dashboard?tab=repay',    label: 'Repay',    icon: RepayIcon,    acl: { requiresAuth: true, feature: 'action.repay'    } },
-      { href: '/dashboard?tab=buy',      label: 'Buy MYR',  icon: BuyIcon,      acl: { requiresAuth: true, feature: 'action.buy'      } },
+      { href: '/dashboard?tab=buy',      label: 'Buy MYR',  icon: BuyIcon,      acl: { requiresAuth: true, requiresKyc: true, feature: 'action.buy'      } },
     ],
   },
   {

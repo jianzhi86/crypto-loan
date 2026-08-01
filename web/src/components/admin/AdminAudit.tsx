@@ -90,9 +90,9 @@ export default function AdminAudit() {
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 1.5 }}>
             <TextField size="small" placeholder="Search admin, target or detail…"
               value={q} onChange={onFilter(setQ)}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#fff' } }} />
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#111B38' } }} />
             <TextField select size="small" label="Action" value={action} onChange={onFilter(setAction)}
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#fff' } }}>
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#111B38' } }}>
               <MenuItem value="">All actions</MenuItem>
               {ACTIONS.map(a => <MenuItem key={a} value={a}>{a.replace(/_/g, ' ').toLowerCase()}</MenuItem>)}
             </TextField>
@@ -118,7 +118,7 @@ export default function AdminAudit() {
                 </TableHead>
                 <TableBody>
                   {entries.map((e, i) => (
-                    <TableRow key={e.id} sx={{ bgcolor: i % 2 ? '#FAFBFC' : '#FFFFFF', '&:hover': { bgcolor: '#EEF1F5' } }}>
+                    <TableRow key={e.id} sx={{ bgcolor: i % 2 ? '#0F1A3D' : '#111B38', '&:hover': { bgcolor: '#0F1730' } }}>
                       <TableCell sx={cellSx}>{new Date(e.createdAt).toLocaleString('en-MY')}</TableCell>
                       <TableCell sx={cellSx}>{e.actorEmail ?? e.actorId}</TableCell>
                       <TableCell sx={cellSx}>

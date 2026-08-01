@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { ethers } from 'ethers';
+import { useAuthContext } from '@/lib/AuthContext';
 import Backdrop from '@mui/material/Backdrop';
 import CircularProgress from '@mui/material/CircularProgress';
 import Typography from '@mui/material/Typography';
@@ -49,18 +50,24 @@ export interface WalletState {
   myrBalance: string;
   loanInfo: LoanInfo | null;
   ethPriceMYR: number;
+  // Effective verification of the signed-in ACCOUNT (mirrors kycApprovedDb).
+  // Deliberately not derived from the connected wallet or the on-chain flag:
+  // Hardhat reuses the same test accounts, so keying off the wallet let a
+  // brand-new sign-up inherit a stranger's verification the moment MetaMask
+  // auto-connected a previously approved address.
   kycApproved: boolean;
-  // DB-side KYC approval (from /api/kyc). Tracked separately so an on-chain
-  // refresh — which reads `false` after a chain redeploy/reset — can't clobber
-  // an approval that still stands in the database. Effective approval is
-  // (on-chain || db).
+  // Account-side KYC approval (GET /api/kyc, resolved from the session cookie).
   kycApprovedDb: boolean;
-  // Raw on-chain KYC flag (loan.kycApproved). Used to detect a DB↔chain mismatch
-  // after a redeploy so it can be auto-resynced.
+  // Raw on-chain KYC flag for the CONNECTED wallet (loan.kycApproved). Only
+  // used to detect a DB↔chain mismatch after a redeploy so it can be resynced;
+  // never shown to the user as "verified".
   kycApprovedChain: boolean;
-  // Granular KYC status from the DB: 'none' = no submission, 'pending' = awaiting review, 'approved' = verified.
+  // Granular account status: 'none' = no submission, 'pending' = awaiting admin review, 'approved' = verified.
   kycStatus: 'none' | 'pending' | 'approved';
-  // True once the first /api/kyc DB check for this address has resolved.
+  // The wallet the account's KYC is anchored to (lowercase), once known.
+  // Borrowing only works when this wallet is the connected one.
+  kycWallet: string | null;
+  // True once the first /api/kyc check for this session has resolved.
   // Guards the KYC dialog so it never fires before we know the real status.
   kycDbChecked: boolean;
   // Whether the current MockMYR token has already been imported into MetaMask
@@ -86,6 +93,7 @@ const INIT: WalletState = {
   kycApprovedDb: false,
   kycApprovedChain: false,
   kycStatus: 'none',
+  kycWallet: null,
   kycDbChecked: false,
   myrTokenAdded: false,
   isRefreshing: false,
@@ -201,7 +209,8 @@ function revertReason(err: unknown): string | null {
 interface WalletCtx extends WalletState {
   connect: () => Promise<void>;
   disconnect: () => void;
-  tryAutoConnect: () => Promise<void>;
+  /** Silent restore — no-op unless the account's linked wallet is MetaMask's active account. */
+  tryAutoConnect: (linkedWallet?: string | null) => Promise<void>;
   switchToHardhat: () => Promise<void>;
   depositCollateral: (eth: string) => Promise<void>;
   borrow: (myr: string) => Promise<boolean>;
@@ -218,6 +227,9 @@ const Ctx = createContext<WalletCtx | null>(null);
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [s, setS] = useState<WalletState>(INIT);
+  // The signed-in account, for gating silent wallet restore to its linked
+  // wallet. WalletProvider sits inside AuthProvider (see the root layout).
+  const { user: authUser, loading: authLoading } = useAuthContext();
 
   const getProvider = useCallback(() => {
     if (typeof window === 'undefined' || !window.ethereum) return null;
@@ -294,9 +306,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         myrBalance,
         loanInfo,
         ethPriceMYR,
-        // On-chain approval OR a standing DB approval. Never downgrade a
-        // DB-approved wallet just because the chain was redeployed.
-        kycApproved: (kyc as boolean) || p.kycApprovedDb,
+        // Verification stays account-based: the on-chain flag is recorded for
+        // resync detection but never upgrades the badge. The connected wallet
+        // being chain-approved proves nothing about the signed-in account —
+        // on shared Hardhat test accounts it is usually someone else's.
+        kycApproved: p.kycApprovedDb,
         kycApprovedChain: kyc as boolean,
         isDeployed: true,
         isRefreshing: false,
@@ -341,6 +355,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (!window.ethereum) { alert('MetaMask not found. Install it from metamask.io'); return; }
     setS(p => ({ ...p, isConnecting: true }));
     try {
+      // Always surface MetaMask's account picker. eth_requestAccounts alone
+      // resolves silently once the site holds a permission grant, which made
+      // clicking "Connect Wallet" feel like nothing asked for consent — and
+      // gave no chance to pick a different account. Requesting permissions
+      // forces the chooser every time; cancelling it (code 4001) is a normal
+      // "no", not an error.
+      try {
+        await window.ethereum.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+      } catch (permErr) {
+        if ((permErr as { code?: number }).code === 4001) {
+          setS(p => ({ ...p, isConnecting: false }));
+          return;
+        }
+        // Wallet doesn't support the permissions API — fall through to the
+        // plain request below.
+      }
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' }) as string[];
       const provider = getProvider()!;
       const network  = await provider.getNetwork();
@@ -522,25 +552,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [s.address]);
 
-  // Check DB approval status when the wallet connects, then keep polling so an
-  // admin approval made in another session/tab is picked up without the user
-  // having to reconnect or reload (covers reset-chain scenarios too).
+  // Check the ACCOUNT's approval status (session cookie, no wallet parameter)
+  // and keep polling so an admin approval made in another session/tab is picked
+  // up without a reload. Runs independently of the wallet — verification is a
+  // property of who is signed in, and asking by connected address is exactly
+  // what let a new sign-up inherit a previously approved test wallet's status.
   useEffect(() => {
-    if (!s.address) return;
-    const wallet = s.address;
     const checkDbKyc = () => {
-      fetch(`/api/kyc?wallet=${wallet}`)
-        .then(r => r.json())
+      fetch('/api/kyc', { cache: 'no-store' })
+        .then(r => (r.status === 401 ? { exists: false } : r.json()))
         .then(d => {
           const approved = !!(d.exists && d.status === 'approved');
           const kycStatus: 'none' | 'pending' | 'approved' =
             !d.exists ? 'none' : d.status === 'approved' ? 'approved' : 'pending';
-          // Ignore a stale response if the user switched accounts mid-flight.
-          setS(p => (p.address !== wallet ? p : {
+          setS(p => ({
             ...p,
             kycApprovedDb: approved,
-            kycApproved: p.kycApproved || approved,
+            kycApproved: approved,
             kycStatus,
+            kycWallet: d.exists && d.wallet ? String(d.wallet).toLowerCase() : null,
             kycDbChecked: true,
           }));
         })
@@ -549,7 +579,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     checkDbKyc();
     const id = setInterval(checkDbKyc, 10000);
     return () => clearInterval(id);
-  }, [s.address]);
+  }, []);
 
   // Reflect whether the current account has already imported the MYR token, so
   // the "Add MYR" button only appears when it's actually needed.
@@ -557,36 +587,49 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setS(p => ({ ...p, myrTokenAdded: s.address ? readMyrAdded(s.address) : false }));
   }, [s.address]);
 
-  // Auto-heal a DB↔chain KYC mismatch: if the database has the wallet approved
-  // but the contract doesn't (typically after a redeploy), re-set it on-chain so
-  // borrowing works without the user having to re-submit KYC. Runs once the
-  // on-chain read has completed (loanInfo present) to avoid a premature attempt.
+  // Auto-heal a DB↔chain KYC mismatch: if the account is admin-approved but the
+  // contract doesn't show it (typically after a redeploy), ask the server to
+  // re-set it on-chain so borrowing works without re-submitting KYC. Only when
+  // the connected wallet IS the account's KYC wallet — re-approving whatever
+  // wallet happens to be plugged in would hand out on-chain KYC to strangers.
+  // (The endpoint is admin-gated regardless; this is not an approval, it re-pushes
+  // one an admin already granted.) Runs once the on-chain read has completed.
   useEffect(() => {
     if (s.address && s.isCorrectNetwork && s.isDeployed &&
-        s.kycApprovedDb && !s.kycApprovedChain && s.loanInfo) {
+        s.kycApprovedDb && !s.kycApprovedChain && s.loanInfo &&
+        s.kycWallet && s.address.toLowerCase() === s.kycWallet) {
       void resyncKyc(s.address);
     }
-  }, [s.address, s.isCorrectNetwork, s.isDeployed, s.kycApprovedDb, s.kycApprovedChain, s.loanInfo, resyncKyc]);
+  }, [s.address, s.isCorrectNetwork, s.isDeployed, s.kycApprovedDb, s.kycApprovedChain, s.loanInfo, s.kycWallet, resyncKyc]);
 
   // Listen for MetaMask events
   useEffect(() => {
     if (!window.ethereum) return;
     const onAccounts = (a: unknown) => {
+      // Only meaningful while connected. MetaMask fires this for any account
+      // switch on an authorized site; reacting while disconnected would
+      // silently re-connect a wallet the user never asked this session for.
+      if (!s.isConnected) return;
       const list = a as string[];
-      if (list.length === 0) setS(INIT);
-      else {
+      if (list.length === 0) {
+        // Wallet revoked/locked — drop the connection but keep the ACCOUNT's
+        // KYC status; verification belongs to the session, not the wallet.
+        setS(p => ({
+          ...INIT,
+          kycApproved: p.kycApproved, kycApprovedDb: p.kycApprovedDb,
+          kycStatus: p.kycStatus, kycWallet: p.kycWallet, kycDbChecked: p.kycDbChecked,
+        }));
+      } else {
         const cached = readCachedPosition(list[0]);
         setS(p => ({
           ...p, address: list[0],
           loanInfo: cached?.info ?? null,
           ethBalance: cached?.ethBalance ?? '0',
           myrBalance: cached?.myrBalance ?? '0',
-          // New account — clear the prior wallet's KYC until re-checked.
-          kycApproved: false,
-          kycApprovedDb: false,
+          // Only the per-wallet chain flag resets on a wallet switch. The
+          // account's verification (kycApprovedDb / kycStatus) belongs to the
+          // session, not the wallet, and survives unchanged.
           kycApprovedChain: false,
-          kycStatus: 'none',
-          kycDbChecked: false,
         }));
         refresh(list[0]);
       }
@@ -603,15 +646,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       window.ethereum?.removeListener('accountsChanged', onAccounts);
       window.ethereum?.removeListener('chainChanged', onChain);
     };
-  }, [s.address, refresh]);
+  }, [s.address, s.isConnected, refresh]);
 
-  // Checks if MetaMask already has an authorized account and restores wallet state.
-  // Extracted so it can be called after login (not just on app mount).
-  const tryAutoConnect = useCallback(async () => {
+  // Silently restore the wallet connection — but only for the wallet the
+  // signed-in account is actually linked to.
+  //
+  // MetaMask's site permission belongs to the BROWSER, not to an app account:
+  // once any visitor has connected here, eth_accounts hands the wallet back to
+  // whoever is signed in next. Restoring it unconditionally meant a brand-new
+  // sign-up landed with the previous person's wallet already "connected".
+  // Restore is a convenience for returning to *your own* wallet, so it now
+  // requires the account's linked wallet to be MetaMask's active account; in
+  // every other case the user stays disconnected until they click Connect —
+  // an explicit act, with whatever account they chose in MetaMask.
+  const tryAutoConnect = useCallback(async (linkedWallet?: string | null) => {
     if (typeof window === 'undefined' || !window.ethereum) return;
+    if (!linkedWallet) return;
     try {
       const accounts = await window.ethereum.request({ method: 'eth_accounts' }) as string[];
       if (!accounts.length) return;
+      if (accounts[0].toLowerCase() !== linkedWallet.toLowerCase()) return;
       const provider = getProvider()!;
       const network  = await provider.getNetwork();
       const chainId  = Number(network.chainId);
@@ -625,14 +679,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     } catch { /* not connected */ }
   }, [getProvider, refresh]);
 
-  // Auto-restore if already connected
+  // Auto-restore once the session has resolved to an account with a linked
+  // wallet. Anonymous visitors and fresh accounts get no silent connection.
+  // Kicked off a tick later so the state updates happen inside the promise
+  // continuations, not the synchronous effect body (same pattern as
+  // AuthContext's first refresh).
+  const linkedWallet = authUser?.walletAddress;
   useEffect(() => {
-    tryAutoConnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (authLoading) return;
+    const id = setTimeout(() => { void tryAutoConnect(linkedWallet); }, 0);
+    return () => clearTimeout(id);
+  }, [authLoading, linkedWallet, tryAutoConnect]);
 
   const disconnect = useCallback(() => {
-    setS(INIT);
+    // Drops the wallet, not the identity: the account's KYC status survives —
+    // it was never a property of the connected wallet.
+    setS(p => ({
+      ...INIT,
+      kycApproved: p.kycApproved, kycApprovedDb: p.kycApprovedDb,
+      kycStatus: p.kycStatus, kycWallet: p.kycWallet, kycDbChecked: p.kycDbChecked,
+    }));
   }, []);
 
   const value: WalletCtx = {

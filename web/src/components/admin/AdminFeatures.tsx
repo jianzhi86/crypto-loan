@@ -146,7 +146,7 @@ function FlagControl({ flag, divider, onSave }: {
     <Box sx={{
       p: 2.5,
       borderTop: divider ? `1px solid ${C.border}` : 'none',
-      bgcolor: flag.state === ON ? '#FFFFFF' : 'rgba(199,119,0,0.03)',
+      bgcolor: flag.state === ON ? '#111B38' : 'rgba(255,178,36,0.03)',
     }}>
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <Box sx={{ flex: 1, minWidth: 240 }}>
@@ -189,7 +189,7 @@ function FlagControl({ flag, divider, onSave }: {
             // pinned up. Left to float it sat across the input and struck
             // through its own text against the placeholder behind it.
             slotProps={{ inputLabel: { shrink: true } }}
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13, bgcolor: '#fff' } }}
+            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13, bgcolor: '#111B38' } }}
             helperText={dirty ? 'Unsaved' : 'Leave blank to use the default wording.'}
           />
           <Button

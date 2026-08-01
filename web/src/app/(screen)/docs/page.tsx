@@ -12,19 +12,29 @@ import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
+import {
+  AlertIcon, BoltIcon, CartIcon, CashIcon, ClockIcon, DocIcon, HelpIcon, IdCardIcon,
+  LockIcon, PulseIcon, TrendDownIcon, TrendUpIcon,
+} from '@/components/Icons';
 
+// Monochrome stroke icons (the sidebar's icon language), not emoji — they sit
+// at the right optical weight next to text and inherit the row's colour.
 const SECTIONS = [
-  { id: 'overview',    label: 'Overview'          },
-  { id: 'how-it-works', label: 'How It Works'     },
-  { id: 'kyc',         label: 'KYC Verification'  },
-  { id: 'collateral',  label: 'Collateral & LTV'  },
-  { id: 'health',      label: 'Health Factor'     },
-  { id: 'buy-myr',     label: 'Buy MYR'           },
-  { id: 'interest',    label: 'Interest & Fees'   },
+  { id: 'overview',    label: 'Overview',         icon: <DocIcon size={16} />     },
+  { id: 'how-it-works', label: 'How It Works',    icon: <BoltIcon size={16} />    },
+  { id: 'kyc',         label: 'KYC Verification', icon: <IdCardIcon size={16} />  },
+  { id: 'collateral',  label: 'Collateral & LTV', icon: <LockIcon size={16} />    },
+  { id: 'health',      label: 'Health Factor',    icon: <PulseIcon size={16} />   },
+  { id: 'buy-myr',     label: 'Buy MYR',          icon: <CartIcon size={16} />    },
+  { id: 'interest',    label: 'Interest & Fees',  icon: <TrendUpIcon size={16} /> },
   // { id: 'setup',       label: 'Local Setup'       },
   // { id: 'contracts',   label: 'Smart Contracts'   },
-  { id: 'faq',         label: 'FAQ'               },
+  { id: 'faq',         label: 'FAQ',              icon: <HelpIcon size={16} />    },
 ];
+
+const SECTION_ICON: Record<string, React.ReactNode> = Object.fromEntries(
+  SECTIONS.map(s => [s.id, s.icon]),
+);
 
 const CODE = {
   hardhatNode: 'npm run chain',
@@ -35,25 +45,36 @@ const CODE = {
 };
 
 const C = {
-  border:  '#E2E7EE',
-  inner:   '#EEF1F5',
-  slate:   '#5A6675',
-  blue:    '#2A3FD6',
-  teal:    '#0E9F6E',
-  gold:    '#C77700',
+  border:  'rgba(255,255,255,0.12)',
+  inner:   '#0F1730',
+  slate:   'rgba(255,255,255,0.65)',
+  blue:    '#6E8BFF',
+  teal:    '#2BD9A2',
+  gold:    '#FFB224',
   red:     '#E5484D',
-  ink:     '#10151C',
-  muted:   '#8B96A5',
+  ink:     '#F2F5FF',
+  muted:   'rgba(255,255,255,0.45)',
 };
 
 function Section({ id, title, badge, children }: { id: string; title: string; badge?: string; children: React.ReactNode }) {
+  const icon = SECTION_ICON[id];
   return (
     <Box component="section" id={id} sx={{ mb: 7, scrollMarginTop: 120 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
+        {icon && (
+          <Box sx={{
+            width: 34, height: 34, borderRadius: 2, flexShrink: 0,
+            bgcolor: C.inner, border: `1px solid ${C.border}`, color: C.ink,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            '& svg': { width: 18, height: 18 },
+          }}>
+            {icon}
+          </Box>
+        )}
         <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, lineHeight: 1 }}>{title}</Typography>
         {badge && (
           <Chip label={badge} size="small"
-            sx={{ bgcolor: '#E7EAFF', color: C.blue, fontWeight: 600, fontSize: 11, height: 20 }} />
+            sx={{ bgcolor: 'rgba(110,139,255,0.16)', color: C.blue, fontWeight: 600, fontSize: 11, height: 20 }} />
         )}
       </Box>
       <Box sx={{ color: C.slate, display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</Box>
@@ -72,7 +93,7 @@ function Strong({ children }: { children: React.ReactNode }) {
 function InlineCode({ children }: { children: React.ReactNode }) {
   return (
     <Box component="code" sx={{ fontFamily: 'monospace', fontSize: 12, bgcolor: C.inner,
-      px: 0.75, py: 0.25, borderRadius: 0.5, color: '#1E2FA8' }}>
+      px: 0.75, py: 0.25, borderRadius: 0.5, color: '#9DB1FF' }}>
       {children}
     </Box>
   );
@@ -82,7 +103,7 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
   return (
     <Box component="pre"
       sx={{ fontSize: 12.5, p: 2.5, borderRadius: 2, overflowX: 'auto', fontFamily: 'monospace',
-            bgcolor: '#F8F9FD', border: `1px solid ${C.border}`, color: '#1E2FA8', m: 0, lineHeight: 1.9 }}>
+            bgcolor: '#0F1730', border: `1px solid ${C.border}`, color: '#9DB1FF', m: 0, lineHeight: 1.9 }}>
       {children}
     </Box>
   );
@@ -90,7 +111,7 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 
 function StepCard({ n, title, desc, sub }: { n: string; title: string; desc: string; sub?: string }) {
   return (
-    <Paper sx={{ display: 'flex', gap: 2, p: 2.5, bgcolor: '#FFFFFF', border: `1px solid ${C.border}`, borderRadius: 2 }}>
+    <Paper sx={{ display: 'flex', gap: 2, p: 2.5, bgcolor: '#111B38', border: `1px solid ${C.border}`, borderRadius: 2 }}>
       <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: C.blue, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <Typography sx={{ color: 'white', fontSize: 14, fontWeight: 700 }}>{n}</Typography>
       </Box>
@@ -104,11 +125,30 @@ function StepCard({ n, title, desc, sub }: { n: string; title: string; desc: str
 }
 
 
-function InfoGrid({ items }: { items: { label: string; value: string; color?: string }[] }) {
+// Gradient families for the stat tiles — one hue per meaning, so the icon
+// colour repeats the story the value colour already tells.
+const GRAD = {
+  blue: 'linear-gradient(135deg, #6E8BFF, #4A7DFF)',
+  gold: 'linear-gradient(135deg, #FFB224, #FFA114)',
+  red:  'linear-gradient(135deg, #E5484D, #FF7A5C)',
+  teal: 'linear-gradient(135deg, #0FA372, #2BD9A2)',
+} as const;
+
+function InfoGrid({ items }: { items: { label: string; value: string; color?: string; icon?: React.ReactNode; grad?: string }[] }) {
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(3, 1fr)' }, gap: 1.5 }}>
       {items.map(it => (
-        <Paper key={it.label} sx={{ p: 2, bgcolor: '#FFFFFF', border: `1px solid ${C.border}`, borderRadius: 2, textAlign: 'center' }}>
+        <Paper key={it.label} sx={{ p: 2, bgcolor: '#111B38', border: `1px solid ${C.border}`, borderRadius: 2, textAlign: 'center' }}>
+          {it.icon && (
+            <Box sx={{
+              width: 36, height: 36, borderRadius: 2, mx: 'auto', mb: 1.25,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+              background: it.grad ?? GRAD.blue,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            }}>
+              {it.icon}
+            </Box>
+          )}
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{it.label}</Typography>
           <Typography variant="body2" sx={{ fontWeight: 700, color: it.color ?? C.ink }}>{it.value}</Typography>
         </Paper>
@@ -122,8 +162,8 @@ const FaqItem = ({ q, a }: { q: string; a: React.ReactNode }) => {
   const [open, setOpen] = useState(false);
   return (
     <Paper onClick={() => setOpen(o => !o)}
-      sx={{ p: 2.5, bgcolor: '#FFFFFF', border: `1px solid ${C.border}`, borderRadius: 2, cursor: 'pointer',
-            transition: 'border-color 0.15s', '&:hover': { borderColor: '#CBD3DD' } }}>
+      sx={{ p: 2.5, bgcolor: '#111B38', border: `1px solid ${C.border}`, borderRadius: 2, cursor: 'pointer',
+            transition: 'border-color 0.15s', '&:hover': { borderColor: 'rgba(255,255,255,0.3)' } }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
         <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>{q}</Typography>
         <Typography sx={{ color: C.blue, fontSize: 20, lineHeight: 1, flexShrink: 0, fontWeight: 300 }}>{open ? '−' : '+'}</Typography>
@@ -139,7 +179,7 @@ export default function DocsPage() {
   const [active, setActive] = useState('overview');
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', color: 'text.primary' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#0B1226', color: 'text.primary' }}>
       <Box sx={{ maxWidth: 1200, mx: 'auto', px: { xs: 2, sm: 3 }, py: 5, display: 'flex', gap: 5 }}>
 
         {/* Sticky sidebar nav */}
@@ -152,15 +192,18 @@ export default function DocsPage() {
               <Box key={s.id} component="a" href={`#${s.id}`}
                 onClick={() => setActive(s.id)}
                 sx={{
-                  display: 'block', px: 1.5, py: 0.875, mb: 0.25, borderRadius: 1.5, textDecoration: 'none',
+                  display: 'flex', alignItems: 'center', gap: 1.25,
+                  px: 1.5, py: 0.875, mb: 0.25, borderRadius: 1.5, textDecoration: 'none',
                   fontSize: 13.5, lineHeight: 1,
-                  bgcolor: active === s.id ? '#E7EAFF' : 'transparent',
+                  bgcolor: active === s.id ? 'rgba(110,139,255,0.16)' : 'transparent',
                   color: active === s.id ? C.blue : C.slate,
                   fontWeight: active === s.id ? 600 : 400,
                   borderLeft: `2px solid ${active === s.id ? C.blue : 'transparent'}`,
                   transition: 'all 0.15s',
                   '&:hover': { color: C.ink, bgcolor: C.inner },
+                  '& svg': { flexShrink: 0, opacity: active === s.id ? 1 : 0.65 },
                 }}>
+                {s.icon}
                 {s.label}
               </Box>
             ))}
@@ -186,12 +229,19 @@ export default function DocsPage() {
               ERC-20 stablecoin pegged to RM 1.00 — against your crypto holdings without selling your assets.
             </P>
             <InfoGrid items={[
-              { label: 'Max LTV',             value: '70%',            color: C.blue },
-              { label: 'Annual Interest',      value: '4.8% APR',      color: C.gold },
-              { label: 'Liq. Threshold',       value: '80% LTV',       color: C.red  },
-              { label: 'Origination Fee',      value: '0.1%',          color: C.slate },
-              { label: 'Loan Term',            value: '90 days',       color: C.slate },
-              { label: 'Liq. Penalty',         value: '10%',           color: C.red  },
+              {
+                label: 'Max LTV', value: '70%', color: C.blue, grad: GRAD.blue,
+                icon: (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 5L5 19" /><circle cx="7.5" cy="7.5" r="2.5" /><circle cx="16.5" cy="16.5" r="2.5" />
+                  </svg>
+                ),
+              },
+              { label: 'Annual Interest',      value: '4.8% APR',      color: C.gold, grad: GRAD.gold, icon: <TrendUpIcon size={18} /> },
+              { label: 'Liq. Threshold',       value: '80% LTV',       color: C.red,   grad: GRAD.red,  icon: <AlertIcon size={18} />     },
+              { label: 'Origination Fee',      value: '0.1%',          color: C.slate, grad: GRAD.teal, icon: <CashIcon size={18} />      },
+              { label: 'Loan Term',            value: '90 days',       color: C.slate, grad: GRAD.blue, icon: <ClockIcon size={18} />     },
+              { label: 'Liq. Penalty',         value: '10%',           color: C.red,   grad: GRAD.red,  icon: <TrendDownIcon size={18} /> },
             ]} />
             <Alert severity="warning" sx={{ borderRadius: 2, fontSize: 13 }}>
               <strong>Testnet only.</strong> All MYR tokens are mock ERC-20s with no real-world value. Never connect a wallet holding real funds.
@@ -225,7 +275,7 @@ export default function DocsPage() {
                 { step: '2', title: 'Admin review',       desc: 'The admin panel shows pending submissions with uploaded photos. The admin clicks "Approve" to trigger the on-chain approval.' },
                 { step: '3', title: 'On-chain approval',  desc: 'The server calls setKycApproved(wallet, true) via the owner private key. After this, the wallet can call borrow().' },
               ].map(s => (
-                <Paper key={s.step} sx={{ display: 'flex', gap: 2, p: 2, bgcolor: '#FFFFFF', border: `1px solid ${C.border}`, borderRadius: 2 }}>
+                <Paper key={s.step} sx={{ display: 'flex', gap: 2, p: 2, bgcolor: '#111B38', border: `1px solid ${C.border}`, borderRadius: 2 }}>
                   <Chip label={`Step ${s.step}`} size="small" sx={{ bgcolor: C.inner, color: C.slate, fontSize: 11, height: 22, flexShrink: 0, mt: 0.25 }} />
                   <Box>
                     <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, mb: 0.25 }}>{s.title}</Typography>
@@ -252,7 +302,7 @@ Current LTV             = Borrowed MYR ÷ Collateral value × 100%
 Health Factor           = (Collateral value × 80%) ÷ Total debt`}</CodeBlock>
             <Alert severity="info" sx={{ borderRadius: 2, fontSize: 13 }}>
               Per-asset LTV limits, liquidation thresholds, and live prices are listed on the{' '}
-              <Box component="a" href="/markets" sx={{ color: '#2A3FD6', fontWeight: 600 }}>Markets</Box> page.
+              <Box component="a" href="/markets" sx={{ color: '#6E8BFF', fontWeight: 600 }}>Markets</Box> page.
             </Alert>
             <Alert severity="warning" sx={{ borderRadius: 2, fontSize: 13 }}>
               The on-chain ETH price is set by the deploy script (default <strong>RM 18,000</strong>). The live CoinGecko price shown in the navbar is for reference only — borrow limits use the contract price.
@@ -309,7 +359,7 @@ Example (ETH price = RM 18,000):
                 { icon: '2', title: 'Confirm in MetaMask',    desc: 'A single payable transaction is sent to buyMYR(). MetaMask will show the ETH value being sent.' },
                 { icon: '3', title: 'MYR lands in wallet',    desc: 'The contract mints MockMYR to your address and refunds any ETH overpayment. Your balance updates automatically.' },
               ].map(s => (
-                <Paper key={s.icon} sx={{ display: 'flex', gap: 2, p: 2, bgcolor: '#FFFFFF', border: `1px solid ${C.border}`, borderRadius: 2 }}>
+                <Paper key={s.icon} sx={{ display: 'flex', gap: 2, p: 2, bgcolor: '#111B38', border: `1px solid ${C.border}`, borderRadius: 2 }}>
                   <Box sx={{ width: 30, height: 30, borderRadius: '50%', bgcolor: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Typography sx={{ color: 'white', fontSize: 13, fontWeight: 700 }}>{s.icon}</Typography>
                   </Box>
@@ -404,7 +454,7 @@ Example (RM 10,000 borrowed for 30 days):
                   fns: ['mint(address,uint256)', 'approve(address,uint256)', 'balanceOf(address)', 'transfer(address,uint256)', 'transferFrom(...)'],
                 },
               ].map(c => (
-                <Paper key={c.name} sx={{ p: 2.5, bgcolor: '#FFFFFF', border: `1px solid ${C.border}`, borderRadius: 2 }}>
+                <Paper key={c.name} sx={{ p: 2.5, bgcolor: '#111B38', border: `1px solid ${C.border}`, borderRadius: 2 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
                     <Typography variant="body2" color="text.primary" sx={{ fontWeight: 700, fontFamily: 'monospace' }}>{c.name}</Typography>
                     <Chip label={c.badge} size="small"
@@ -473,12 +523,12 @@ Example (RM 10,000 borrowed for 30 days):
 
 function CodeTable() {
   return (
-    <TableContainer component={Paper} sx={{ bgcolor: 'transparent', border: `1px solid #E2E7EE`, borderRadius: 2 }}>
+    <TableContainer component={Paper} sx={{ bgcolor: 'transparent', border: `1px solid rgba(255,255,255,0.12)`, borderRadius: 2 }}>
       <Table size="small">
         <TableHead>
           <TableRow>
             {['Fee / Rate', 'Value', 'When charged'].map(h => (
-              <TableCell key={h} sx={{ color: '#5A6675', bgcolor: '#EEF1F5', fontSize: 12, fontWeight: 600 }}>{h}</TableCell>
+              <TableCell key={h} sx={{ color: 'rgba(255,255,255,0.65)', bgcolor: '#0F1730', fontSize: 12, fontWeight: 600 }}>{h}</TableCell>
             ))}
           </TableRow>
         </TableHead>
@@ -490,9 +540,9 @@ function CodeTable() {
             ['Repayment',             'None',      'No early repayment or prepayment penalty'],
           ].map(([fee, val, when], i) => (
             <TableRow key={i} sx={{ '&:last-child td': { border: 0 } }}>
-              <TableCell sx={{ color: '#10151C', fontWeight: 500 }}>{fee}</TableCell>
-              <TableCell sx={{ color: '#2A3FD6', fontWeight: 600 }}>{val}</TableCell>
-              <TableCell sx={{ color: '#5A6675' }}>{when}</TableCell>
+              <TableCell sx={{ color: '#F2F5FF', fontWeight: 500 }}>{fee}</TableCell>
+              <TableCell sx={{ color: '#6E8BFF', fontWeight: 600 }}>{val}</TableCell>
+              <TableCell sx={{ color: 'rgba(255,255,255,0.65)' }}>{when}</TableCell>
             </TableRow>
           ))}
         </TableBody>

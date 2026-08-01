@@ -2,7 +2,7 @@
 
 import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useWallet } from '@/lib/WalletContext';
+import Image from 'next/image';
 import Link from 'next/link';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -25,7 +25,6 @@ const FEATURES = [
 function LoginForm() {
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') ?? '/dashboard';
-  const wallet = useWallet();
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [showPwd,  setShowPwd]  = useState(false);
@@ -44,7 +43,6 @@ function LoginForm() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Login failed'); setLoading(false); return; }
-      await wallet.tryAutoConnect();
       // Full navigation, not router.push: signing in changes the auth cookie,
       // and everything the server resolves per document — the viewer verdict,
       // the seeded session, the maintenance decision — was computed for the
@@ -75,8 +73,8 @@ function LoginForm() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Wallet login failed'); setWalletLoading(false); return; }
-      await wallet.tryAutoConnect();
-      // Full navigation — same reasoning as the email form above.
+      // Full navigation — same reasoning as the email form above. The wallet
+      // reconnects on the next document via the linked-wallet auto-restore.
       window.location.assign(data.isAdmin ? '/admin' : nextPath);
     } catch (e: unknown) {
       const code = (e as { code?: number }).code;
@@ -106,17 +104,16 @@ function LoginForm() {
         <Box sx={{ position: 'absolute', bottom: '20%', right: '-60px', width: 240, height: 240,
                     borderRadius: '50%', background: 'radial-gradient(circle, rgba(14,159,110,0.08) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
-        {/* Logo */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 6 }}>
-          <Box sx={{ width: 44, height: 44, borderRadius: 3,
-                      bgcolor: '#2A3FD6',
-                      boxShadow: '0 2px 10px rgba(42,63,214,0.3)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#fff', fontSize: 22, fontWeight: 700, lineHeight: 1 }}>C</Typography>
-          </Box>
-          <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#10151C', fontSize: 24, fontWeight: 600, letterSpacing: '-0.3px' }}>
-            Crypto<Box component="span" sx={{ color: '#2A3FD6' }}>Lend</Box>
-          </Typography>
+        {/* Logo — full wordmark with tagline, transparent background */}
+        <Box sx={{ mb: 6 }}>
+          <Image
+            src="/logo-full.png"
+            alt="CryptoLend — Borrow Ringgit, Not Your Future"
+            width={300}
+            height={86}
+            priority
+            style={{ width: 300, height: 'auto' }}
+          />
         </Box>
 
         <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#10151C', fontSize: 44, fontWeight: 600, lineHeight: 1.12, mb: 2.5, letterSpacing: '-1px' }}>
@@ -155,12 +152,7 @@ function LoginForm() {
 
           {/* Mobile logo */}
           <Box sx={{ display: { xs: 'flex', lg: 'none' }, alignItems: 'center', gap: 1.5, mb: 5, justifyContent: 'center' }}>
-            <Box sx={{ width: 40, height: 40, borderRadius: 2.5,
-                        bgcolor: '#2A3FD6',
-                        boxShadow: '0 2px 8px rgba(42,63,214,0.3)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#fff', fontSize: 19, fontWeight: 700 }}>C</Typography>
-            </Box>
+            <Image src="/logo-mark.png" alt="CryptoLend logo" width={40} height={39} />
             <Typography sx={{ fontFamily: 'var(--font-display), system-ui, sans-serif', color: 'text.primary', fontSize: 21, fontWeight: 600 }}>
               Crypto<Box component="span" sx={{ color: '#2A3FD6' }}>Lend</Box>
             </Typography>

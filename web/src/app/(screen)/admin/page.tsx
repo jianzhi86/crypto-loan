@@ -14,8 +14,8 @@ import { ShieldIcon } from '@/components/Icons';
 export const dynamic = 'force-dynamic';
 
 const C = {
-  border: '#E2E7EE', slate: '#5A6675', ink: '#10151C', muted: '#A9B2BD',
-  blue: '#2A3FD6', green: '#0E9F6E', amber: '#C77700', red: '#E5484D',
+  border: 'rgba(255,255,255,0.12)', slate: 'rgba(255,255,255,0.65)', ink: '#F2F5FF', muted: 'rgba(255,255,255,0.4)',
+  blue: '#6E8BFF', green: '#2BD9A2', amber: '#FFB224', red: '#E5484D',
 };
 
 export default async function AdminOverviewPage() {
@@ -94,7 +94,7 @@ export default async function AdminOverviewPage() {
                       size="small"
                       sx={{
                         height: 19, fontSize: 10.5, fontWeight: 600, borderRadius: 1,
-                        bgcolor: flags[f.key]?.state === 'HIDDEN' ? 'rgba(90,102,117,.1)' : 'rgba(199,119,0,.1)',
+                        bgcolor: flags[f.key]?.state === 'HIDDEN' ? 'rgba(90,102,117,.1)' : 'rgba(255,178,36,.1)',
                         color: flags[f.key]?.state === 'HIDDEN' ? C.slate : C.amber,
                       }}
                     />
@@ -137,7 +137,7 @@ export default async function AdminOverviewPage() {
           </Card>
         </Box>
 
-        <Card sx={{ mt: 2.5, p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: 'rgba(42,63,214,0.03)' }}>
+        <Card sx={{ mt: 2.5, p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: 'rgba(110,139,255,0.03)' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75, color: C.blue }}>
             <ShieldIcon size={16} />
             <Typography sx={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>

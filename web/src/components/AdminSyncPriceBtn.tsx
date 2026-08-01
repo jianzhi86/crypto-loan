@@ -45,7 +45,7 @@ export function AdminSyncPriceBtn() {
         {loading ? '⟳ Syncing…' : '⟳ Sync ETH Price'}
       </Button>
       {result?.price && (
-        <Typography variant="caption" sx={{ fontWeight: 600, color: '#0E9F6E' }}>
+        <Typography variant="caption" sx={{ fontWeight: 600, color: '#2BD9A2' }}>
           RM {result.price.toLocaleString()} on-chain
         </Typography>
       )}

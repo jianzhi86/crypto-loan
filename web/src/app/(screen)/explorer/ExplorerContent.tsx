@@ -27,9 +27,9 @@ interface Row {
 }
 
 const C = {
-  border: '#E2E7EE', head: '#EEF1F5', slate: '#5A6675',
-  ink: '#10151C', muted: '#A9B2BD', blue: '#2A3FD6',
-  green: '#0E9F6E', amber: '#C77700',
+  border: 'rgba(255,255,255,0.12)', head: '#0F1730', slate: 'rgba(255,255,255,0.65)',
+  ink: '#F2F5FF', muted: 'rgba(255,255,255,0.4)', blue: '#6E8BFF',
+  green: '#2BD9A2', amber: '#FFB224',
 };
 
 const TONE: Record<string, { bg: string; color: string }> = {
@@ -37,7 +37,7 @@ const TONE: Record<string, { bg: string; color: string }> = {
   CollateralWithdrawn: { bg: 'rgba(234,179,8,.12)', color: '#A16207' },
   Borrowed:            { bg: 'rgba(167,139,250,.15)', color: '#7C3AED' },
   Repaid:              { bg: 'rgba(34,197,94,.12)', color: '#15803D' },
-  MYRPurchased:        { bg: 'rgba(14,159,110,.1)', color: C.green },
+  MYRPurchased:        { bg: 'rgba(43,217,162,.1)', color: C.green },
 };
 
 /** "9 seconds ago" — the relative clock a block explorer is expected to have. */
@@ -52,7 +52,7 @@ function ago(iso: string, now: number): string {
   return `${d} day${d === 1 ? '' : 's'} ago`;
 }
 
-const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#fff' } };
+const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#111B38' } };
 
 export default function ExplorerContent() {
   const [rows, setRows]       = useState<Row[]>([]);
@@ -115,7 +115,7 @@ export default function ExplorerContent() {
   const hasFilters = !!(q || type || from || to);
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8', p: { xs: 2, md: 4 } }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#0B1226', p: { xs: 2, md: 4 } }}>
       <Box sx={{ maxWidth: 1200, mx: 'auto' }}>
 
         <Box sx={{ mb: 3 }}>
@@ -125,7 +125,7 @@ export default function ExplorerContent() {
               size="small"
               icon={<Box sx={{ display: 'flex', ml: '9px !important', mr: '-2px !important' }}><LiveDot color={C.green} /></Box>}
               label="Live"
-              sx={{ bgcolor: 'rgba(14,159,110,.1)', color: C.green, fontWeight: 600, height: 22, fontSize: 11 }}
+              sx={{ bgcolor: 'rgba(43,217,162,.1)', color: C.green, fontWeight: 600, height: 22, fontSize: 11 }}
             />
           </Box>
           <Typography variant="body2" sx={{ color: C.slate, mt: 0.75, maxWidth: 780, lineHeight: 1.7 }}>
@@ -191,7 +191,7 @@ export default function ExplorerContent() {
             <Box sx={{
               width: 48, height: 48, mx: 'auto', mb: 2, borderRadius: '50%',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              bgcolor: '#F4F6F8', color: C.muted,
+              bgcolor: '#0B1226', color: C.muted,
             }}>
               <SearchIcon size={22} />
             </Box>
@@ -221,8 +221,8 @@ export default function ExplorerContent() {
                     const tone = TONE[t.type] ?? { bg: 'rgba(90,102,117,.1)', color: C.slate };
                     return (
                       <TableRow key={t.id} sx={{
-                        bgcolor: i % 2 ? '#FAFBFC' : '#FFFFFF',
-                        '&:hover': { bgcolor: '#EEF1F5' },
+                        bgcolor: i % 2 ? '#0F1A3D' : '#111B38',
+                        '&:hover': { bgcolor: '#0F1730' },
                       }}>
                         <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, color: C.blue, borderColor: C.border, whiteSpace: 'nowrap' }}>
                           {t.blockNumber}

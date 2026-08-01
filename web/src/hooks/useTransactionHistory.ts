@@ -1,7 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { ethers } from 'ethers';
 import { CONTRACT_ADDRESSES, CRYPTO_LOAN_ABI } from '@/lib/contractConfig';
+import { CashIcon, CheckCircleIcon, TrayDownIcon, TrayUpIcon, CartIcon } from '@/components/Icons';
 
 export type TxType = 'Borrowed' | 'Repaid' | 'CollateralDeposited' | 'CollateralWithdrawn' | 'MYRPurchased';
 
@@ -12,12 +13,14 @@ export interface TxEvent {
   txHash: string;
 }
 
-const ICONS: Record<TxType, string> = {
-  Borrowed:             '💸',
-  Repaid:               '✅',
-  CollateralDeposited:  '🔒',
-  CollateralWithdrawn:  '🔓',
-  MYRPurchased:         '🛒',
+// Stroked SVGs, not emoji — same reasoning as components/Icons.tsx: emoji
+// render differently on every OS and can't take the row's accent colour.
+const ICONS: Record<TxType, ComponentType<{ size?: number; color?: string }>> = {
+  Borrowed:             CashIcon,
+  Repaid:               CheckCircleIcon,
+  CollateralDeposited:  TrayDownIcon,
+  CollateralWithdrawn:  TrayUpIcon,
+  MYRPurchased:         CartIcon,
 };
 const LABELS: Record<TxType, string> = {
   Borrowed:             'Borrowed MYR',

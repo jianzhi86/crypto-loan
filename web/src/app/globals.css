@@ -27,7 +27,10 @@
 
 html, body {
   max-width: 100vw;
-  background: var(--bg);
+  /* Brand navy, matching the app chrome — pages paint their own surface on
+     top, so this only shows through on overscroll and load, where a light
+     flash against the dark app read as a glitch. */
+  background: #0B1226;
   color: var(--foreground);
 }
 

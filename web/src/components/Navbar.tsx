@@ -10,6 +10,9 @@ import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import Alert from '@mui/material/Alert';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import Divider from '@mui/material/Divider';
 import { useState } from 'react';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
@@ -47,6 +50,7 @@ export default function Navbar() {
   const { user, logout } = useAuth();
   const viewer = useViewer();
   const [copied, setCopied] = useState(false);
+  const [walletMenuEl, setWalletMenuEl] = useState<null | HTMLElement>(null);
   // The server said this document belongs to a signed-in account, or the client
   // session agrees. Either alone is enough to offer Logout — hiding it because
   // one of the two answers hiccuped strands people in a session they cannot end.
@@ -59,6 +63,11 @@ export default function Navbar() {
     setTimeout(() => setCopied(false), 2000);
   };
   const isLive = wallet.isConnected && wallet.isCorrectNetwork;
+  // Connected (a browser-session fact) vs linked (an account fact) — the chip
+  // menu spells the difference out, because showing one word for both taught
+  // people that plugging MetaMask in was the same as linking. It is not.
+  const isLinkedWallet = !!user?.walletAddress && !!wallet.address &&
+    user.walletAddress.toLowerCase() === wallet.address.toLowerCase();
 
   return (
     <>
@@ -74,18 +83,18 @@ export default function Navbar() {
         }}>
           {/* Logo */}
           <Link href="/home" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, marginRight: 40 }}>
+            {/* Transparent brand mark — no rounding or shadow box needed. */}
             <Image
-              src="/Logo.png"
+              src="/logo-mark.png"
               alt="CryptoLend logo"
-              width={34}
-              height={34}
+              width={36}
+              height={35}
               priority
-              style={{ borderRadius: 10, boxShadow: '0 2px 8px rgba(42,63,214,0.3)' }}
             />
             <Typography sx={{
-              fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#10151C', letterSpacing: '-0.3px', fontSize: 19, fontWeight: 700,
+              fontFamily: 'var(--font-display), system-ui, sans-serif', color: '#FFFFFF', letterSpacing: '-0.3px', fontSize: 19, fontWeight: 700,
             }}>
-              Crypto<Box component="span" sx={{ color: '#2A3FD6' }}>Lend</Box>
+              Crypto<Box component="span" sx={{ color: '#6E8BFF' }}>Lend</Box>
             </Typography>
           </Link>
 
@@ -127,14 +136,14 @@ export default function Navbar() {
                     bgcolor: isLive ? '#0E9F6E' : wallet.isConnected ? '#C77700' : 'rgba(16,21,28,0.2)',
                     boxShadow: isLive ? '0 0 6px #0E9F6E' : 'none',
                   }} />
-                  <Typography variant="caption" sx={{ color: isLive ? '#5A6675' : wallet.isConnected ? '#C77700' : '#5A6675', fontSize: 11 }}>
+                  <Typography variant="caption" sx={{ color: wallet.isConnected && !isLive ? '#FFB224' : 'rgba(255,255,255,0.7)', fontSize: 11 }}>
                     {isLive ? 'Hardhat Local' : wallet.isConnected ? 'Wrong Network' : 'Not Connected'}
                   </Typography>
                 </Box>
               }
               sx={{
-                bgcolor: 'rgba(16,21,28,0.03)',
-                border: '1px solid #E2E7EE',
+                bgcolor: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.12)',
                 display: { xs: 'none', sm: 'flex' },
                 height: 30,
               }}
@@ -148,12 +157,13 @@ export default function Navbar() {
                 sx={{
                   display: { xs: 'none', sm: 'flex' },
                   gap: 0.75,
-                  bgcolor: wallet.kycApproved ? 'rgba(14,159,110,0.1)' : 'rgba(199,119,0,0.1)',
-                  color: wallet.kycApproved ? '#0E9F6E' : '#C77700',
-                  border: `1px solid ${wallet.kycApproved ? 'rgba(14,159,110,0.25)' : 'rgba(199,119,0,0.25)'}`,
+                  // Brightened for the navy chrome — the light-surface tones went muddy.
+                  bgcolor: wallet.kycApproved ? 'rgba(43,217,162,0.12)' : 'rgba(255,178,36,0.12)',
+                  color: wallet.kycApproved ? '#2BD9A2' : '#FFB224',
+                  border: `1px solid ${wallet.kycApproved ? 'rgba(43,217,162,0.3)' : 'rgba(255,178,36,0.3)'}`,
                   fontSize: 11, height: 30, borderRadius: 2,
                   '&:hover': {
-                    bgcolor: wallet.kycApproved ? 'rgba(14,159,110,0.15)' : 'rgba(199,119,0,0.15)',
+                    bgcolor: wallet.kycApproved ? 'rgba(43,217,162,0.18)' : 'rgba(255,178,36,0.18)',
                   },
                 }}
               >
@@ -165,7 +175,7 @@ export default function Navbar() {
             {signedIn && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {user?.email && (
-                  <Typography variant="caption" sx={{ color: '#5A6675', display: { xs: 'none', md: 'block' }, fontSize: 12 }}>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', display: { xs: 'none', md: 'block' }, fontSize: 12 }}>
                     {user.email}
                   </Typography>
                 )}
@@ -176,7 +186,7 @@ export default function Navbar() {
                   // server-resolved state (viewer verdict, seeded session) into
                   // the signed-out world.
                   onClick={async () => { wallet.disconnect(); await logout(); window.location.assign('/login'); }}
-                  sx={{ color: '#5A6675', fontSize: 11, px: 1, minWidth: 'auto', borderRadius: 2, '&:hover': { color: '#E5484D' } }}
+                  sx={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, px: 1, minWidth: 'auto', borderRadius: 2, '&:hover': { color: '#FF7A7E' } }}
                 >
                   Logout
                 </Button>
@@ -198,30 +208,90 @@ export default function Navbar() {
                     Switch Network
                   </Button>
                 )}
+                {/* Opens the wallet menu — copy, manage link, disconnect. It
+                    used to copy the address on click, which nobody could
+                    discover and surprised everyone who expected wallet
+                    actions here. */}
                 <Box
-                  onClick={copyAddress}
+                  onClick={e => setWalletMenuEl(e.currentTarget)}
                   sx={{
                     display: 'flex', alignItems: 'center', gap: 1.25,
                     px: 1.75, py: 0.875,
                     bgcolor: 'rgba(255,255,255,0.04)',
                     border: '1px solid rgba(255,255,255,0.08)',
                     borderRadius: 2.5, cursor: 'pointer', transition: 'all 0.15s',
-                    '&:hover': { bgcolor: 'rgba(14,159,110,0.07)', borderColor: 'rgba(14,159,110,0.3)' },
+                    '&:hover': { bgcolor: 'rgba(110,139,255,0.08)', borderColor: 'rgba(110,139,255,0.35)' },
                   }}
-                  title="Click to copy address"
                 >
                   <Box sx={{
-                    width: 8, height: 8, borderRadius: '50%', bgcolor: '#0E9F6E',
-                    boxShadow: '0 0 6px #0E9F6E',
+                    width: 8, height: 8, borderRadius: '50%', bgcolor: '#2BD9A2',
+                    boxShadow: '0 0 6px #2BD9A2',
                   }} />
-                  <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#10151C', letterSpacing: 0.5 }}>
-                    {copied ? '✓ Copied' : short(wallet.address!)}
+                  <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#FFFFFF', letterSpacing: 0.5 }}>
+                    {short(wallet.address!)}
                   </Typography>
-                  <Box sx={{ width: 1, height: 14, bgcolor: 'rgba(16,21,28,0.15)' }} />
-                  <Typography variant="caption" sx={{ color: '#5A6675', fontSize: 11 }}>
+                  <Box sx={{ width: 1, height: 14, bgcolor: 'rgba(255,255,255,0.15)' }} />
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>
                     {wallet.ethBalance} ETH
                   </Typography>
+                  {/* Caret — the affordance that says "this opens a menu" */}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
                 </Box>
+
+                <Menu
+                  anchorEl={walletMenuEl}
+                  open={!!walletMenuEl}
+                  onClose={() => setWalletMenuEl(null)}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  slotProps={{ paper: { sx: { mt: 1, minWidth: 260 } } }}
+                >
+                  <Box sx={{ px: 2, pt: 1.25, pb: 1 }}>
+                    <Typography sx={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'text.secondary', mb: 0.5 }}>
+                      Connected wallet
+                    </Typography>
+                    <Typography sx={{ fontFamily: 'monospace', fontSize: 12, color: 'text.primary', wordBreak: 'break-all', lineHeight: 1.5 }}>
+                      {wallet.address}
+                    </Typography>
+                    <Chip
+                      label={isLinkedWallet ? 'Linked to your account' : 'Not linked to your account'}
+                      size="small"
+                      sx={{
+                        mt: 1, height: 20, fontSize: 10.5, fontWeight: 700,
+                        bgcolor: isLinkedWallet ? 'rgba(43,217,162,0.12)' : 'rgba(255,178,36,0.12)',
+                        color: isLinkedWallet ? '#2BD9A2' : '#FFB224',
+                        border: `1px solid ${isLinkedWallet ? 'rgba(43,217,162,0.3)' : 'rgba(255,178,36,0.3)'}`,
+                      }}
+                    />
+                  </Box>
+                  <Divider />
+                  <MenuItem onClick={copyAddress} sx={{ fontSize: 13.5, py: 1.25 }}>
+                    {copied ? '✓ Copied to clipboard' : 'Copy address'}
+                  </MenuItem>
+                  {isLinkedWallet ? (
+                    <MenuItem
+                      onClick={() => { setWalletMenuEl(null); router.push('/settings'); }}
+                      sx={{ fontSize: 13.5, py: 1.25 }}
+                    >
+                      Unlink from account… (Settings)
+                    </MenuItem>
+                  ) : (
+                    <MenuItem
+                      onClick={() => { setWalletMenuEl(null); router.push('/kyc'); }}
+                      sx={{ fontSize: 13.5, py: 1.25 }}
+                    >
+                      Link to account — verify identity
+                    </MenuItem>
+                  )}
+                  <MenuItem
+                    onClick={() => { setWalletMenuEl(null); wallet.disconnect(); }}
+                    sx={{ fontSize: 13.5, py: 1.25, color: '#FF9CA0' }}
+                  >
+                    Disconnect for this session
+                  </MenuItem>
+                </Menu>
               </Box>
             ) : (
               <Button
@@ -237,7 +307,7 @@ export default function Navbar() {
         </Toolbar>
 
         {/* Live price ticker */}
-        <Box sx={{ overflow: 'hidden', bgcolor: '#EEF1F5', borderBottom: '1px solid #E2E7EE' }}>
+        <Box sx={{ overflow: 'hidden', bgcolor: '#0F1730', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <Box className="ticker-track" sx={{ py: 0.875 }}>
             {[...TICKER_COINS, ...TICKER_COINS].map((coin, i) => {
               const key    = SYMBOL_TO_ID[coin.symbol];
@@ -258,7 +328,7 @@ export default function Navbar() {
                   <Typography component="span" sx={{ fontSize: 11, fontWeight: 700, color: coin.color }}>
                     {coin.symbol}
                   </Typography>
-                  <Typography component="span" sx={{ fontSize: 11, fontWeight: 500, color: '#10151C' }}>
+                  <Typography component="span" sx={{ fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.85)' }}>
                     {loading ? '···' : fmt}
                   </Typography>
                   {!loading && (
@@ -266,7 +336,7 @@ export default function Navbar() {
                       {change >= 0 ? '+' : ''}{change.toFixed(2)}%
                     </Typography>
                   )}
-                  <Typography component="span" sx={{ fontSize: 10, color: 'rgba(16,21,28,0.15)' }}>│</Typography>
+                  <Typography component="span" sx={{ fontSize: 10, color: 'rgba(255,255,255,0.15)' }}>│</Typography>
                 </Box>
               );
             })}

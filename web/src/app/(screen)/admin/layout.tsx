@@ -17,7 +17,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!user.isAdmin) redirect('/dashboard');
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#0B1226' }}>
       <AdminTabs />
       {children}
     </Box>

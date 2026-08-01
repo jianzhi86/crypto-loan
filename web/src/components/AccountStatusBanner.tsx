@@ -17,17 +17,17 @@ export default function AccountStatusBanner() {
 
   return (
     <Box sx={{
-      bgcolor: 'rgba(229,72,77,0.08)',
-      borderBottom: '1px solid rgba(229,72,77,0.25)',
+      bgcolor: 'rgba(229,72,77,0.14)',
+      borderBottom: '1px solid rgba(229,72,77,0.35)',
       px: { xs: 2, md: 4 }, py: 1.25,
     }}>
       <Box sx={{ maxWidth: 1440, mx: 'auto', display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
-        <Box sx={{ color: '#B4232A', mt: '2px' }}><AlertIcon size={16} /></Box>
+        <Box sx={{ color: '#FF9CA0', mt: '2px' }}><AlertIcon size={16} /></Box>
         <Box>
-          <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#B4232A' }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, color: '#FF9CA0' }}>
             Your account is restricted — read-only
           </Typography>
-          <Typography sx={{ fontSize: 12.5, color: '#8A3034', lineHeight: 1.6 }}>
+          <Typography sx={{ fontSize: 12.5, color: 'rgba(255,156,160,0.8)', lineHeight: 1.6 }}>
             You can still view your dashboard and history, but borrowing, repaying, transfers and
             profile changes are on hold.
             {user.statusReason ? <> Reason: {user.statusReason}</> : null}
