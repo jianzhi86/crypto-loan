@@ -322,7 +322,7 @@ Example (ETH = RM 18,000, threshold = 80%):
   Deposited  : 1 ETH  →  RM 18,000 collateral value
   Borrowed   : RM 9,000
   HF         = (18,000 × 80%) ÷ 9,000 = 14,400 ÷ 9,000 = 1.60  →  Moderate`}</CodeBlock>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 1.5 }}>
               {[
                 { range: 'HF ≥ 2.0',   label: 'Safe',     desc: 'Well-collateralised. You can borrow more or withdraw some ETH.',       c: C.teal },
                 { range: '1.5 – 2.0',  label: 'Moderate', desc: 'Buffer is thinning. Consider adding collateral or repaying some debt.', c: C.gold },

@@ -81,8 +81,8 @@ const EMPTY: FormData = {
 const STEP_LABELS = ['Personal Info', 'Address', 'Financial', 'Documents', 'Review'];
 
 const DOC_SLOTS = [
-  { key: 'front',  label: 'MyKad (Front)',     hint: 'Clear photo showing your name, IC number, and photo' },
-  { key: 'back',   label: 'MyKad (Back)',       hint: 'Clear photo showing your address and thumbprint' },
+  { key: 'front',  label: 'MyKad (Front)',     hint: 'Clear photo showing your name, IC number, and photo', required: true },
+  { key: 'back',   label: 'MyKad (Back)',       hint: 'Clear photo showing your address and thumbprint',    required: true },
 ] as const;
 
 type DocKey = typeof DOC_SLOTS[number]['key'];
@@ -248,7 +248,7 @@ export default function KYCPage() {
     if (step === 1) return !!(form.fullName && form.icNumber && form.dob && form.gender && form.phone && form.email);
     if (step === 2) return !!(form.addr1 && form.postcode && form.city && form.state);
     if (step === 3) return !!(form.employment && form.income && form.purpose && form.fundSource);
-    if (step === 4) return true;
+    if (step === 4) return !!(files.front && files.back);
     if (step === 5) return form.agreeTerms && form.agreeDeclaration;
     return false;
   };
@@ -477,9 +477,22 @@ export default function KYCPage() {
         </Box>
 
         {!wallet.isConnected && (
-          <Alert severity="warning" sx={{ mb: 3, bgcolor: '#FFF8EB', color: '#B54708',
-            border: '1px solid #FCEFC7', '& .MuiAlert-icon': { color: '#FFB224' } }}>
-            Connect your MetaMask wallet to complete KYC verification.
+          <Alert
+            severity="warning"
+            sx={{ mb: 3, bgcolor: '#FFF8EB', color: '#B54708', border: '1px solid #FCEFC7', '& .MuiAlert-icon': { color: '#FFB224' } }}
+            action={
+              <Button
+                size="small"
+                variant="contained"
+                onClick={wallet.connect}
+                disabled={wallet.isConnecting}
+                sx={{ bgcolor: '#B54708', color: '#fff', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', '&:hover': { bgcolor: '#92380A' } }}
+              >
+                {wallet.isConnecting ? 'Connecting…' : 'Connect Wallet'}
+              </Button>
+            }
+          >
+            Connect your MetaMask wallet before submitting KYC.
           </Alert>
         )}
 
@@ -614,13 +627,14 @@ export default function KYCPage() {
             <Box>
               <Typography variant="body1" sx={{ color: '#6E8BFF', fontWeight: 600, mb: 0.5 }}>Document Upload</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 3 }}>
-                Upload clear photos of your MyKad. Images are compressed and saved securely.
+                Both front and back photos are <Box component="span" sx={{ color: '#E5484D', fontWeight: 700 }}>required</Box> to continue. Images are compressed and saved securely.
               </Typography>
 
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {DOC_SLOTS.map(doc => {
                   const file = files[doc.key];
                   const preview = file ? URL.createObjectURL(file) : null;
+                  const missingRequired = doc.required && !file;
                   return (
                     <Box key={doc.key}>
                       <input ref={fileRefs[doc.key]} type="file" accept="image/jpeg,image/png,image/webp"
@@ -629,7 +643,7 @@ export default function KYCPage() {
                       <Box onClick={() => fileRefs[doc.key].current?.click()}
                         sx={{
                           borderRadius: 2, overflow: 'hidden', cursor: 'pointer', transition: 'all 0.15s',
-                          border: `2px solid ${file ? '#2BD9A2' : 'rgba(255,255,255,0.12)'}`,
+                          border: `2px solid ${file ? '#2BD9A2' : missingRequired ? 'rgba(229,72,77,0.4)' : 'rgba(255,255,255,0.12)'}`,
                           bgcolor: '#0B1226',
                           '&:hover': { borderColor: file ? '#2BD9A2' : '#6E8BFF' },
                         }}>
@@ -657,7 +671,10 @@ export default function KYCPage() {
                               <DocIcon size={24} />
                             </Box>
                             <Box sx={{ flex: 1 }}>
-                              <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600, mb: 0.5 }}>{doc.label}</Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                                <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>{doc.label}</Typography>
+                                {doc.required && <Typography component="span" sx={{ color: '#E5484D', fontWeight: 700, fontSize: 14, lineHeight: 1 }}>*</Typography>}
+                              </Box>
                               <Typography variant="caption" color="text.secondary">{doc.hint}</Typography>
                               <Box sx={{ display: 'inline-block', mt: 1, px: 1.5, py: 0.5, borderRadius: 999,
                                           bgcolor: '#6E8BFF22', border: '1px solid #6E8BFF44' }}>
@@ -746,8 +763,8 @@ export default function KYCPage() {
 
               <Alert severity="info" sx={{ mt: 2.5, bgcolor: 'rgba(110,139,255,0.1)', color: '#6E8BFF',
                 border: '1px solid rgba(110,139,255,0.3)', '& .MuiAlert-icon': { color: '#6E8BFF' } }}>
-                No MetaMask signature required. Your application will be reviewed by the compliance team
-                and approved within 1–3 business days.
+                Clicking Submit will open MetaMask to sign a one-time message linking this wallet to your
+                account. Your application will then be reviewed by the compliance team within 1–3 business days.
               </Alert>
             </Box>
           )}

@@ -79,6 +79,11 @@ export interface WalletState {
   txMessage: string;
   txStep: number;
   txTotalSteps: number;
+  // Yield system (requires redeployed contract)
+  borrowAprBps: number;
+  supplyAprBps: number;
+  utilizationRate: number;
+  pendingYieldMYR: number;
 }
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
@@ -100,6 +105,7 @@ const INIT: WalletState = {
   isConnecting: false,
   txStatus: 'idle', txMessage: '',
   txStep: 1, txTotalSteps: 1,
+  borrowAprBps: 480, supplyAprBps: 0, utilizationRate: 0, pendingYieldMYR: 0,
 };
 
 const HN_PARAMS = {
@@ -298,6 +304,27 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const ethBalance = parseFloat(ethers.formatEther(ethBal)).toFixed(4);
       const myrBalance = (Number(myrBal) / 1e6).toFixed(2);
       const ethPriceMYR = Number(price as bigint);
+      // Yield-system calls — only exist on the redeployed contract.
+      // Promise.allSettled prevents a BAD_DATA decode (old contract returns 5
+      // values instead of 7) from crashing the whole refresh.
+      // Wrap each call in .then() so that "not a function" TypeErrors (contract
+      // not yet redeployed — function absent from ABI) become rejections rather
+      // than synchronous throws, which would escape Promise.allSettled entirely.
+      const [aprBpsResult, protStatsResult, pendYieldResult] = await Promise.allSettled([
+        Promise.resolve().then(() => c.loan.BORROW_APR_BPS()),
+        Promise.resolve().then(() => c.loan.getProtocolStats()),
+        Promise.resolve().then(() => c.loan.pendingYield(address)),
+      ]);
+      const aprBps    = aprBpsResult.status    === 'fulfilled' ? aprBpsResult.value    : BigInt(480);
+      const protStats = protStatsResult.status === 'fulfilled' ? protStatsResult.value : [BigInt(0), BigInt(0), BigInt(0), BigInt(0), BigInt(0)];
+      const pendYield = pendYieldResult.status === 'fulfilled' ? pendYieldResult.value : BigInt(0);
+      const borrowAprBps = Number(aprBps as bigint);
+      const ps = protStats as [bigint, bigint, bigint, bigint, bigint];
+      const totalBorrowedMYR   = Number(ps[0]) / 1e6;
+      const totalCollateralMYR = (Number(ps[1]) / 1e18) * ethPriceMYR;
+      const utilizationRate    = totalCollateralMYR > 0 ? Math.min(totalBorrowedMYR / totalCollateralMYR, 1) : 0;
+      const supplyAprBps       = Math.round(borrowAprBps * utilizationRate * 0.8);
+      const pendingYieldMYR    = Number(pendYield as bigint) / 1e6;
       // Remember this position so it survives a disconnect / reload.
       cachePosition(address, { info: loanInfo, ethBalance, myrBalance, ethPriceMYR });
       setS(p => ({
@@ -306,6 +333,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         myrBalance,
         loanInfo,
         ethPriceMYR,
+        borrowAprBps,
+        supplyAprBps,
+        utilizationRate,
+        pendingYieldMYR,
         // Verification stays account-based: the on-chain flag is recorded for
         // resync detection but never upgrades the badge. The connected wallet
         // being chain-approved proves nothing about the signed-in account —

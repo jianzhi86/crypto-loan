@@ -82,7 +82,7 @@ export default function Navbar() {
           px: { xs: 2, sm: 3 }, minHeight: '64px !important',
         }}>
           {/* Logo */}
-          <Link href="/home" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, marginRight: 40 }}>
+          <Link href="/dashboard" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, marginRight: 40 }}>
             {/* Transparent brand mark — no rounding or shadow box needed. */}
             <Image
               src="/logo-mark.png"

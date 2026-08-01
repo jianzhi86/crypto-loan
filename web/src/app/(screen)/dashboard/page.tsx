@@ -587,8 +587,8 @@ function Dashboard() {
                 />
               </Box>
 
-              {/* ── Assets table (clicking a row selects it for the calculator) ── */}
-              <TableContainer sx={{ overflowX: 'auto', mb: 3 }}>
+              {/* ── Assets table — wide screens ── */}
+              <TableContainer sx={{ overflowX: 'auto', mb: 3, display: { xs: 'none', md: 'block' } }}>
                 <Table size="small" sx={{ minWidth: 480 }}>
                   <TableHead>
                     <TableRow>
@@ -660,6 +660,77 @@ function Dashboard() {
                   </TableBody>
                 </Table>
               </TableContainer>
+
+              {/* ── Assets cards — narrow screens (Nexo-style) ── */}
+              <Box sx={{ display: { xs: 'flex', md: 'none' }, flexDirection: 'column', gap: 0, mb: 3, border: `1px solid ${C.border}`, borderRadius: 2, overflow: 'hidden' }}>
+                {ASSETS.map((a, i) => {
+                  const p      = prices[SYMBOL_TO_ID[a.symbol]];
+                  const change = p?.change24h ?? 0;
+                  const sel    = calcAssetIdx === i;
+                  return (
+                    <Box key={a.symbol}
+                      onClick={() => { setCalcAssetIdx(i); setLtv(Math.min(ltv, a.maxLTV)); }}
+                      sx={{
+                        cursor: 'pointer', transition: 'background 0.15s',
+                        bgcolor: sel ? `${a.color}0D` : 'transparent',
+                        borderBottom: i < ASSETS.length - 1 ? `1px solid ${C.border}` : 'none',
+                        borderLeft: sel ? `3px solid ${a.color}` : '3px solid transparent',
+                        '&:hover': { bgcolor: sel ? `${a.color}15` : 'rgba(255,255,255,0.03)' },
+                      }}>
+
+                      {/* Row 1 — icon + name + price */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 1.75, pt: 1.5, pb: 1 }}>
+                        <Box sx={{
+                          width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
+                          bgcolor: `${a.color}18`, color: a.color,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 16, fontWeight: 800,
+                          border: `1.5px solid ${sel ? a.color + '60' : a.color + '28'}`,
+                          boxShadow: sel ? `0 0 10px ${a.color}28` : 'none',
+                        }}>
+                          {a.icon}
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.tp }}>{a.symbol}</Typography>
+                            {sel && <Chip label="Selected" size="small"
+                              sx={{ bgcolor: `${a.color}18`, color: a.color, border: `1px solid ${a.color}35`, fontSize: 9.5, fontWeight: 700, height: 17 }} />}
+                          </Box>
+                          <Typography variant="caption" sx={{ color: C.ts }}>{a.name}</Typography>
+                        </Box>
+                        <Box sx={{ textAlign: 'right' }}>
+                          <Typography
+                            className={flash[SYMBOL_TO_ID[a.symbol]] ? `price-flash-${flash[SYMBOL_TO_ID[a.symbol]]}` : ''}
+                            sx={{ fontWeight: 700, fontSize: 14, color: C.tp }}>
+                            {loading ? '…' : `RM ${(p?.myr ?? 0).toLocaleString()}`}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: change >= 0 ? C.teal : C.red, fontWeight: 600 }}>
+                            {change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      {/* Row 2 — stats grid */}
+                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0, px: 1.75, pb: 1.5, pt: 0.5 }}>
+                        {[
+                          { label: 'Max LTV',    value: `${a.maxLTV}%`,       vc: C.teal },
+                          { label: 'Borrow APR', value: `${a.borrowAPR}%`,    vc: C.red  },
+                          { label: 'Supply APR', value: `${a.supplyAPR}%`,    vc: C.teal },
+                        ].map(stat => (
+                          <Box key={stat.label} sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                            <Typography sx={{ fontSize: 9.5, fontWeight: 600, color: C.ts, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                              {stat.label}
+                            </Typography>
+                            <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: stat.vc }}>
+                              {stat.value}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  );
+                })}
+              </Box>
 
               {/* ── Calculator for selected asset ── */}
               <Box sx={{ pt: 3, borderTop: `1px solid ${C.border}` }}>
@@ -1130,17 +1201,36 @@ function Dashboard() {
           </IconButton>
         </Box>
 
+        {/* KYC pending banner — shown inside dialog when review is in progress */}
+        {wallet.kycStatus === 'pending' && (
+          <Box sx={{
+            mx: 2.5, mt: 1.5,
+            display: 'flex', alignItems: 'center', gap: 1.25,
+            bgcolor: 'rgba(110,139,255,0.08)', border: '1px solid rgba(110,139,255,0.28)',
+            borderRadius: 2, px: 1.75, py: 1,
+          }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: C.blue, flexShrink: 0,
+              '@keyframes kycPulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.35 } },
+              animation: 'kycPulse 2s ease-in-out infinite' }} />
+            <Typography sx={{ fontSize: 12, color: C.blue, fontWeight: 600, flex: 1 }}>
+              KYC under review — Deposit, Borrow and Buy MYR are unlocked once approved (1–3 business days).
+            </Typography>
+          </Box>
+        )}
+
         {/* Inline tab strip */}
         <Box sx={{ px: 2.5, pt: 1.5, pb: 0 }}>
           <Box sx={{ display: 'flex', bgcolor: C.inner, borderRadius: 2, p: 0.5, gap: 0.5 }}>
             {([
-              { key: 'deposit',  label: 'Deposit'  },
-              { key: 'withdraw', label: 'Withdraw' },
-              { key: 'borrow',   label: 'Borrow'   },
-              { key: 'repay',    label: 'Repay'    },
-              { key: 'buy',      label: 'Buy MYR'  },
+              { key: 'deposit',  label: 'Deposit',  gated: true  },
+              { key: 'withdraw', label: 'Withdraw', gated: false },
+              { key: 'borrow',   label: 'Borrow',   gated: true  },
+              { key: 'repay',    label: 'Repay',    gated: false },
+              { key: 'buy',      label: 'Buy MYR',  gated: true  },
             ] as const).map(t => {
-              const active = activeTab === t.key;
+              const active  = activeTab === t.key;
+              const locked  = t.gated && !wallet.kycApproved;
+              const pending = locked && wallet.kycStatus === 'pending';
               return (
                 <Box key={t.key} onClick={() => switchTab(t.key)}
                   sx={{
@@ -1148,13 +1238,20 @@ function Dashboard() {
                     transition: 'all 0.15s',
                     bgcolor: active ? '#3D5BF5' : 'transparent',
                     boxShadow: active ? '0 2px 8px rgba(61,91,245,0.4)' : 'none',
+                    position: 'relative',
                   }}>
                   <Typography variant="caption" sx={{
                     fontSize: 11.5, fontWeight: active ? 700 : 500,
-                    color: active ? C.tp : C.ts,
-                    lineHeight: 1,
+                    color: active ? C.tp : locked ? 'rgba(255,255,255,0.35)' : C.ts,
+                    lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.4,
                   }}>
                     {t.label}
+                    {pending && !active && (
+                      <Box component="span" sx={{ fontSize: 8, color: C.blue, lineHeight: 1 }}>⏳</Box>
+                    )}
+                    {locked && !pending && !active && (
+                      <Box component="span" sx={{ fontSize: 9, lineHeight: 1 }}>🔒</Box>
+                    )}
                   </Typography>
                 </Box>
               );
@@ -1348,10 +1445,10 @@ function Dashboard() {
               {/* DEPOSIT */}
               {activeTab === 'deposit' && (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {isLive && !wallet.kycApproved && (
+                  {!wallet.kycApproved && (wallet.kycStatus === 'pending' || isLive) && (
                     <KycRequiredCard onStart={() => router.push('/kyc')} action="depositing collateral" kycStatus={wallet.kycStatus} />
                   )}
-                  {(!isLive || wallet.kycApproved) && (
+                  {(wallet.kycApproved || (!isLive && wallet.kycStatus !== 'pending')) && (
                   <>
                   <Box>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -1587,11 +1684,11 @@ function Dashboard() {
               {/* BORROW */}
               {activeTab === 'borrow' && (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {isLive && !wallet.kycApproved && (
+                  {!wallet.kycApproved && (wallet.kycStatus === 'pending' || isLive) && (
                     <KycRequiredCard onStart={() => router.push('/kyc')} action="borrowing" kycStatus={wallet.kycStatus} />
                   )}
 
-                  {(!isLive || wallet.kycApproved) && (
+                  {(wallet.kycApproved || (!isLive && wallet.kycStatus !== 'pending')) && (
                     <>
                       <Box>
                         <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
@@ -1923,7 +2020,7 @@ function Dashboard() {
                 // Buying MYR is a funding action, gated on account verification
                 // like deposit and borrow (withdraw/repay stay open so users
                 // can always exit).
-                if (isLive && !wallet.kycApproved) {
+                if (!wallet.kycApproved && (wallet.kycStatus === 'pending' || isLive)) {
                   return <KycRequiredCard onStart={() => router.push('/kyc')} action="buying MYR" kycStatus={wallet.kycStatus} />;
                 }
                 const buyMyrNum    = parseFloat(buyAmt || '0');

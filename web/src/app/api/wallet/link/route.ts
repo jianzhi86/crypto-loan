@@ -66,12 +66,23 @@ export async function POST(req: Request) {
     // One wallet → one account.
     const owner = await prisma.user.findFirst({
       where: { walletAddress: { equals: walletKey, mode: 'insensitive' } },
-      select: { id: true },
+      select: { id: true, email: true, password: true },
     });
     if (owner && owner.id !== guard.user.id) {
-      return NextResponse.json({
-        error: 'This wallet is already linked to another account. Please use another wallet or login to the existing account.',
-      }, { status: 409 });
+      // A wallet-stub is created automatically when someone clicks "Continue
+      // with MetaMask" on the login page for the first time. It has no email
+      // and no password — it holds no real credentials. When an email-registered
+      // user links that same wallet, silently de-link the stub so the wallet can
+      // move to the real account without requiring the user to hunt down and
+      // delete the orphan account themselves.
+      if (!owner.email && !owner.password) {
+        await prisma.user.update({ where: { id: owner.id }, data: { walletAddress: null } });
+        // Fall through to the link below.
+      } else {
+        return NextResponse.json({
+          error: 'This wallet is already linked to another account. Please use another wallet or log in to the existing account.',
+        }, { status: 409 });
+      }
     }
 
     await prisma.user.update({

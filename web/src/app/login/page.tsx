@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, Suspense } from 'react';
+import Tooltip from '@mui/material/Tooltip';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -196,10 +197,16 @@ function LoginForm() {
             />
 
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: -0.5 }}>
-              <Typography variant="caption" sx={{ color: '#2A3FD6', cursor: 'pointer',
-                '&:hover': { textDecoration: 'underline' } }}>
-                Forgot password?
-              </Typography>
+              <Tooltip
+                title="Password reset is not available in this demo. If you linked a MetaMask wallet, use 'Continue with MetaMask' below."
+                placement="top"
+                arrow
+              >
+                <Typography variant="caption" sx={{ color: '#2A3FD6', cursor: 'help',
+                  '&:hover': { textDecoration: 'underline' } }}>
+                  Forgot password?
+                </Typography>
+              </Tooltip>
             </Box>
 
             <Button type="submit" fullWidth variant="contained" disabled={loading || !email || !password}
