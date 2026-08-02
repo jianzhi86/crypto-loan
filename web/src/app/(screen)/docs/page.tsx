@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
@@ -177,6 +177,46 @@ const FaqItem = ({ q, a }: { q: string; a: React.ReactNode }) => {
 
 export default function DocsPage() {
   const [active, setActive] = useState('overview');
+
+  // Scroll-spy for the "On this page" nav: whichever section currently crosses
+  // the reading band near the top of the viewport becomes active. Driven by
+  // IntersectionObserver rather than scroll events, so it works regardless of
+  // how the page is scrolled (Lenis smooth-scroll included).
+  useEffect(() => {
+    const visible = new Set<string>();
+    const observer = new IntersectionObserver(
+      entries => {
+        for (const e of entries) {
+          if (e.isIntersecting) visible.add(e.target.id);
+          else visible.delete(e.target.id);
+        }
+        // Multiple sections can cross the band at once — highlight the first
+        // in document order so the nav follows reading order.
+        const current = SECTIONS.find(s => visible.has(s.id));
+        if (current) setActive(current.id);
+      },
+      // Band: from just under the sticky header down to 35% of the viewport.
+      { rootMargin: '-120px 0px -65% 0px', threshold: 0 },
+    );
+    for (const s of SECTIONS) {
+      const el = document.getElementById(s.id);
+      if (el) observer.observe(el);
+    }
+    // The last section (FAQ — mostly collapsed rows) can be too short to ever
+    // reach the reading band: the page bottoms out first. When scrolled to
+    // (near) the bottom, the last entry wins outright.
+    const onScroll = () => {
+      const doc = document.documentElement;
+      if (window.innerHeight + window.scrollY >= doc.scrollHeight - 80) {
+        setActive(SECTIONS[SECTIONS.length - 1].id);
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', onScroll);
+    };
+  }, []);
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#0B1226', color: 'text.primary' }}>

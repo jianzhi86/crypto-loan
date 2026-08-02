@@ -13,7 +13,7 @@ import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
 import LinearProgress from '@mui/material/LinearProgress';
-import { BoltIcon, EyeIcon, EyeOffIcon, LockIcon, ShieldIcon, TrendUpIcon, WalletIcon } from '@/components/Icons';
+import { BoltIcon, EyeIcon, EyeOffIcon, LockIcon, ShieldIcon, TrendUpIcon } from '@/components/Icons';
 
 function passwordStrength(pwd: string): { score: number; label: string; color: string } {
   let score = 0;
@@ -264,7 +264,8 @@ export default function SignupPage() {
               <CircularProgress size={20} sx={{ color: '#2A3FD6' }} />
             ) : (
               <>
-                <WalletIcon size={19} />
+                <Box component="img" src="/metamask.png" alt="MetaMask"
+                  sx={{ width: 30, height: 30, objectFit: 'contain' }} />
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>Continue with MetaMask</Typography>
               </>
             )}

@@ -4,16 +4,18 @@ import { getSessionUser, requireActiveUser, requireAdmin, audit } from '@/lib/au
 import { featureBlocked } from '@/lib/features-server';
 
 /**
- * KYC identity model: verification belongs to the *account*. Submissions are
- * keyed by userId, so a submission can never be inherited by whoever links the
- * wallet next — Hardhat hands everyone the same twenty test accounts, and the
- * old wallet-keyed model let a brand-new sign-up inherit "verified" the moment
- * MetaMask auto-connected a previously approved address.
+ * KYC identity model: verification belongs to the *account* and needs no
+ * wallet at all. Submissions are keyed by userId, so a submission can never be
+ * inherited by whoever links a wallet next — Hardhat hands everyone the same
+ * twenty test accounts, and the old wallet-keyed model let a brand-new sign-up
+ * inherit "verified" the moment MetaMask auto-connected a previously approved
+ * address.
  *
- * The `wallet` column records which address the verification is anchored to
- * on-chain (the contract's onlyKYC check keys on it). Linking itself happens
- * in POST /api/wallet/link, gated on a personal_sign ownership proof; this
- * route only accepts submissions for the wallet already linked to the account.
+ * The flow: submit KYC (no wallet) → admin approves the account → the user
+ * links a wallet in Settings (POST /api/wallet/link, personal_sign ownership
+ * proof) → the on-chain flag is granted for that wallet. The `wallet` column
+ * records which address the verification is anchored to on-chain and is null
+ * until a wallet is linked.
  */
 
 // Keep only valid image data URIs; anything else becomes undefined so we don't
@@ -33,7 +35,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      wallet, fullName, docType, icNumber, dob, gender, nationality,
+      fullName, docType, icNumber, dob, gender, nationality,
       phone, email, addr1, addr2, postcode, city, state,
       employment, income, purpose, fundSource,
       icFront, icBack, selfie,
@@ -41,35 +43,21 @@ export async function POST(req: NextRequest) {
 
     const dt = docType === 'passport' || docType === 'license' ? docType : 'ic';
 
-    if (!wallet || !fullName || !icNumber || !dob || !gender || !phone || !email ||
+    if (!fullName || !icNumber || !dob || !gender || !phone || !email ||
         !addr1 || !postcode || !city || !state || !employment || !income || !purpose || !fundSource) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
     // Store document images in-DB (Supabase Postgres) as data URIs so they are
     // shared across all users, not saved to the local filesystem.
-    const walletKey = (wallet as string).toLowerCase();
     const icFrontData = cleanDataUri(icFront);
     const icBackData  = cleanDataUri(icBack);
     const selfieData  = cleanDataUri(selfie);
 
-    // ── Wallet must already be linked ─────────────────────────────────────
-    // Linking is its own signature-proved step (POST /api/wallet/link) — KYC
-    // no longer links as a side effect, because that let any signed-in user
-    // claim an unowned address they merely typed in, with no proof they hold
-    // its key. The KYC page performs the link (nonce + personal_sign) right
-    // before submitting, so a user never sees these errors in the normal flow.
-    const linked = guard.user.walletAddress?.toLowerCase();
-    if (!linked) {
-      return NextResponse.json({
-        error: 'No wallet is linked to your account yet. Connect your wallet and sign the ownership message first.',
-      }, { status: 400 });
-    }
-    if (linked !== walletKey) {
-      return NextResponse.json({
-        error: `Your account is linked to wallet ${linked.slice(0, 6)}…${linked.slice(-4)}. Connect that wallet to submit KYC.`,
-      }, { status: 409 });
-    }
+    // No wallet is required to submit. If the account already linked one, the
+    // submission is anchored to it; otherwise the anchor is set later, when
+    // POST /api/wallet/link runs (signature-proved ownership).
+    const walletKey = guard.user.walletAddress?.toLowerCase() ?? null;
 
     const record = await prisma.kycSubmission.upsert({
       where:  { userId: guard.user.id },
@@ -97,7 +85,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, id: record.id, status: record.status });
   } catch (err) {
     console.error('[POST /api/kyc]', err);
-    return NextResponse.json({ error: 'Database error' }, { status: 500 });
+    return NextResponse.json({
+      error: 'Could not save your KYC application right now. Please try again in a moment — if it keeps failing, contact support.',
+    }, { status: 500 });
   }
 }
 
@@ -127,32 +117,32 @@ export async function GET() {
     return NextResponse.json({ exists: true, ...rest });
   } catch (err) {
     console.error('[GET /api/kyc]', err);
-    return NextResponse.json({ error: 'Database error' }, { status: 500 });
+    return NextResponse.json({ error: 'Could not load your KYC status. Please refresh the page.' }, { status: 500 });
   }
 }
 
-// DELETE /api/kyc?wallet=0x... — remove a KYC submission (admin action)
+// DELETE /api/kyc?userId=... — remove a KYC submission (admin action).
+// A wallet param is still accepted as a fallback for wallet-anchored rows.
 export async function DELETE(req: NextRequest) {
   const guard = await requireAdmin();
   if (!guard.ok) return guard.response;
 
+  const userId = req.nextUrl.searchParams.get('userId');
   const wallet = req.nextUrl.searchParams.get('wallet');
-  if (!wallet) return NextResponse.json({ error: 'wallet param required' }, { status: 400 });
+  if (!userId && !wallet) return NextResponse.json({ error: 'userId or wallet param required' }, { status: 400 });
 
   try {
-    const walletKey = wallet.toLowerCase();
-    const record = await prisma.kycSubmission.findFirst({
-      where: { wallet: walletKey },
-      select: { id: true },
-    });
-    if (!record) return NextResponse.json({ error: 'No KYC submission found for this wallet' }, { status: 404 });
+    const record = userId
+      ? await prisma.kycSubmission.findUnique({ where: { userId }, select: { id: true, userId: true } })
+      : await prisma.kycSubmission.findFirst({ where: { wallet: wallet!.toLowerCase() }, select: { id: true, userId: true } });
+    if (!record) return NextResponse.json({ error: 'No KYC submission found' }, { status: 404 });
     await prisma.kycSubmission.delete({ where: { id: record.id } });
-    // Off-chain deletion only. If this wallet was already approved on-chain the
+    // Off-chain deletion only. If a wallet was already approved on-chain the
     // contract's KYC flag stays set — the admin surface never revokes on chain.
-    await audit(guard.user, 'KYC_DELETE', 'kyc', walletKey);
+    await audit(guard.user, 'KYC_DELETE', 'kyc', record.userId);
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('[DELETE /api/kyc]', err);
-    return NextResponse.json({ error: 'Database error' }, { status: 500 });
+    return NextResponse.json({ error: 'Could not delete the KYC submission. Please try again.' }, { status: 500 });
   }
 }

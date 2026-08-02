@@ -87,8 +87,28 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     select: { id: true, name: true, email: true, isAdmin: true, status: true },
   });
 
+  // Demotion must take back what the admin bypass granted: an admin's linked
+  // wallet holds the on-chain KYC flag with no submission behind it, and no
+  // other path ever revokes it. Without this, an ex-admin keeps on-chain
+  // borrowing rights forever with zero KYC.
+  let chainRevoked = false;
+  if (target.isAdmin && data.isAdmin === false && target.walletAddress) {
+    const kycRow = await prisma.kycSubmission.findUnique({ where: { userId: id }, select: { status: true } });
+    if (kycRow?.status !== 'approved') {
+      try {
+        const w = target.walletAddress.toLowerCase();
+        if (await isKycOnChain(w)) {
+          await setKycOnChain(w, false);
+          chainRevoked = true;
+        }
+      } catch (err) {
+        console.warn('[admin demote] on-chain KYC revoke failed (continuing):', err);
+      }
+    }
+  }
+
   await audit(guard.user, data.isAdmin !== undefined ? 'USER_SET_ADMIN' : 'USER_UPDATE', 'user', id, {
-    before: target, after: updated,
+    before: target, after: updated, ...(data.isAdmin === false ? { chainRevoked } : {}),
   });
 
   return NextResponse.json({ user: updated });
@@ -204,9 +224,9 @@ async function resetKyc(actor: SessionUser, target: Target) {
 }
 
 /**
- * The admin half of the wallet-change flow: once KYC is approved, self-service
- * unlinking is disabled and this action is the only way to detach a wallet.
- * The account keeps its KYC record — only the wallet relationship is removed.
+ * Admin override for detaching a user's wallet (a support tool — users can
+ * also unlink themselves in Settings at any time). The account keeps its KYC
+ * record; linking a new wallet re-grants on-chain borrowing automatically.
  */
 async function unlinkWallet(actor: SessionUser, target: Target) {
   if (!target.walletAddress) {
@@ -250,10 +270,13 @@ async function unlinkWallet(actor: SessionUser, target: Target) {
   }
 
   await prisma.user.update({ where: { id: target.id }, data: { walletAddress: null } });
+  // Clear the submission's on-chain anchor too — left stale, an auto-resync
+  // could later target a wallet someone else now owns.
+  await prisma.kycSubmission.updateMany({ where: { userId: target.id }, data: { wallet: null } });
   await audit(actor, 'USER_UNLINK_WALLET', 'user', target.id, { wallet, chainRevoked });
   return NextResponse.json({
     ok: true,
-    note: 'Wallet unlinked. The account keeps its KYC record; when the user links a new wallet, approve KYC again to re-enable borrowing on-chain.',
+    note: 'Wallet unlinked. The account keeps its KYC approval; when the user links a new wallet, on-chain borrowing is granted for it automatically.',
   });
 }
 

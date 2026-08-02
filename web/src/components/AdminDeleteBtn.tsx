@@ -5,7 +5,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 
-export function AdminDeleteBtn({ wallet }: { wallet: string }) {
+export function AdminDeleteBtn({ userId }: { userId: string }) {
   const router = useRouter();
   const [confirm, setConfirm]   = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -15,7 +15,7 @@ export function AdminDeleteBtn({ wallet }: { wallet: string }) {
     setDeleting(true);
     setError('');
     try {
-      const res = await fetch(`/api/kyc?wallet=${wallet}`, { method: 'DELETE' });
+      const res = await fetch(`/api/kyc?userId=${userId}`, { method: 'DELETE' });
       if (!res.ok) {
         const d = await res.json();
         setError(d.error ?? 'Failed');

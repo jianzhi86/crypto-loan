@@ -14,7 +14,8 @@ import { DocIcon } from '@/components/Icons';
 
 export interface KycRecord {
   id: number;
-  wallet: string;
+  userId: string;
+  wallet: string | null;
   fullName: string;
   docType: string;
   icNumber: string;
@@ -87,7 +88,7 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
     setDeleting(true);
     setDeleteError('');
     try {
-      const res = await fetch(`/api/kyc?wallet=${record.wallet}`, { method: 'DELETE' });
+      const res = await fetch(`/api/kyc?userId=${record.userId}`, { method: 'DELETE' });
       if (!res.ok) {
         const d = await res.json();
         setDeleteError(d.error ?? 'Failed to delete');
@@ -149,7 +150,7 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
                 { label: 'MyKad Back',  type: 'back',   has: record.hasBack   },
                 { label: 'Selfie',      type: 'selfie', has: record.hasSelfie },
               ].map(d => {
-                const src = d.has ? `/api/kyc/documents?wallet=${record.wallet}&type=${d.type}` : null;
+                const src = d.has ? `/api/kyc/documents?userId=${record.userId}&type=${d.type}` : null;
                 return (
                   <Box key={d.label} sx={{ bgcolor: '#111B38', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, overflow: 'hidden' }}>
                     {src ? (
@@ -189,7 +190,7 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
           </Section>
           <Section title="Submission Details">
             <InfoRow label="Reference" value={ref} />
-            <InfoRow label="Wallet"    value={record.wallet} mono />
+            <InfoRow label="Wallet"    value={record.wallet ?? 'Not linked yet'} mono={!!record.wallet} />
             <InfoRow label="Submitted" value={new Date(record.submittedAt).toLocaleString('en-MY')} />
           </Section>
         </DialogContent>

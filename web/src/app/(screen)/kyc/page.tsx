@@ -22,9 +22,6 @@ import { useWallet } from '@/lib/WalletContext';
 import { useAuth } from '@/hooks/useAuth';
 import { CheckCircleIcon, ChipGlyph, ClockIcon, DocIcon, InfoIcon } from '@/components/Icons';
 
-// Mirrors LINK_MESSAGE in app/api/wallet/link/route.ts — keep in sync.
-const LINK_MESSAGE = (nonce: string) => `Link this wallet to CryptoLend\nNonce: ${nonce}`;
-
 const MY_STATES = [
   'Johor','Kedah','Kelantan','Melaka','Negeri Sembilan','Pahang',
   'Perak','Perlis','Pulau Pinang','Sabah','Sarawak','Selangor',
@@ -109,109 +106,14 @@ function compressImage(file: File, maxPx = 1200, quality = 0.82): Promise<string
   });
 }
 
-function DocUploadPanel({ wallet }: { wallet: string }) {
-  const [docFiles, setDocFiles] = useState<Record<DocKey, File | null>>({ front: null, back: null });
-  const refs: Record<DocKey, React.RefObject<HTMLInputElement | null>> = {
-    front:  useRef<HTMLInputElement>(null),
-    back:   useRef<HTMLInputElement>(null),
-  };
-  const [uploading, setUploading] = useState(false);
-  const [done, setDone]   = useState(false);
-  const [err,  setErr]    = useState('');
-
-  const upload = async () => {
-    if (!docFiles.front && !docFiles.back) { setErr('Please select at least one document.'); return; }
-    if (!wallet) { setErr('Wallet not connected.'); return; }
-    setUploading(true); setErr('');
-    try {
-      const [icFront, icBack] = await Promise.all([
-        docFiles.front  ? compressImage(docFiles.front)  : Promise.resolve(''),
-        docFiles.back   ? compressImage(docFiles.back)   : Promise.resolve(''),
-      ]);
-      const res = await fetch('/api/kyc/documents', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet, icFront, icBack }),
-      });
-      const d = await res.json();
-      if (res.ok) setDone(true);
-      else setErr(d.error ?? 'Upload failed');
-    } catch (e) {
-      setErr('Upload failed: ' + (e instanceof Error ? e.message : 'unknown error'));
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  return (
-    <Paper sx={{ p: 3, bgcolor: '#111B38', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 3 }}>
-      <Typography variant="body1" color="text.primary" sx={{ fontWeight: 600, mb: 0.5 }}>
-        Upload Identity Documents
-      </Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2.5 }}>
-        Attach your MyKad photos so the admin can verify your identity visually.
-      </Typography>
-
-      {done ? (
-        <Box sx={{ p: 2.5, textAlign: 'center', bgcolor: 'rgba(43,217,162,0.12)', border: '1px solid #2BD9A244', borderRadius: 2 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 0.5, color: '#2BD9A2' }}><CheckCircleIcon size={26} /></Box>
-          <Typography variant="body2" sx={{ color: '#2BD9A2', fontWeight: 600 }}>Documents uploaded successfully</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            Admin can now view your photos in the KYC panel.
-          </Typography>
-        </Box>
-      ) : (
-        <>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2 }}>
-            {DOC_SLOTS.map(doc => (
-              <Box key={doc.key}>
-                <input ref={refs[doc.key]} type="file" accept="image/jpeg,image/png,image/webp"
-                  style={{ display: 'none' }}
-                  onChange={e => setDocFiles(p => ({ ...p, [doc.key]: e.target.files?.[0] ?? null }))} />
-                <Box onClick={() => refs[doc.key].current?.click()}
-                  sx={{
-                    display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5, borderRadius: 2,
-                    cursor: 'pointer', transition: 'all 0.15s',
-                    bgcolor: docFiles[doc.key] ? 'rgba(43,217,162,0.12)' : '#0B1226',
-                    border: `1px solid ${docFiles[doc.key] ? '#2BD9A255' : 'rgba(255,255,255,0.12)'}`,
-                    '&:hover': { borderColor: '#6E8BFF' },
-                  }}>
-                  <Box sx={{ display: 'flex', color: docFiles[doc.key] ? '#2BD9A2' : 'rgba(255,255,255,0.4)' }}>
-                    {docFiles[doc.key] ? <CheckCircleIcon size={20} /> : <DocIcon size={20} />}
-                  </Box>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500 }}>{doc.label}</Typography>
-                    <Typography variant="caption" color="text.secondary" noWrap>
-                      {docFiles[doc.key] ? docFiles[doc.key]!.name : doc.hint}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.12)' }}>
-                    <Typography variant="caption" color="text.secondary">{docFiles[doc.key] ? 'Change' : 'Choose'}</Typography>
-                  </Box>
-                </Box>
-              </Box>
-            ))}
-          </Box>
-
-          {err && <Typography variant="caption" sx={{ color: '#E5484D', display: 'block', mb: 1.5 }}>{err}</Typography>}
-
-          <Button fullWidth variant="contained" onClick={upload} disabled={uploading}
-            sx={{ background: 'linear-gradient(135deg, #6E8BFF, #6E8BFF)', color: 'white', py: 1.25,
-                  '&:hover': { background: 'linear-gradient(135deg, #9DB1FF, #9DB1FF)' } }}>
-            {uploading ? 'Uploading…' : 'Upload Documents'}
-          </Button>
-        </>
-      )}
-    </Paper>
-  );
-}
-
 export default function KYCPage() {
   const wallet = useWallet();
-  const { user, refresh: refreshAuth } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const [step, setStep]           = useState<Step>(1);
   const [form, setForm]           = useState<FormData>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const [submittedId, setSubmittedId] = useState<number | null>(null);
   const [mounted, setMounted]     = useState(false);
   const [existingRef, setExistingRef] = useState<string | null>(null);
@@ -253,63 +155,31 @@ export default function KYCPage() {
     return false;
   };
 
-  // Link the connected wallet to the account, Web3-style: fetch a one-time
-  // nonce, prove key ownership with personal_sign, then bind server-side.
-  // Skipped when the account is already linked to this exact wallet. Returns
-  // false (after alerting) when the user declines the signature or the wallet
-  // belongs to another account.
-  const ensureWalletLinked = async (): Promise<boolean> => {
-    const addr = wallet.address!;
-    if (user?.walletAddress && user.walletAddress.toLowerCase() === addr.toLowerCase()) return true;
-    const eth = window.ethereum;
-    if (!eth) { alert('MetaMask not found.'); return false; }
-    try {
-      const { nonce } = await fetch(`/api/auth/wallet-nonce?address=${addr}`).then(r => r.json());
-      const signature = await eth.request({
-        method: 'personal_sign',
-        params: [LINK_MESSAGE(nonce), addr],
-      }) as string;
-      const res = await fetch('/api/wallet/link', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: addr, signature, nonce }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => null);
-        alert(d?.error ?? 'Could not link this wallet to your account.');
-        return false;
-      }
-      // Pull the fresh session so the rest of the app sees the link.
-      void refreshAuth();
-      return true;
-    } catch (e) {
-      // 4001 = user closed the MetaMask prompt — a normal "no", not an error.
-      if ((e as { code?: number }).code !== 4001) alert('Wallet signature failed. Please try again.');
-      return false;
-    }
-  };
-
+  // No wallet is involved in submitting KYC: verification belongs to the
+  // account. Linking a wallet (signature-proved) happens later, in Settings,
+  // and an approved account gets its on-chain permission the moment it links.
   const handleSubmit = async () => {
-    if (!wallet.isConnected) { alert('Please connect your wallet first'); return; }
-    if (!wallet.address) return;
     setSubmitting(true);
-    // Step 1 of the flow: the wallet must be provably yours before the
-    // submission anchored to it is accepted.
-    if (!(await ensureWalletLinked())) { setSubmitting(false); return; }
+    setSubmitError('');
     const [icFront, icBack] = await Promise.all([
       files.front  ? compressImage(files.front)  : Promise.resolve(''),
       files.back   ? compressImage(files.back)   : Promise.resolve(''),
     ]);
-    const res = await fetch('/api/kyc', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, wallet: wallet.address, icFront, icBack }), // includes docType
-    });
+    let res: Response;
+    try {
+      res = await fetch('/api/kyc', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, icFront, icBack }), // includes docType
+      });
+    } catch {
+      setSubmitting(false);
+      setSubmitError('Could not reach the server. Check your connection and try again.');
+      return;
+    }
     if (!res.ok) {
       setSubmitting(false);
-      // Surface the server's reason — a 409 explains a wallet-ownership clash
-      // (wallet belongs to another account, or account is linked to a different
-      // wallet), which the user can actually act on.
       const reason = await res.json().then(d => d?.error).catch(() => null);
-      alert(reason || 'Failed to save KYC data. Please try again.');
+      setSubmitError(reason || 'Could not save your KYC application. Please try again.');
       return;
     }
     const data = await res.json();
@@ -367,6 +237,10 @@ export default function KYCPage() {
   }
 
   // ── Already Verified Screen ───────────────────────────────────────────────
+  // Admins bypass KYC: kycApproved is true for them without any submission,
+  // so the copy must say "not required" rather than claiming an identity
+  // review that never happened.
+  const adminBypass = wallet.kycApproved && wallet.kycStatus !== 'approved';
   if (mounted && wallet.kycApproved && !submittedId) {
     return (
       <Box sx={{ minHeight: '100vh', bgcolor: '#0B1226' }}>
@@ -380,16 +254,17 @@ export default function KYCPage() {
             }}>
               <Box sx={{ display: 'flex', color: '#2BD9A2' }}><CheckCircleIcon size={30} strokeWidth={1.8} /></Box>
             </Box>
-            <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 1 }}>KYC Verified</Typography>
-            <Chip label="✓ Identity Confirmed" size="small"
+            <Typography variant="h5" color="text.primary" sx={{ fontWeight: 700, mb: 1 }}>
+              {adminBypass ? 'Admin Account' : 'KYC Verified'}
+            </Typography>
+            <Chip label={adminBypass ? 'KYC not required' : '✓ Identity Confirmed'} size="small"
               sx={{ bgcolor: 'rgba(43,217,162,0.12)', color: '#2BD9A2', border: '1px solid #2BD9A244', fontWeight: 600, mb: 3 }} />
 
             <Paper sx={{ p: 2, mb: 3, bgcolor: '#0B1226', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2, textAlign: 'left' }}>
               {[
-                { label: 'Wallet', value: wallet.address ? `${wallet.address.slice(0,10)}…${wallet.address.slice(-6)}` : '—' },
-                { label: 'Status', value: 'Approved', vc: '#2BD9A2' },
-                { label: 'Verification', value: 'On-chain (Hardhat)' },
-                { label: 'Borrowing', value: 'Enabled', vc: '#2BD9A2' },
+                { label: 'Linked wallet', value: user?.walletAddress ? `${user.walletAddress.slice(0,10)}…${user.walletAddress.slice(-6)}` : 'Not linked yet', vc: user?.walletAddress ? undefined : '#FFB224' },
+                { label: 'Status', value: adminBypass ? 'Not required (admin)' : 'Approved', vc: '#2BD9A2' },
+                { label: 'Borrowing', value: user?.walletAddress ? 'Enabled' : 'Link a wallet to enable', vc: user?.walletAddress ? '#2BD9A2' : '#FFB224' },
               ].map(r => (
                 <Box key={r.label} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.75, borderBottom: '1px solid rgba(255,255,255,0.12)', '&:last-child': { borderBottom: 'none' } }}>
                   <Typography variant="caption" color="text.secondary">{r.label}</Typography>
@@ -398,12 +273,21 @@ export default function KYCPage() {
               ))}
             </Paper>
 
-            {/* <Button fullWidth variant="contained" onClick={() => router.push('/?tab=deposit')} */}
-            <Button fullWidth variant="contained" onClick={() => router.push('/dashboard')}
-              sx={{ background: 'linear-gradient(135deg, #6E8BFF, #6E8BFF)', color: 'white', py: 1.25,
-                    '&:hover': { background: 'linear-gradient(135deg, #9DB1FF, #9DB1FF)' } }}>
-              Start Borrowing →
-            </Button>
+            {user?.walletAddress ? (
+              <Button fullWidth variant="contained" onClick={() => router.push('/dashboard')}
+                sx={{ background: 'linear-gradient(135deg, #6E8BFF, #6E8BFF)', color: 'white', py: 1.25,
+                      '&:hover': { background: 'linear-gradient(135deg, #9DB1FF, #9DB1FF)' } }}>
+                Start Borrowing →
+              </Button>
+            ) : (
+              // Approved but no wallet yet — the one remaining step before
+              // lending operations unlock.
+              <Button fullWidth variant="contained" onClick={() => router.push('/settings')}
+                sx={{ background: 'linear-gradient(135deg, #6E8BFF, #6E8BFF)', color: 'white', py: 1.25,
+                      '&:hover': { background: 'linear-gradient(135deg, #9DB1FF, #9DB1FF)' } }}>
+                Link MetaMask Wallet →
+              </Button>
+            )}
           </Paper>
 
         </Box>
@@ -475,26 +359,6 @@ export default function KYCPage() {
             Complete identity verification to access borrowing services
           </Typography>
         </Box>
-
-        {!wallet.isConnected && (
-          <Alert
-            severity="warning"
-            sx={{ mb: 3, bgcolor: '#FFF8EB', color: '#B54708', border: '1px solid #FCEFC7', '& .MuiAlert-icon': { color: '#FFB224' } }}
-            action={
-              <Button
-                size="small"
-                variant="contained"
-                onClick={wallet.connect}
-                disabled={wallet.isConnecting}
-                sx={{ bgcolor: '#B54708', color: '#fff', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', '&:hover': { bgcolor: '#92380A' } }}
-              >
-                {wallet.isConnecting ? 'Connecting…' : 'Connect Wallet'}
-              </Button>
-            }
-          >
-            Connect your MetaMask wallet before submitting KYC.
-          </Alert>
-        )}
 
         {/* Stepper */}
         <Stepper activeStep={step - 1} sx={{ mb: 4 }}>
@@ -763,12 +627,22 @@ export default function KYCPage() {
 
               <Alert severity="info" sx={{ mt: 2.5, bgcolor: 'rgba(110,139,255,0.1)', color: '#6E8BFF',
                 border: '1px solid rgba(110,139,255,0.3)', '& .MuiAlert-icon': { color: '#6E8BFF' } }}>
-                Clicking Submit will open MetaMask to sign a one-time message linking this wallet to your
-                account. Your application will then be reviewed by the compliance team within 1–3 business days.
+                No wallet is needed to verify your identity. Your application will be reviewed by the
+                compliance team within 1–3 business days; once approved, link your MetaMask wallet in
+                Settings to enable borrowing.
               </Alert>
             </Box>
           )}
         </Paper>
+
+        {/* Submission errors shown inline, next to the button that caused
+            them — not as a browser alert. */}
+        {submitError && (
+          <Alert severity="error"
+            sx={{ mt: 2.5, bgcolor: 'rgba(229,72,77,0.12)', color: '#FF9CA0', border: '1px solid rgba(229,72,77,0.3)', '& .MuiAlert-icon': { color: '#E5484D' } }}>
+            {submitError}
+          </Alert>
+        )}
 
         {/* Navigation buttons */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>

@@ -280,7 +280,7 @@ function UserRow({ user, striped, onEdit, onDone }: {
     },
     'unlink-wallet': {
       title: 'Unlink this wallet?',
-      body: 'The wallet is detached from the account and becomes available to bind elsewhere. Their KYC record stays keyed to the old wallet address.',
+      body: 'The wallet is detached from the account and its on-chain borrow permission is revoked. Their KYC verification stays with the account — linking a new wallet re-enables borrowing automatically.',
       danger: true,
     },
     'clear-bank': {

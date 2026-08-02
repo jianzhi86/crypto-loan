@@ -171,12 +171,14 @@ export default function Navbar() {
               </Button>
             )}
 
-            {/* User email + logout */}
+            {/* User identity + logout. People recognise themselves by the name
+                they registered with, not their email — show the name when one
+                exists, and fall back to the email. */}
             {signedIn && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {user?.email && (
+                {(user?.name || user?.email) && (
                   <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', display: { xs: 'none', md: 'block' }, fontSize: 12 }}>
-                    {user.email}
+                    {user.name || user.email}
                   </Typography>
                 )}
                 <Button
@@ -279,10 +281,12 @@ export default function Navbar() {
                     </MenuItem>
                   ) : (
                     <MenuItem
-                      onClick={() => { setWalletMenuEl(null); router.push('/kyc'); }}
+                      // connect() IS the link flow: availability check,
+                      // ownership signature, link, on-chain grant — one click.
+                      onClick={() => { setWalletMenuEl(null); void wallet.connect(); }}
                       sx={{ fontSize: 13.5, py: 1.25 }}
                     >
-                      Link to account — verify identity
+                      Link to account
                     </MenuItem>
                   )}
                   <MenuItem

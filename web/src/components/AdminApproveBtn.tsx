@@ -1,28 +1,38 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import { CheckIcon, RefreshIcon } from '@/components/Icons';
+import { CheckIcon } from '@/components/Icons';
 
-export function AdminApproveBtn({ wallet, initialStatus }: { wallet: string; initialStatus: string }) {
+export function AdminApproveBtn({ userId, initialStatus }: { userId: string; initialStatus: string }) {
   const [status, setStatus]   = useState(initialStatus);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
+  const [note, setNote]       = useState('');
+
+  // AdminAutoRefresh re-renders the server page every 10s; without this, the
+  // row would stay frozen on whatever status it had at first mount (e.g. an
+  // approve or reset-kyc made in another tab would never show here).
+  useEffect(() => { setStatus(initialStatus); }, [initialStatus]);
 
   const approve = async () => {
     setLoading(true);
     setError('');
+    setNote('');
     try {
       const res = await fetch('/api/kyc/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet }),
+        body: JSON.stringify({ userId }),
       });
+      const d = await res.json();
       if (res.ok) {
         setStatus('approved');
+        // Approval can be DB-only when no wallet is linked yet — say so, or
+        // the admin assumes borrowing is already enabled.
+        if (!d.onChain) setNote('No wallet linked yet — on-chain access is granted when the user links one.');
       } else {
-        const d = await res.json();
         setError(d.error ?? 'Failed');
       }
     } catch {
@@ -31,6 +41,8 @@ export function AdminApproveBtn({ wallet, initialStatus }: { wallet: string; ini
     setLoading(false);
   };
 
+  // Approved rows are display-only: on-chain recovery after a node restart is
+  // handled in one shot by the page-level "Re-sync all on-chain" button.
   if (status === 'approved') {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -38,28 +50,7 @@ export function AdminApproveBtn({ wallet, initialStatus }: { wallet: string; ini
           <CheckIcon size={13} strokeWidth={2.2} />
           <Typography variant="caption" sx={{ color: 'inherit', fontWeight: 500 }}>Approved</Typography>
         </Box>
-        <Button
-          size="small"
-          onClick={approve}
-          disabled={loading}
-          variant="outlined"
-          startIcon={loading ? undefined : <RefreshIcon size={12} />}
-          sx={{
-            borderColor: 'rgba(255,255,255,0.12)',
-            color: 'rgba(255,255,255,0.65)',
-            fontSize: 10,
-            py: 0.25,
-            px: 0.75,
-            minWidth: 'auto',
-            whiteSpace: 'nowrap',
-            '& .MuiButton-startIcon': { mr: 0.5 },
-            '&:hover': { borderColor: '#06B6D4', color: '#06B6D4' },
-            '&.Mui-disabled': { opacity: 0.4 },
-          }}
-        >
-          {loading ? '…' : 'Re-sync chain'}
-        </Button>
-        {error && <Typography variant="caption" sx={{ color: '#E5484D' }}>{error}</Typography>}
+        {note && <Typography variant="caption" sx={{ color: '#FFB224' }}>{note}</Typography>}
       </Box>
     );
   }
@@ -88,6 +79,9 @@ export function AdminApproveBtn({ wallet, initialStatus }: { wallet: string; ini
       </Button>
       {error && (
         <Typography variant="caption" sx={{ color: '#E5484D' }}>{error}</Typography>
+      )}
+      {note && (
+        <Typography variant="caption" sx={{ color: '#FFB224' }}>{note}</Typography>
       )}
     </Box>
   );

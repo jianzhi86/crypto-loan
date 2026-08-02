@@ -89,6 +89,9 @@ export interface WalletState {
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
 const LOAN_ADDR = CONTRACT_ADDRESSES.CryptoLoan as string;
 
+// Mirrors LINK_MESSAGE in app/api/wallet/link/route.ts — keep in sync.
+const LINK_MESSAGE = (nonce: string) => `Link this wallet to CryptoLend\nNonce: ${nonce}`;
+
 const INIT: WalletState = {
   address: null, isConnected: false, isCorrectNetwork: false,
   isDeployed: LOAN_ADDR !== ZERO_ADDR,
@@ -235,7 +238,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [s, setS] = useState<WalletState>(INIT);
   // The signed-in account, for gating silent wallet restore to its linked
   // wallet. WalletProvider sits inside AuthProvider (see the root layout).
-  const { user: authUser, loading: authLoading } = useAuthContext();
+  const { user: authUser, loading: authLoading, refresh: refreshAuth } = useAuthContext();
+
+  // Admins operate the platform — every feature is open to them without a KYC
+  // submission. Kept in a ref so refresh() (whose deps don't include the
+  // session) always sees the current value.
+  const isAdminRef = useRef(false);
+  useEffect(() => { isAdminRef.current = !!authUser?.isAdmin; }, [authUser?.isAdmin]);
 
   const getProvider = useCallback(() => {
     if (typeof window === 'undefined' || !window.ethereum) return null;
@@ -255,6 +264,27 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const setTx = (status: TxStatus, msg: string, step = 1, totalSteps = 1) =>
     setS(p => ({ ...p, txStatus: status, txMessage: msg, txStep: step, txTotalSteps: totalSteps }));
+
+  // Every state-changing operation runs through the account's LINKED wallet.
+  // The "connected" MetaMask session is an internal detail the user never
+  // manages — this check surfaces it only at the moment they attempt an
+  // operation, with the one action that fixes it.
+  const guardTx = useCallback((): boolean => {
+    const linked = authUser?.walletAddress?.toLowerCase() ?? null;
+    if (!linked) {
+      setTx('error', 'No wallet is linked to your account. Link your MetaMask wallet in Settings first.');
+      return false;
+    }
+    if (!s.address) {
+      setTx('error', 'MetaMask is not connected. Open MetaMask, connect your linked wallet, then try again.');
+      return false;
+    }
+    if (s.address.toLowerCase() !== linked) {
+      setTx('error', `Wrong MetaMask account selected. Switch to your linked wallet ${linked.slice(0, 6)}…${linked.slice(-4)} and try again.`);
+      return false;
+    }
+    return true;
+  }, [authUser?.walletAddress, s.address]);
 
   const saveTxToDB = (wallet: string, type: string, amount: string, receipt: ethers.TransactionReceipt) => {
     fetch('/api/loan-tx', {
@@ -341,7 +371,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         // resync detection but never upgrades the badge. The connected wallet
         // being chain-approved proves nothing about the signed-in account —
         // on shared Hardhat test accounts it is usually someone else's.
-        kycApproved: p.kycApprovedDb,
+        // Admins bypass KYC entirely.
+        kycApproved: p.kycApprovedDb || isAdminRef.current,
         kycApprovedChain: kyc as boolean,
         isDeployed: true,
         isRefreshing: false,
@@ -382,6 +413,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [refresh]);
 
+  /**
+   * Connect = claim. There is no user-facing "connected but not linked"
+   * state: pressing Connect opens MetaMask's account picker, and the chosen
+   * wallet is immediately checked and — if free — linked to the signed-in
+   * account with a one-time ownership signature (the server grants on-chain
+   * KYC for approved accounts and admins in the same call). A wallet that
+   * belongs to another account is rejected on the spot with a clear message.
+   * If the account already has its wallet, Connect only accepts that wallet
+   * and tells the user to switch when MetaMask has a different one selected.
+   */
   const connect = useCallback(async () => {
     if (!window.ethereum) { alert('MetaMask not found. Install it from metamask.io'); return; }
     setS(p => ({ ...p, isConnecting: true }));
@@ -403,20 +444,64 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         // plain request below.
       }
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' }) as string[];
+      const addr = accounts[0];
+      if (!addr) { setS(p => ({ ...p, isConnecting: false })); return; }
+
+      const linked = authUser?.walletAddress?.toLowerCase() ?? null;
+      if (authUser && linked && addr.toLowerCase() !== linked) {
+        // The account already owns a wallet — someone else's selection in
+        // MetaMask must not silently become "your" session wallet.
+        setS(p => ({ ...p, isConnecting: false }));
+        setTx('error', `That MetaMask account is not your wallet. Your account uses ${linked.slice(0, 6)}…${linked.slice(-4)} — switch to it in MetaMask, or unlink it in Settings first.`);
+        return;
+      }
+
+      if (authUser && !linked) {
+        // First wallet for this account: verify availability and claim it in
+        // the same click. The server rejects a wallet that belongs to another
+        // account, so the user hears it now — not later at KYC or borrow time.
+        try {
+          const { nonce } = await fetch(`/api/auth/wallet-nonce?address=${addr}`).then(r => r.json());
+          const signature = await window.ethereum.request({
+            method: 'personal_sign',
+            params: [LINK_MESSAGE(nonce), addr],
+          }) as string;
+          const res = await fetch('/api/wallet/link', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address: addr, signature, nonce }),
+          });
+          const d = await res.json().catch(() => null);
+          if (!res.ok) {
+            setS(p => ({ ...p, isConnecting: false }));
+            setTx('error', d?.error ?? 'Could not link this wallet to your account.');
+            return;
+          }
+          // Pull the fresh session so the whole app sees the linked wallet.
+          void refreshAuth();
+        } catch (e) {
+          setS(p => ({ ...p, isConnecting: false }));
+          // 4001 = user closed the MetaMask prompt — a normal "no".
+          if ((e as { code?: number }).code !== 4001) {
+            setTx('error', 'Wallet signature failed. Please try again.');
+          }
+          return;
+        }
+      }
+
       const provider = getProvider()!;
       const network  = await provider.getNetwork();
       const chainId  = Number(network.chainId);
       const ok = chainId === HARDHAT_CHAIN_ID;
-      const cached = ok ? readCachedPosition(accounts[0]) : null;
+      const cached = ok ? readCachedPosition(addr) : null;
       setS(p => ({
-        ...p, address: accounts[0], isConnected: true, isCorrectNetwork: ok, chainId, isConnecting: false,
+        ...p, address: addr, isConnected: true, isCorrectNetwork: ok, chainId, isConnecting: false,
         ...(cached
           ? { loanInfo: cached.info, ethBalance: cached.ethBalance, myrBalance: cached.myrBalance, ethPriceMYR: cached.ethPriceMYR }
           : { loanInfo: null, ethBalance: '0', myrBalance: '0' }),
       }));
-      if (ok) await refresh(accounts[0]);
+      if (ok) await refresh(addr);
     } catch (e) { console.error('connect', e); setS(p => ({ ...p, isConnecting: false })); }
-  }, [getProvider, refresh]);
+  }, [getProvider, refresh, authUser, refreshAuth]);
 
   const switchToHardhat = useCallback(async () => {
     if (!window.ethereum) return;
@@ -430,6 +515,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const depositCollateral = useCallback(async (ethAmt: string) => {
+    if (!guardTx()) return;
     const c = await getContracts(true);
     if (!c || !s.address) return;
     setTx('pending', `Depositing ${ethAmt} ETH…`);
@@ -443,9 +529,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const reason = revertReason(e);
       setTx('error', reason ? `Deposit failed: ${reason}` : 'Deposit failed');
     }
-  }, [getContracts, s.address, refresh]);
+  }, [getContracts, s.address, refresh, guardTx]);
 
   const borrow = useCallback(async (myrAmt: string): Promise<boolean> => {
+    if (!guardTx()) return false;
     const c = await getContracts(true);
     if (!c || !s.address) return false;
     setTx('pending', `Borrowing RM ${myrAmt}…`);
@@ -470,9 +557,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (reason === 'KYC required' && s.address) void resyncKyc(s.address);
       return false;
     }
-  }, [getContracts, s.address, refresh, resyncKyc]);
+  }, [getContracts, s.address, refresh, resyncKyc, guardTx]);
 
   const buyMYR = useCallback(async (myrAmt: string) => {
+    if (!guardTx()) return;
     const c = await getContracts(true);
     if (!c || !s.address) return;
     setTx('pending', `Buying RM ${myrAmt} of MYR…`);
@@ -492,9 +580,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const reason = revertReason(e);
       setTx('error', reason ? `Buy failed: ${reason}` : 'Buy MYR failed — check ETH balance');
     }
-  }, [getContracts, s.address, s.ethPriceMYR, refresh]);
+  }, [getContracts, s.address, s.ethPriceMYR, refresh, guardTx]);
 
   const transferMYR = useCallback(async (myrAmt: string, to: string): Promise<boolean> => {
+    if (!guardTx()) return false;
     const c = await getContracts(true);
     if (!c || !s.address) return false;
     setTx('pending', `Transferring RM ${myrAmt} to bank…`);
@@ -506,9 +595,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       await refresh(s.address);
       return true;
     } catch { setTx('error', 'Transfer failed'); return false; }
-  }, [getContracts, s.address, refresh]);
+  }, [getContracts, s.address, refresh, guardTx]);
 
   const repay = useCallback(async (myrAmt: string) => {
+    if (!guardTx()) return;
     const c = await getContracts(true);
     if (!c || !s.address) return;
     setTx('pending', 'Approving MYR spend…', 1, 2);
@@ -526,9 +616,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const reason = revertReason(e);
       setTx('error', reason ? `Repay failed: ${reason}` : 'Repay failed — check MYR balance or approve amount', 1, 2);
     }
-  }, [getContracts, s.address, refresh]);
+  }, [getContracts, s.address, refresh, guardTx]);
 
   const withdrawCollateral = useCallback(async (ethAmt: string) => {
+    if (!guardTx()) return;
     const c = await getContracts(true);
     if (!c || !s.address) return;
     setTx('pending', `Withdrawing ${ethAmt} ETH…`);
@@ -542,7 +633,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const reason = revertReason(e);
       setTx('error', reason ? `Withdraw failed: ${reason}` : 'Withdraw failed — would violate LTV');
     }
-  }, [getContracts, s.address, refresh]);
+  }, [getContracts, s.address, refresh, guardTx]);
 
   // Prompt MetaMask to import the MockMYR token so the borrowed balance is
   // visible in the wallet (ERC-20s don't show up automatically).
@@ -589,6 +680,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // property of who is signed in, and asking by connected address is exactly
   // what let a new sign-up inherit a previously approved test wallet's status.
   useEffect(() => {
+    const admin = !!authUser?.isAdmin;
     const checkDbKyc = () => {
       fetch('/api/kyc', { cache: 'no-store' })
         .then(r => (r.status === 401 ? { exists: false } : r.json()))
@@ -599,7 +691,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           setS(p => ({
             ...p,
             kycApprovedDb: approved,
-            kycApproved: approved,
+            // Admins bypass KYC — the platform's operators use every feature
+            // without a verification submission.
+            kycApproved: approved || admin,
             kycStatus,
             kycWallet: d.exists && d.wallet ? String(d.wallet).toLowerCase() : null,
             kycDbChecked: true,
@@ -610,7 +704,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     checkDbKyc();
     const id = setInterval(checkDbKyc, 10000);
     return () => clearInterval(id);
-  }, []);
+  }, [authUser?.isAdmin]);
 
   // Reflect whether the current account has already imported the MYR token, so
   // the "Add MYR" button only appears when it's actually needed.
@@ -618,20 +712,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setS(p => ({ ...p, myrTokenAdded: s.address ? readMyrAdded(s.address) : false }));
   }, [s.address]);
 
-  // Auto-heal a DB↔chain KYC mismatch: if the account is admin-approved but the
-  // contract doesn't show it (typically after a redeploy), ask the server to
-  // re-set it on-chain so borrowing works without re-submitting KYC. Only when
-  // the connected wallet IS the account's KYC wallet — re-approving whatever
-  // wallet happens to be plugged in would hand out on-chain KYC to strangers.
-  // (The endpoint is admin-gated regardless; this is not an approval, it re-pushes
-  // one an admin already granted.) Runs once the on-chain read has completed.
+  // Auto-heal a DB↔chain KYC mismatch: if the account is entitled (approved,
+  // or an admin — admins bypass KYC) but the contract doesn't show it
+  // (typically after a redeploy), ask the server to re-set it on-chain so
+  // borrowing works without re-submitting KYC. Only when the connected wallet
+  // IS the account's own wallet — re-approving whatever wallet happens to be
+  // plugged in would hand out on-chain KYC to strangers. (The endpoint is
+  // admin-gated regardless; this is not an approval, it re-pushes an
+  // entitlement that already exists.) Runs once the on-chain read completed.
   useEffect(() => {
+    const admin = !!authUser?.isAdmin;
+    const anchor = s.kycWallet ?? (admin ? authUser?.walletAddress?.toLowerCase() ?? null : null);
     if (s.address && s.isCorrectNetwork && s.isDeployed &&
-        s.kycApprovedDb && !s.kycApprovedChain && s.loanInfo &&
-        s.kycWallet && s.address.toLowerCase() === s.kycWallet) {
+        (s.kycApprovedDb || admin) && !s.kycApprovedChain && s.loanInfo &&
+        anchor && s.address.toLowerCase() === anchor) {
       void resyncKyc(s.address);
     }
-  }, [s.address, s.isCorrectNetwork, s.isDeployed, s.kycApprovedDb, s.kycApprovedChain, s.loanInfo, s.kycWallet, resyncKyc]);
+  }, [s.address, s.isCorrectNetwork, s.isDeployed, s.kycApprovedDb, s.kycApprovedChain, s.loanInfo, s.kycWallet, resyncKyc, authUser?.isAdmin, authUser?.walletAddress]);
 
   // Listen for MetaMask events
   useEffect(() => {

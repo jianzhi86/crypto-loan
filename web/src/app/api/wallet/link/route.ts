@@ -3,6 +3,7 @@ import { verifyMessage } from 'ethers';
 import { prisma } from '@/lib/db/prisma';
 import { requireActiveUser, audit } from '@/lib/authz';
 import { consumeNonce } from '@/lib/nonce-store';
+import { setKycOnChain, isKycOnChain } from '@/lib/kyc/chain';
 
 /**
  * POST /api/wallet/link — bind a wallet to the signed-in account, Web3-style.
@@ -20,7 +21,7 @@ import { consumeNonce } from '@/lib/nonce-store';
  * The signed message is deliberately different from wallet-login's, so a
  * captured login signature can never be replayed to link (or vice versa).
  * (Route files may only export HTTP handlers, so the client mirrors this
- * template in kyc/page.tsx — keep the two in sync.)
+ * template in lib/WalletContext.tsx — keep the two in sync.)
  */
 const LINK_MESSAGE = (nonce: string) => `Link this wallet to CryptoLend\nNonce: ${nonce}`;
 
@@ -69,33 +70,16 @@ export async function POST(req: Request) {
       select: { id: true, email: true, password: true },
     });
     if (owner && owner.id !== guard.user.id) {
-      // A wallet-stub is created automatically when someone clicks "Continue
-      // with MetaMask" on the login page for the first time. Releasing the
-      // wallet from a stub is only safe when the stub holds nothing at all: no
-      // login credentials, no KYC submission, no bank account, no transfers. A
-      // stub WITH a KYC submission is a real wallet-registered user — moving
-      // the wallet would hand this account their identity, so it is refused. A
-      // wallet is never moved between two real accounts, in any direction.
-      const stub = !owner.email && !owner.password
-        ? await prisma.user.findUnique({
-            where: { id: owner.id },
-            select: {
-              kyc:         { select: { id: true } },
-              bankAccount: { select: { id: true } },
-              _count:      { select: { transfers: true } },
-            },
-          })
-        : null;
-      const releasable = stub && !stub.kyc && !stub.bankAccount && stub._count.transfers === 0;
-      if (!releasable) {
-        return NextResponse.json({
-          error: 'This wallet is already linked to another CryptoLend account. Please use a different wallet or log in with MetaMask.',
-          code: 'WALLET_ALREADY_LINKED',
-        }, { status: 409 });
-      }
-      // Empty husk: delete the row outright. Merely freeing the wallet would
-      // leave an account with zero login methods, which must never exist.
-      await prisma.user.delete({ where: { id: owner.id } });
+      // A wallet linked to ANY other account — even an empty stub created by
+      // a first "Continue with MetaMask" click — is never moved here. (An
+      // earlier version silently absorbed credential-less stubs, which read as
+      // "someone else took my wallet" to the stub's owner.) The way into that
+      // account is to log in with MetaMask; it can then add an email +
+      // password in Settings and unlink if it truly wants to free the wallet.
+      return NextResponse.json({
+        error: 'This wallet is already linked to another CryptoLend account. Please use a different wallet, or log in with MetaMask to access that account.',
+        code: 'WALLET_ALREADY_LINKED',
+      }, { status: 409 });
     }
 
     await prisma.user.update({
@@ -103,23 +87,52 @@ export async function POST(req: Request) {
       data: { walletAddress: walletKey },
     });
 
-    // If the account already has a KYC submission (re-linking after a
-    // pre-approval unlink, or an admin-reviewed wallet change), re-anchor it so
-    // admin review and on-chain approval target the wallet the account now
-    // holds. A previously approved account still needs an admin to re-approve
-    // on-chain for the new wallet — linking never grants that by itself.
-    await prisma.kycSubmission.updateMany({
+    // Re-anchor the account's KYC submission (if any) to the wallet it now
+    // holds, and — when the account is already KYC-approved, or is an admin
+    // (admins bypass KYC) — grant the on-chain flag for it. Approval is a
+    // property of the account; the wallet just carries it on-chain, and
+    // ownership was proved by the signature above. Best-effort: a dead
+    // Hardhat node must not block the link — the admin "Re-sync all" button
+    // restores flags once the node is reachable.
+    const kyc = await prisma.kycSubmission.findUnique({
       where: { userId: guard.user.id },
-      data:  { wallet: walletKey },
+      select: { id: true, status: true },
     });
+    if (kyc) {
+      await prisma.kycSubmission.update({ where: { id: kyc.id }, data: { wallet: walletKey } });
+    }
+    let chainGranted = false;
+    if (kyc?.status === 'approved' || guard.user.isAdmin) {
+      try {
+        await setKycOnChain(walletKey, true);
+        chainGranted = true;
+      } catch (err) {
+        console.warn('[wallet/link] on-chain KYC grant failed (continuing):', err);
+      }
+    } else {
+      // This account is NOT entitled to on-chain KYC. If the wallet still
+      // carries a flag from a previous owner (their unlink-time revoke can
+      // fail while the node is down), clear it now — claim time is the last
+      // safe moment before this account could exercise someone else's
+      // approval on the contract.
+      try {
+        if (await isKycOnChain(walletKey)) {
+          await setKycOnChain(walletKey, false);
+        }
+      } catch (err) {
+        console.warn('[wallet/link] stale on-chain flag cleanup failed (continuing):', err);
+      }
+    }
 
     await audit(guard.user, 'USER_LINK_WALLET', 'user', guard.user.id, {
-      wallet: walletKey, self: true, proof: 'personal_sign',
+      wallet: walletKey, self: true, proof: 'personal_sign', chainGranted,
     });
 
-    return NextResponse.json({ success: true, wallet: walletKey });
+    return NextResponse.json({ success: true, wallet: walletKey, chainGranted });
   } catch (err) {
     console.error('[POST /api/wallet/link]', err);
-    return NextResponse.json({ error: 'Failed to link wallet' }, { status: 500 });
+    return NextResponse.json({
+      error: 'Something went wrong while linking the wallet. Please try again in a moment — if it keeps failing, contact support.',
+    }, { status: 500 });
   }
 }

@@ -349,7 +349,9 @@ function Dashboard() {
               </Button>
             )}
             {wallet.isConnected && wallet.kycApproved && (
-              <Chip label="✓ KYC Verified" size="small"
+              // Admins bypass KYC — don't claim a verification that never
+              // happened; say what's actually true.
+              <Chip label={wallet.kycStatus === 'approved' ? '✓ KYC Verified' : 'Admin · full access'} size="small"
                 sx={{ bgcolor: `${C.teal}12`, color: C.teal, border: `1px solid ${C.teal}30`, fontWeight: 600, fontSize: 11 }} />
             )}
           </Box>
@@ -1272,7 +1274,7 @@ function Dashboard() {
                   }`,
                   bgcolor: wallet.txStatus === 'success' ? `${C.teal}08`
                     : wallet.txStatus === 'error' ? `${C.red}06`
-                    : '#F7F9FC',
+                    : `${C.blue}08`,
                 }}>
                   {/* Multi-step progress bar for repay (2 steps) */}
                   {wallet.txStatus === 'pending' && wallet.txTotalSteps > 1 && (

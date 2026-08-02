@@ -106,8 +106,9 @@ model KycSubmission {
   userId      String   @unique
   user        User     @relation(fields: [userId], references: [id])
   /// The wallet this verification is anchored to on-chain (contract setKYC).
-  /// Informational + admin lookup only — ownership is decided by userId.
-  wallet      String
+  /// Null until the account links a wallet — KYC submission and approval no
+  /// longer require one. Ownership is decided by userId, never by wallet.
+  wallet      String?
   fullName    String
   docType     String   @default("ic")
   icNumber    String

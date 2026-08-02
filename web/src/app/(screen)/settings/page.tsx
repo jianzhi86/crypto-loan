@@ -16,7 +16,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
-import { BankIcon, WalletIcon } from '@/components/Icons';
+import { BankIcon, IdCardIcon, WalletIcon } from '@/components/Icons';
 import { useAuth } from '@/hooks/useAuth';
 import { useWallet } from '@/lib/WalletContext';
 
@@ -49,6 +49,14 @@ const cardSx = {
   p: 3,
 };
 
+const inputSx = {
+  '& .MuiInputBase-input': { color: 'text.primary' },
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.12)' },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.65)' },
+  '& .MuiInputLabel-root': { color: 'rgba(255,255,255,0.65)' },
+  '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#6E8BFF' },
+};
+
 const DISBURSEMENT_STEPS = [
   'After a successful borrow, choose "Transfer to Bank" in the loan calculator.',
   'Funds are sent via DuitNow Instant Transfer to your registered account.',
@@ -78,12 +86,73 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 }
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, refresh: refreshAuth } = useAuth();
   const wallet = useWallet();
+
+  // ── Account & sign-in ──────────────────────────────────────────────────
+  // Display name, email, password. This is also where a wallet-registered
+  // account (no credentials) adds an email + password — the prerequisite for
+  // unlinking its wallet.
+  const [acctLoading, setAcctLoading] = useState(true);
+  const [acctName, setAcctName]       = useState('');
+  const [acctEmail, setAcctEmail]     = useState('');
+  const [savedEmail, setSavedEmail]   = useState<string | null>(null);
+  const [hasPassword, setHasPassword] = useState(false);
+  const [currentPw, setCurrentPw]     = useState('');
+  const [newPw, setNewPw]             = useState('');
+  const [acctSaving, setAcctSaving]   = useState(false);
+  const [acctError, setAcctError]     = useState('');
+  const [acctSuccess, setAcctSuccess] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/profile/account')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { name?: string | null; email?: string | null; hasPassword?: boolean }) => {
+        setAcctName(d.name ?? '');
+        setAcctEmail(d.email ?? '');
+        setSavedEmail(d.email ?? null);
+        setHasPassword(!!d.hasPassword);
+      })
+      .catch(() => {})
+      .finally(() => setAcctLoading(false));
+  }, []);
+
+  const saveAccount = async () => {
+    setAcctError(''); setAcctSuccess(false); setAcctSaving(true);
+    try {
+      const res = await fetch('/api/profile/account', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: acctName,
+          ...(acctEmail.trim() ? { email: acctEmail } : {}),
+          ...(newPw ? { currentPassword: currentPw, newPassword: newPw } : {}),
+        }),
+      });
+      const d = await res.json() as { name?: string | null; email?: string | null; hasPassword?: boolean; error?: string };
+      if (!res.ok) { setAcctError(d.error ?? 'Save failed'); return; }
+      setSavedEmail(d.email ?? null);
+      setHasPassword(!!d.hasPassword);
+      setCurrentPw(''); setNewPw('');
+      setAcctSuccess(true);
+      setTimeout(() => setAcctSuccess(false), 4000);
+      // The navbar shows the display name — pull the fresh session so it updates.
+      void refreshAuth();
+    } catch {
+      setAcctError('Network error. Please try again.');
+    } finally {
+      setAcctSaving(false);
+    }
+  };
   const [unlinkOpen, setUnlinkOpen]   = useState(false);
   const [unlinking, setUnlinking]     = useState(false);
   const [unlinkError, setUnlinkError] = useState('');
   const linkedWallet = user?.walletAddress ?? null;
+
+  // wallet.connect() IS the link flow: it opens MetaMask's picker, checks the
+  // chosen wallet isn't owned by another account, proves ownership with a
+  // one-time signature, links it, and grants on-chain borrowing when KYC is
+  // approved. Errors surface through the global transaction toast.
+  const handleLink = () => { void wallet.connect(); };
 
   const handleUnlink = async () => {
     setUnlinking(true); setUnlinkError('');
@@ -166,6 +235,83 @@ export default function SettingsPage() {
             Where your ringgit lands when a loan is disbursed.
           </Typography>
         </Box>
+
+        {/* Account & sign-in — who you are and how you log in. Wallet-registered
+            accounts add their email + password here (required before they can
+            unlink their wallet). */}
+        <Paper sx={{ ...cardSx, mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: 'rgba(110,139,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6E8BFF' }}>
+              <IdCardIcon size={20} />
+            </Box>
+            <Box>
+              <Typography sx={{ fontWeight: 600, color: 'text.primary' }}>Account &amp; sign-in</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Your display name, email and password
+              </Typography>
+            </Box>
+          </Box>
+
+          {acctLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+              <CircularProgress size={24} sx={{ color: '#6E8BFF' }} />
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+              <TextField
+                label="Display name" size="small" fullWidth
+                value={acctName}
+                onChange={e => setAcctName(e.target.value)}
+                placeholder="How you want to be shown in the app"
+                sx={inputSx}
+              />
+              <TextField
+                label="Email" size="small" fullWidth type="email"
+                value={acctEmail}
+                onChange={e => setAcctEmail(e.target.value)}
+                placeholder="you@example.com"
+                helperText={!savedEmail
+                  ? 'Adding an email and password lets you sign in without MetaMask — and is required before you can unlink your wallet.'
+                  : undefined}
+                slotProps={{ formHelperText: { sx: { color: 'rgba(255,255,255,0.65)' } } }}
+                sx={inputSx}
+              />
+
+              <Divider sx={{ borderColor: 'rgba(255,255,255,0.12)', mt: 0.5 }} />
+              <Eyebrow>{hasPassword ? 'Change password' : 'Set a password'}</Eyebrow>
+              {hasPassword && (
+                <TextField
+                  label="Current password" size="small" fullWidth type="password"
+                  value={currentPw}
+                  onChange={e => setCurrentPw(e.target.value)}
+                  sx={inputSx}
+                />
+              )}
+              <TextField
+                label={hasPassword ? 'New password' : 'Password'} size="small" fullWidth type="password"
+                value={newPw}
+                onChange={e => setNewPw(e.target.value)}
+                helperText="At least 8 characters. Leave blank to keep your password unchanged."
+                slotProps={{ formHelperText: { sx: { color: 'rgba(255,255,255,0.65)' } } }}
+                sx={inputSx}
+              />
+
+              {acctError   && <Alert severity="error"   sx={{ bgcolor: 'rgba(229,72,77,0.14)', color: '#FF9CA0' }}>{acctError}</Alert>}
+              {acctSuccess && <Alert severity="success" sx={{ bgcolor: 'rgba(43,217,162,0.12)', color: '#2BD9A2' }}>Account details saved.</Alert>}
+
+              <Box>
+                <Button
+                  variant="contained" disableElevation
+                  onClick={saveAccount}
+                  disabled={acctSaving}
+                  sx={{ bgcolor: '#6E8BFF', color: 'white', px: 3, '&:hover': { bgcolor: '#9DB1FF' } }}
+                >
+                  {acctSaving ? 'Saving…' : 'Save Account Details'}
+                </Button>
+              </Box>
+            </Box>
+          )}
+        </Paper>
 
         {/* Passbook preview — the registered disbursement account, passbook-style */}
         <Box sx={{
@@ -386,48 +532,33 @@ export default function SettingsPage() {
                 Unlink wallet
               </Button>
             </Box>
-          ) : wallet.isConnected && wallet.address ? (
-            // Connected in MetaMask but not linked — the distinction that
-            // kept confusing people: connecting is a browser-session fact,
-            // linking is an account fact that happens at KYC submission.
+          ) : (
+            // Not linked — one action does everything: MetaMask opens, the
+            // user picks a wallet, signs the ownership message, and the wallet
+            // is linked (with on-chain borrowing granted if KYC is approved).
             <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 1.5 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 1.75, py: 1, borderRadius: 2, bgcolor: '#0F1730', border: '1px solid rgba(255,255,255,0.12)' }}>
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#FFB224', boxShadow: '0 0 6px #FFB224' }} />
-                  <Typography sx={{ fontFamily: 'monospace', fontSize: 13, color: 'text.primary', letterSpacing: 0.5 }}>
-                    {wallet.address.slice(0, 10)}…{wallet.address.slice(-8)}
-                  </Typography>
-                </Box>
-                <Typography variant="caption" sx={{ color: '#FFB224', fontWeight: 700 }}>
-                  Connected · not linked
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
-                This wallet is connected for the current session only. It becomes linked to your
-                account when you submit KYC with it — that makes it your verified identity and it
-                will auto-connect every time you sign in. If this wallet already belongs to another
-                CryptoLend account, switch MetaMask to a different one first.
+              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7, mb: 2 }}>
+                No wallet is linked yet. Linking opens MetaMask so you can pick a wallet and sign a
+                one-time message proving you own it. The wallet then belongs to your account: it
+                auto-connects when you sign in, and borrowing unlocks once your KYC is approved.
+                One wallet can belong to only one CryptoLend account.
               </Typography>
               <Button
-                variant="outlined" size="small"
-                onClick={() => window.location.assign('/kyc')}
-                sx={{ mt: 2, color: '#6E8BFF', borderColor: 'rgba(110,139,255,0.4)', '&:hover': { borderColor: '#6E8BFF', bgcolor: 'rgba(110,139,255,0.08)' } }}
+                variant="contained" disableElevation
+                onClick={handleLink}
+                disabled={wallet.isConnecting}
+                sx={{ bgcolor: '#6E8BFF', color: 'white', px: 3, py: 1, '&:hover': { bgcolor: '#9DB1FF' } }}
               >
-                Verify identity to link this wallet
+                {wallet.isConnecting ? 'Waiting for MetaMask…' : 'Link MetaMask Wallet'}
               </Button>
             </Box>
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              No wallet is linked yet. Connect a wallet and complete KYC to link one — it becomes
-              your verified identity and auto-connects on sign-in.
-            </Typography>
           )}
         </Paper>
 
-        {/* Unlink confirmation — spells out exactly what changes. Server-side
-            rules may still refuse: a wallet that is the only login method, or
-            an already-approved KYC (admin review required), cannot be unlinked
-            here — the error is surfaced below. */}
+        {/* Unlink confirmation — self-service at any time. The server can
+            still refuse (the wallet is the account's only login method, or it
+            has an active loan / locked collateral); that error is surfaced
+            below. */}
         <Dialog open={unlinkOpen} onClose={() => !unlinking && setUnlinkOpen(false)} maxWidth="xs" fullWidth>
           <DialogContent sx={{ pt: 3.5, px: 3.5 }}>
             <Typography sx={{ fontWeight: 700, fontSize: 17, color: 'text.primary', mb: 1.5 }}>
@@ -438,10 +569,9 @@ export default function SettingsPage() {
             </Typography>
             <Box component="ul" sx={{ m: 0, pl: 2.5, mb: 2, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
               {[
-                'Your KYC submission stays with your account — link a wallet again to continue verification without re-filling the form',
-                'Revokes the on-chain borrow permission for this wallet',
-                'Stops this wallet auto-connecting when you sign in',
-                'If your KYC is already approved, wallet changes require administrator review and will be refused here',
+                'Your KYC verification stays with your account — link a wallet again anytime and borrowing re-enables automatically',
+                'This wallet stops auto-connecting when you sign in',
+                'Any on-chain borrow permission this wallet holds is revoked',
               ].map(t => (
                 <Typography key={t} component="li" variant="caption" color="text.secondary" sx={{ lineHeight: 1.6 }}>
                   {t}

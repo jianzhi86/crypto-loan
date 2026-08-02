@@ -14,7 +14,7 @@ import Alert from '@mui/material/Alert';
 import InputAdornment from '@mui/material/InputAdornment';
 import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
-import { BoltIcon, EyeIcon, EyeOffIcon, LockIcon, ShieldIcon, TrendUpIcon, WalletIcon } from '@/components/Icons';
+import { BoltIcon, EyeIcon, EyeOffIcon, LockIcon, ShieldIcon, TrendUpIcon } from '@/components/Icons';
 
 const FEATURES = [
   { icon: <LockIcon size={18} />, text: 'Non-custodial — your keys, your crypto' },
@@ -237,7 +237,8 @@ function LoginForm() {
               <CircularProgress size={20} sx={{ color: '#2A3FD6' }} />
             ) : (
               <>
-                <WalletIcon size={19} />
+                <Box component="img" src="/metamask.png" alt="MetaMask"
+                  sx={{ width: 50, height: 50, objectFit: 'contain' }} />
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>Continue with MetaMask</Typography>
               </>
             )}

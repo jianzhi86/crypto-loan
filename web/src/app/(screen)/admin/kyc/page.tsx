@@ -13,6 +13,7 @@ import TableContainer from '@mui/material/TableContainer';
 import Card from '@mui/material/Card';
 import { AdminApproveBtn } from '@/components/AdminApproveBtn';
 import { AdminDeleteBtn } from '@/components/AdminDeleteBtn';
+import { AdminResyncAllBtn } from '@/components/AdminResyncAllBtn';
 import { AdminSyncPriceBtn } from '@/components/AdminSyncPriceBtn';
 import { AdminKycDetail } from '@/components/AdminKycDetail';
 import { AdminAutoRefresh } from '@/components/AdminAutoRefresh';
@@ -61,6 +62,7 @@ export default async function AdminPage() {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <AdminResyncAllBtn />
             <AdminSyncPriceBtn />
             {pending > 0 && (
               <Chip
@@ -115,7 +117,7 @@ export default async function AdminPage() {
                         <TableRow key={s.id} sx={{ bgcolor: i % 2 === 0 ? '#111B38' : '#0F1A3D', '&:hover': { bgcolor: '#0F1730' } }}>
                           <TableCell sx={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, borderColor: 'rgba(255,255,255,0.12)' }}>{s.id}</TableCell>
                           <TableCell sx={{ color: 'rgba(255,255,255,0.65)', fontFamily: 'monospace', fontSize: 11, borderColor: 'rgba(255,255,255,0.12)' }}>
-                            {s.wallet.slice(0, 8)}…{s.wallet.slice(-4)}
+                            {s.wallet ? `${s.wallet.slice(0, 8)}…${s.wallet.slice(-4)}` : '—'}
                           </TableCell>
                           <TableCell sx={{ color: 'text.primary', fontWeight: 500, whiteSpace: 'nowrap', fontSize: 13, borderColor: 'rgba(255,255,255,0.12)' }}>{s.fullName}</TableCell>
                           <TableCell sx={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, whiteSpace: 'nowrap', borderColor: 'rgba(255,255,255,0.12)' }}>{docTypeLabel(s.docType)}</TableCell>
@@ -131,8 +133,8 @@ export default async function AdminPage() {
                           </TableCell>
                           <TableCell sx={{ borderColor: 'rgba(255,255,255,0.12)' }}>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                              <AdminApproveBtn wallet={s.wallet} initialStatus={s.status} />
-                              <AdminDeleteBtn wallet={s.wallet} />
+                              <AdminApproveBtn userId={s.userId} initialStatus={s.status} />
+                              <AdminDeleteBtn userId={s.userId} />
                             </Box>
                           </TableCell>
                           <TableCell sx={{
@@ -142,7 +144,7 @@ export default async function AdminPage() {
                             boxShadow: '-4px 0 8px -4px rgba(0,0,0,0.2)',
                           }}>
                             <AdminKycDetail record={{
-                              id: s.id, wallet: s.wallet, fullName: s.fullName, docType: s.docType, icNumber: s.icNumber,
+                              id: s.id, userId: s.userId, wallet: s.wallet, fullName: s.fullName, docType: s.docType, icNumber: s.icNumber,
                               dob: s.dob, gender: s.gender, nationality: s.nationality,
                               phone: s.phone, email: s.email, addr1: s.addr1, addr2: s.addr2,
                               postcode: s.postcode, city: s.city, state: s.state,

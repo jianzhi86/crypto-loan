@@ -50,32 +50,32 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/kyc/documents?wallet=0x...&type=front|back|selfie — serve a stored
+// GET /api/kyc/documents?userId=...&type=front|back|selfie — serve a stored
 // document image. Decodes the data URI back into raw bytes with the right
-// content-type so it can be used directly as an <img src>.
+// content-type so it can be used directly as an <img src>. A wallet param is
+// accepted as a fallback for wallet-anchored rows.
 //
-// Admins may fetch any wallet's documents (the review panel needs to); a
-// regular user can only ever see their own submission.
+// Admins may fetch any account's documents (the review panel needs to); a
+// regular user only ever gets their own submission, whatever they ask for.
 export async function GET(req: NextRequest) {
+  const userId = req.nextUrl.searchParams.get('userId');
   const wallet = req.nextUrl.searchParams.get('wallet');
   const type   = req.nextUrl.searchParams.get('type') ?? 'front';
   const field  = TYPE_TO_FIELD[type];
-  if (!wallet || !field) return NextResponse.json({ error: 'wallet and valid type required' }, { status: 400 });
+  if ((!userId && !wallet) || !field) {
+    return NextResponse.json({ error: 'userId (or wallet) and valid type required' }, { status: 400 });
+  }
 
   try {
     const user = await getSessionUser();
     if (!user) return new NextResponse('Unauthorized', { status: 401 });
 
-    const walletKey = wallet.toLowerCase();
-    const record = user.isAdmin
-      ? await prisma.kycSubmission.findFirst({
-          where: { wallet: walletKey },
-          select: { icFrontData: true, icBackData: true, selfieData: true },
-        })
-      : await prisma.kycSubmission.findFirst({
-          where: { userId: user.id, wallet: walletKey },
-          select: { icFrontData: true, icBackData: true, selfieData: true },
-        });
+    const select = { icFrontData: true, icBackData: true, selfieData: true } as const;
+    const record = !user.isAdmin
+      ? await prisma.kycSubmission.findUnique({ where: { userId: user.id }, select })
+      : userId
+        ? await prisma.kycSubmission.findUnique({ where: { userId }, select })
+        : await prisma.kycSubmission.findFirst({ where: { wallet: wallet!.toLowerCase() }, select });
     const dataUri = record?.[field];
     if (!dataUri) return new NextResponse('Not found', { status: 404 });
 

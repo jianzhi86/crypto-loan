@@ -32,11 +32,19 @@ function StepDots({ step, total }: { step: number; total: number }) {
   );
 }
 
+// Error toasts self-dismiss with a draining countdown bar; hovering pauses
+// the clock so a long message can be read in peace.
+const ERROR_MS = 3000;
+// The toast fades out over the countdown's final stretch.
+const FADE_MS  = 1200;
+
 export default function TxToast() {
   const wallet   = useWallet();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearRef = useRef(wallet.clearTx);
   const [mounted, setMounted] = useState(false);
+  const [remaining, setRemaining] = useState(ERROR_MS);
+  const [paused, setPaused] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => { clearRef.current = wallet.clearTx; }, [wallet.clearTx]);
@@ -49,6 +57,24 @@ export default function TxToast() {
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [mounted, wallet.txStatus]);
 
+  // Restart the error countdown whenever a (new) error appears.
+  useEffect(() => {
+    setRemaining(ERROR_MS);
+    setPaused(false);
+  }, [wallet.txStatus, wallet.txMessage]);
+
+  // Tick the countdown while an error is showing and the pointer is away.
+  useEffect(() => {
+    if (!mounted || wallet.txStatus !== 'error' || paused) return;
+    const TICK = 50;
+    const id = setInterval(() => setRemaining(r => r - TICK), TICK);
+    return () => clearInterval(id);
+  }, [mounted, wallet.txStatus, paused]);
+
+  useEffect(() => {
+    if (wallet.txStatus === 'error' && remaining <= 0) clearRef.current();
+  }, [wallet.txStatus, remaining]);
+
   if (wallet.txStatus === 'idle') return null;
 
   const isPending = wallet.txStatus === 'pending';
@@ -57,21 +83,35 @@ export default function TxToast() {
 
   const accentColor = isPending ? '#7C3AED' : isSuccess ? '#22c55e' : '#ef4444';
   const iconBg      = isPending ? '#1a1535' : isSuccess ? '#052e16'  : '#450a0a';
-  const label       = isPending ? 'Transaction Pending' : isSuccess ? 'Transaction Confirmed' : 'Transaction Failed';
+  // Errors are not always transactions (wallet linking, wrong account
+  // selected…), so the error title stays neutral — the message carries the
+  // specifics.
+  const label       = isPending ? 'Transaction Pending' : isSuccess ? 'Transaction Confirmed' : 'Something went wrong';
+
+  // Fade the error toast out over its final stretch; hovering restores it.
+  const errorOpacity = !isError || paused
+    ? 1
+    : Math.min(1, Math.max(remaining, 0) / FADE_MS);
+  const errorPct = (Math.max(remaining, 0) / ERROR_MS) * 100;
 
   return (
     <Paper
       elevation={8}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
       sx={{
         position: 'fixed',
         bottom: 24,
         right: 24,
         zIndex: 1400,
-        width: 320,
+        width: 400,
+        maxWidth: 'calc(100vw - 32px)',
         bgcolor: '#12152A',
         border: `1px solid ${accentColor}44`,
         borderRadius: 3,
         overflow: 'hidden',
+        opacity: errorOpacity,
+        transition: 'opacity 120ms linear',
       }}
     >
       <Box sx={{ height: 2, bgcolor: accentColor, width: '100%' }} />
@@ -97,14 +137,32 @@ export default function TxToast() {
           </Box>
 
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="caption" sx={{ color: accentColor, display: 'block', mb: 0.25, fontWeight: 600 }}>
+            <Typography variant="caption" sx={{ color: accentColor, display: 'block', mb: 0.5, fontWeight: 700, fontSize: 12.5 }}>
               {label}
             </Typography>
-            <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.4 }}>
+            <Typography variant="body2" sx={{ lineHeight: 1.55, fontSize: 13.5, color: '#F2F5FF' }}>
               {wallet.txMessage}
             </Typography>
 
             {isPending && <StepDots step={wallet.txStep} total={wallet.txTotalSteps} />}
+
+            {isError && (
+              <Box sx={{ mt: 1.25, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <LinearProgress
+                  variant="determinate"
+                  value={errorPct}
+                  sx={{
+                    flex: 1, height: 4, borderRadius: 2, bgcolor: '#ef444426',
+                    // Linear so the drain reads as a steady clock, not an
+                    // animation easing around.
+                    '& .MuiLinearProgress-bar': { bgcolor: '#ef4444', transition: 'transform 50ms linear' },
+                  }}
+                />
+                <Typography variant="caption" sx={{ color: paused ? '#F2F5FF' : '#64748B', minWidth: 46, textAlign: 'right' }}>
+                  {paused ? 'Paused' : `${Math.ceil(Math.max(remaining, 0) / 1000)}s`}
+                </Typography>
+              </Box>
+            )}
 
             {isSuccess && (
               <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
