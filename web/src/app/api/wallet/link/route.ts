@@ -70,24 +70,47 @@ export async function POST(req: Request) {
     });
     if (owner && owner.id !== guard.user.id) {
       // A wallet-stub is created automatically when someone clicks "Continue
-      // with MetaMask" on the login page for the first time. It has no email
-      // and no password — it holds no real credentials. When an email-registered
-      // user links that same wallet, silently de-link the stub so the wallet can
-      // move to the real account without requiring the user to hunt down and
-      // delete the orphan account themselves.
-      if (!owner.email && !owner.password) {
-        await prisma.user.update({ where: { id: owner.id }, data: { walletAddress: null } });
-        // Fall through to the link below.
-      } else {
+      // with MetaMask" on the login page for the first time. Releasing the
+      // wallet from a stub is only safe when the stub holds nothing at all: no
+      // login credentials, no KYC submission, no bank account, no transfers. A
+      // stub WITH a KYC submission is a real wallet-registered user — moving
+      // the wallet would hand this account their identity, so it is refused. A
+      // wallet is never moved between two real accounts, in any direction.
+      const stub = !owner.email && !owner.password
+        ? await prisma.user.findUnique({
+            where: { id: owner.id },
+            select: {
+              kyc:         { select: { id: true } },
+              bankAccount: { select: { id: true } },
+              _count:      { select: { transfers: true } },
+            },
+          })
+        : null;
+      const releasable = stub && !stub.kyc && !stub.bankAccount && stub._count.transfers === 0;
+      if (!releasable) {
         return NextResponse.json({
-          error: 'This wallet is already linked to another account. Please use another wallet or log in to the existing account.',
+          error: 'This wallet is already linked to another CryptoLend account. Please use a different wallet or log in with MetaMask.',
+          code: 'WALLET_ALREADY_LINKED',
         }, { status: 409 });
       }
+      // Empty husk: delete the row outright. Merely freeing the wallet would
+      // leave an account with zero login methods, which must never exist.
+      await prisma.user.delete({ where: { id: owner.id } });
     }
 
     await prisma.user.update({
       where: { id: guard.user.id },
       data: { walletAddress: walletKey },
+    });
+
+    // If the account already has a KYC submission (re-linking after a
+    // pre-approval unlink, or an admin-reviewed wallet change), re-anchor it so
+    // admin review and on-chain approval target the wallet the account now
+    // holds. A previously approved account still needs an admin to re-approve
+    // on-chain for the new wallet — linking never grants that by itself.
+    await prisma.kycSubmission.updateMany({
+      where: { userId: guard.user.id },
+      data:  { wallet: walletKey },
     });
 
     await audit(guard.user, 'USER_LINK_WALLET', 'user', guard.user.id, {

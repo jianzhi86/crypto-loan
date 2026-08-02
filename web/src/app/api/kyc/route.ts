@@ -4,17 +4,16 @@ import { getSessionUser, requireActiveUser, requireAdmin, audit } from '@/lib/au
 import { featureBlocked } from '@/lib/features-server';
 
 /**
- * KYC identity model: verification belongs to the *account*, anchored by the
- * account's linked wallet (User.walletAddress, unique).
+ * KYC identity model: verification belongs to the *account*. Submissions are
+ * keyed by userId, so a submission can never be inherited by whoever links the
+ * wallet next — Hardhat hands everyone the same twenty test accounts, and the
+ * old wallet-keyed model let a brand-new sign-up inherit "verified" the moment
+ * MetaMask auto-connected a previously approved address.
  *
- * The submission row is keyed by wallet because that is what the contract's
- * onlyKYC check keys on — but which submission is "yours" is decided by the
- * wallet linked to your signed-in account, never by whichever wallet MetaMask
- * happens to expose. Hardhat hands everyone the same twenty test accounts, so
- * a brand-new sign-up used to inherit "verified" the moment MetaMask
- * auto-connected a previously approved address. Linking itself happens in
- * POST /api/wallet/link, gated on a personal_sign ownership proof; this route
- * only accepts submissions for the wallet already linked to the account.
+ * The `wallet` column records which address the verification is anchored to
+ * on-chain (the contract's onlyKYC check keys on it). Linking itself happens
+ * in POST /api/wallet/link, gated on a personal_sign ownership proof; this
+ * route only accepts submissions for the wallet already linked to the account.
  */
 
 // Keep only valid image data URIs; anything else becomes undefined so we don't
@@ -73,8 +72,9 @@ export async function POST(req: NextRequest) {
     }
 
     const record = await prisma.kycSubmission.upsert({
-      where:  { wallet: walletKey },
+      where:  { userId: guard.user.id },
       update: {
+        wallet: walletKey,
         fullName, docType: dt, icNumber, dob, gender, nationality, phone, email,
         addr1, addr2: addr2 ?? '', postcode, city, state,
         employment, income, purpose, fundSource,
@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
         status: 'pending',
       },
       create: {
+        userId: guard.user.id,
         wallet: walletKey,
         fullName, docType: dt, icNumber, dob, gender, nationality, phone, email,
         addr1, addr2: addr2 ?? '', postcode, city, state,
@@ -106,17 +107,15 @@ export async function POST(req: NextRequest) {
 // Deliberately takes no wallet parameter. It used to, and that was the leak:
 // the client asked "is wallet X verified?" for whatever account MetaMask
 // auto-connected, so a fresh sign-up inherited a stranger's verification.
-// Status is resolved from the session cookie → the account's linked wallet.
+// Status is resolved from the session cookie → the account's own submission,
+// which survives wallet unlinking.
 export async function GET() {
   try {
     const user = await getSessionUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    // No linked wallet yet ⇒ this account has never submitted KYC.
-    if (!user.walletAddress) return NextResponse.json({ exists: false }, { status: 200 });
-
     const record = await prisma.kycSubmission.findUnique({
-      where: { wallet: user.walletAddress.toLowerCase() },
+      where: { userId: user.id },
     });
     if (!record) return NextResponse.json({ exists: false }, { status: 200 });
     // Strip the heavy image blobs from the status response — images are fetched
@@ -142,7 +141,12 @@ export async function DELETE(req: NextRequest) {
 
   try {
     const walletKey = wallet.toLowerCase();
-    await prisma.kycSubmission.delete({ where: { wallet: walletKey } });
+    const record = await prisma.kycSubmission.findFirst({
+      where: { wallet: walletKey },
+      select: { id: true },
+    });
+    if (!record) return NextResponse.json({ error: 'No KYC submission found for this wallet' }, { status: 404 });
+    await prisma.kycSubmission.delete({ where: { id: record.id } });
     // Off-chain deletion only. If this wallet was already approved on-chain the
     // contract's KYC flag stays set — the admin surface never revokes on chain.
     await audit(guard.user, 'KYC_DELETE', 'kyc', walletKey);

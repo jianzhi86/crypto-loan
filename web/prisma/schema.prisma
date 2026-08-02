@@ -29,6 +29,7 @@ model User {
   updatedAt     DateTime      @default(now()) @updatedAt
   bankAccount   BankAccount?
   transfers     BankTransfer[]
+  kyc           KycSubmission?
 }
 
 /// Admin-controlled toggle for a single feature. Only keys declared in
@@ -99,7 +100,14 @@ model LoanTransaction {
 
 model KycSubmission {
   id          Int      @id @default(autoincrement())
-  wallet      String   @unique
+  /// KYC belongs to the *account*: one submission per user, and it survives
+  /// wallet unlinking. Keying by wallet was the old model, and it let the next
+  /// account to claim a freed wallet inherit a stranger's verification.
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id])
+  /// The wallet this verification is anchored to on-chain (contract setKYC).
+  /// Informational + admin lookup only — ownership is decided by userId.
+  wallet      String
   fullName    String
   docType     String   @default("ic")
   icNumber    String
@@ -126,4 +134,6 @@ model KycSubmission {
   status      String   @default("pending")
   submittedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([wallet])
 }

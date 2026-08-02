@@ -424,22 +424,24 @@ export default function SettingsPage() {
           )}
         </Paper>
 
-        {/* Unlink confirmation — spells out exactly what is lost, because this
-            undoes the verification, not just the connection. */}
+        {/* Unlink confirmation — spells out exactly what changes. Server-side
+            rules may still refuse: a wallet that is the only login method, or
+            an already-approved KYC (admin review required), cannot be unlinked
+            here — the error is surfaced below. */}
         <Dialog open={unlinkOpen} onClose={() => !unlinking && setUnlinkOpen(false)} maxWidth="xs" fullWidth>
           <DialogContent sx={{ pt: 3.5, px: 3.5 }}>
             <Typography sx={{ fontWeight: 700, fontSize: 17, color: 'text.primary', mb: 1.5 }}>
               Unlink this wallet?
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7, mb: 2 }}>
-              Unlinking removes the wallet from your account. Because your KYC verification is
-              tied to it, this also:
+              Unlinking removes the wallet from your account:
             </Typography>
             <Box component="ul" sx={{ m: 0, pl: 2.5, mb: 2, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
               {[
-                'Deletes your KYC submission — you will need to verify again to deposit, borrow or buy MYR',
+                'Your KYC submission stays with your account — link a wallet again to continue verification without re-filling the form',
                 'Revokes the on-chain borrow permission for this wallet',
                 'Stops this wallet auto-connecting when you sign in',
+                'If your KYC is already approved, wallet changes require administrator review and will be refused here',
               ].map(t => (
                 <Typography key={t} component="li" variant="caption" color="text.secondary" sx={{ lineHeight: 1.6 }}>
                   {t}

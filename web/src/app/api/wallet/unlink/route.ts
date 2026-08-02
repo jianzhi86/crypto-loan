@@ -1,18 +1,24 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireActiveUser, audit } from '@/lib/authz';
-import { setKycOnChain } from '@/lib/kyc/chain';
+import { setKycOnChain, isKycOnChain, getOnChainPosition } from '@/lib/kyc/chain';
 
 /**
  * POST /api/wallet/unlink — detach the signed-in account's linked wallet.
  *
- * The wallet is the account's KYC identity anchor, so unlinking cannot leave
- * the verification behind: a freed wallet with a standing approved submission
- * would hand that approval to the next account that claims the wallet — the
- * exact cross-account leak the per-account KYC model exists to prevent. So
- * unlinking also deletes the KYC submission and (best-effort) revokes the
- * on-chain flag. The user's funds are untouched — the wallet itself, and any
- * position it holds on the contract, remain fully theirs in MetaMask.
+ * Rules enforced here:
+ *  1. The account must keep at least one login method (email + password), so a
+ *     wallet-only account can never unlink its way into being unreachable.
+ *  2. Once KYC is approved, the wallet is the account's verified identity —
+ *     self-service unlinking is disabled and changes go through an admin
+ *     (POST /api/admin/users/[id] { action: 'unlink-wallet' }).
+ *  3. A wallet with locked collateral or an outstanding loan cannot be
+ *     detached.
+ *
+ * KYC belongs to the account, not the wallet: a pending submission stays with
+ * the account after unlinking (no re-filling the form after re-linking), and
+ * nothing is handed to the wallet's next owner because submissions are keyed
+ * by userId.
  */
 export async function POST() {
   const guard = await requireActiveUser();
@@ -24,23 +30,56 @@ export async function POST() {
   }
 
   try {
-    const existing = await prisma.kycSubmission.findUnique({ where: { wallet }, select: { status: true } });
-    if (existing) {
-      await prisma.kycSubmission.delete({ where: { wallet } });
+    // Rule 1: at least one login method must remain.
+    const creds = await prisma.user.findUnique({
+      where: { id: guard.user.id },
+      select: { email: true, password: true },
+    });
+    if (!creds?.email || !creds.password) {
+      return NextResponse.json({
+        error: 'You cannot unlink this wallet because it is your only way to log in. Add an email and password to your account first.',
+        code: 'ONLY_LOGIN_METHOD',
+      }, { status: 409 });
     }
 
-    // Revoke the on-chain borrow permission. Best-effort: a dead Hardhat node
-    // must not trap the user in a wallet they want detached — the off-chain
-    // unlink is what stops any future account from inheriting the approval,
-    // and an admin re-approval is required either way before borrowing again.
+    // Rule 2: approved KYC locks the wallet to the account.
+    const kyc = await prisma.kycSubmission.findUnique({
+      where: { userId: guard.user.id },
+      select: { status: true },
+    });
+    if (kyc?.status === 'approved') {
+      return NextResponse.json({
+        error: 'Your wallet is linked to a KYC-approved account. Wallet changes require administrator review.',
+        code: 'KYC_APPROVED_LOCK',
+      }, { status: 403 });
+    }
+
+    // Rule 3: no unlinking while funds are locked on the contract. Best-effort:
+    // a pre-approval wallet cannot normally hold a position (the contract is
+    // onlyKYC), so a dead Hardhat node must not trap the user here.
+    try {
+      const pos = await getOnChainPosition(wallet);
+      if (pos.collateral > BigInt(0) || pos.principal > BigInt(0)) {
+        return NextResponse.json({
+          error: 'This wallet still has collateral or an outstanding loan on the contract. Repay and withdraw before unlinking.',
+          code: 'ACTIVE_OBLIGATIONS',
+        }, { status: 409 });
+      }
+    } catch (err) {
+      console.warn('[wallet/unlink] on-chain position check failed (continuing):', err);
+    }
+
+    // The on-chain flag can be set even though the DB status is pending (an
+    // admin reset it). A freed wallet must not keep borrow permission, or the
+    // next account to claim it inherits the approval on-chain.
     let chainRevoked = false;
-    if (existing?.status === 'approved') {
-      try {
+    try {
+      if (await isKycOnChain(wallet)) {
         await setKycOnChain(wallet, false);
         chainRevoked = true;
-      } catch (err) {
-        console.warn('[wallet/unlink] on-chain KYC revoke failed (continuing):', err);
       }
+    } catch (err) {
+      console.warn('[wallet/unlink] on-chain KYC revoke failed (continuing):', err);
     }
 
     await prisma.user.update({
@@ -50,10 +89,10 @@ export async function POST() {
 
     // Self-service action, recorded with the user as their own actor.
     await audit(guard.user, 'USER_UNLINK_WALLET', 'user', guard.user.id, {
-      wallet, self: true, kycRemoved: !!existing, chainRevoked,
+      wallet, self: true, kycKept: !!kyc, chainRevoked,
     });
 
-    return NextResponse.json({ success: true, wallet, kycRemoved: !!existing });
+    return NextResponse.json({ success: true, wallet, kycKept: !!kyc });
   } catch (err) {
     console.error('[POST /api/wallet/unlink]', err);
     return NextResponse.json({ error: 'Failed to unlink wallet' }, { status: 500 });

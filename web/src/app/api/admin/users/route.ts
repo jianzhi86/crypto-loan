@@ -48,34 +48,21 @@ export async function GET(req: NextRequest) {
           createdAt: true, updatedAt: true,
           // Never select `password` — it must not leave the server, even to an admin.
           bankAccount: { select: { id: true, bankName: true, accountNumber: true, accountHolder: true, recipientAddress: true } },
+          kyc: { select: { status: true, fullName: true, submittedAt: true } },
           _count: { select: { transfers: true } },
         },
       }),
     ]);
 
-    // KYC lives in its own table keyed by wallet, not by userId, so it is
-    // stitched on here rather than joined.
-    const wallets = users.map(u => u.walletAddress?.toLowerCase()).filter((w): w is string => !!w);
-    const kycRows = wallets.length
-      ? await prisma.kycSubmission.findMany({
-          where: { wallet: { in: wallets } },
-          select: { wallet: true, status: true, fullName: true, submittedAt: true },
-        })
-      : [];
-    const kycByWallet = new Map(kycRows.map(k => [k.wallet, k]));
-
-    const shaped = users.map(u => {
-      const k = u.walletAddress ? kycByWallet.get(u.walletAddress.toLowerCase()) : undefined;
-      return {
-        ...u,
-        accountNumber: undefined,
-        bankAccount: u.bankAccount
-          ? { ...u.bankAccount, accountNumber: `••••${u.bankAccount.accountNumber.slice(-4)}` }
-          : null,
-        kyc: k ? { status: k.status, fullName: k.fullName, submittedAt: k.submittedAt } : null,
-        transferCount: u._count.transfers,
-      };
-    });
+    const shaped = users.map(u => ({
+      ...u,
+      accountNumber: undefined,
+      bankAccount: u.bankAccount
+        ? { ...u.bankAccount, accountNumber: `••••${u.bankAccount.accountNumber.slice(-4)}` }
+        : null,
+      kyc: u.kyc ?? null,
+      transferCount: u._count.transfers,
+    }));
 
     // KYC is filtered after stitching; the row count reflects the page, so the
     // pager is hidden client-side when this filter is active.

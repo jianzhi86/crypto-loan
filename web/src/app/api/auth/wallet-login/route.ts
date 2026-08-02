@@ -22,9 +22,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Signature verification failed' }, { status: 401 });
   }
 
+  // Wallets are stored lowercase everywhere (wallet/link does the same).
+  // MetaMask hands out checksummed addresses, and an exact-match lookup on the
+  // checksummed form used to miss the lowercase row — creating a second
+  // account for the same wallet as a case variant.
+  const walletKey = (address as string).toLowerCase();
+
   let user;
   try {
-    user = await prisma.user.findUnique({ where: { walletAddress: address } });
+    user = await prisma.user.findUnique({ where: { walletAddress: walletKey } });
     if (!user) {
       // First sight of this wallet — that is a registration, so it obeys the
       // sign-up switch rather than the sign-in one.
@@ -33,7 +39,7 @@ export async function POST(req: Request) {
 
       user = await prisma.user.create({
         data: {
-          walletAddress: address,
+          walletAddress: walletKey,
           name: `${address.slice(0, 6)}…${address.slice(-4)}`,
         },
       });
@@ -52,7 +58,7 @@ export async function POST(req: Request) {
     // isAdmin was previously omitted here, so an admin signing in by wallet
     // silently lost their admin rights until they used the email form.
     const token = await createToken({
-      id: user.id, email: user.email, name: user.name, walletAddress: address,
+      id: user.id, email: user.email, name: user.name, walletAddress: walletKey,
       isAdmin: user.isAdmin, epoch: user.sessionEpoch,
     });
     await setAuthCookie(token);
@@ -62,7 +68,7 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({
-    id: user.id, name: user.name, walletAddress: address,
+    id: user.id, name: user.name, walletAddress: walletKey,
     isAdmin: user.isAdmin, status: user.status,
   });
 }

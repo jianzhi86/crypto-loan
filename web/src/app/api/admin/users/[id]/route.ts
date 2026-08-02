@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { prisma } from '@/lib/db/prisma';
 import { requireAdmin, audit, STATUS_ACTIVE, STATUS_RESTRICTED, type SessionUser } from '@/lib/authz';
+import { setKycOnChain, isKycOnChain, getOnChainPosition } from '@/lib/kyc/chain';
 
 /**
  * Admin operations on a single user.
@@ -35,7 +36,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
   const target = await prisma.user.findUnique({
     where: { id },
-    select: { id: true, name: true, email: true, isAdmin: true },
+    select: { id: true, name: true, email: true, isAdmin: true, walletAddress: true },
   });
   if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
@@ -47,6 +48,13 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     const email = body.email?.trim().toLowerCase() || null;
     if (email && !EMAIL_RE.test(email)) {
       return NextResponse.json({ error: 'Invalid email address' }, { status: 400 });
+    }
+    // An account must always keep at least one login method — removing the
+    // email from a wallet-less account would leave it unreachable.
+    if (!email && target.email && !target.walletAddress) {
+      return NextResponse.json({
+        error: 'Cannot remove the email: this account has no linked wallet, so email is its only login method.',
+      }, { status: 409 });
     }
     if (email) {
       const clash = await prisma.user.findUnique({ where: { email }, select: { id: true } });
@@ -173,27 +181,33 @@ async function resetPassword(actor: SessionUser, target: Target) {
 }
 
 async function resetKyc(actor: SessionUser, target: Target) {
-  if (!target.walletAddress) {
-    return NextResponse.json({ error: 'This account has no linked wallet, so it has no KYC record.' }, { status: 400 });
-  }
-  const wallet = target.walletAddress.toLowerCase();
-  const existing = await prisma.kycSubmission.findUnique({ where: { wallet }, select: { status: true } });
-  if (!existing) return NextResponse.json({ error: 'No KYC submission found for this wallet.' }, { status: 404 });
+  // KYC belongs to the account, not the wallet — it exists (and can be reset)
+  // even while no wallet is linked.
+  const existing = await prisma.kycSubmission.findUnique({
+    where: { userId: target.id },
+    select: { status: true, wallet: true },
+  });
+  if (!existing) return NextResponse.json({ error: 'No KYC submission found for this account.' }, { status: 404 });
 
   await prisma.kycSubmission.update({
-    where: { wallet },
+    where: { userId: target.id },
     data: { status: 'pending' },
   });
 
-  await audit(actor, 'USER_RESET_KYC', 'user', target.id, { wallet, from: existing.status });
+  await audit(actor, 'USER_RESET_KYC', 'user', target.id, { wallet: existing.wallet, from: existing.status });
   return NextResponse.json({
     ok: true,
     // Say this plainly in the response so the UI can surface it rather than
     // letting an admin assume the on-chain flag was revoked too.
-    note: 'KYC set back to pending off-chain. The on-chain KYC flag is unchanged — this panel never writes to the contract.',
+    note: 'KYC set back to pending off-chain. The on-chain KYC flag is unchanged — reset does not write to the contract.',
   });
 }
 
+/**
+ * The admin half of the wallet-change flow: once KYC is approved, self-service
+ * unlinking is disabled and this action is the only way to detach a wallet.
+ * The account keeps its KYC record — only the wallet relationship is removed.
+ */
 async function unlinkWallet(actor: SessionUser, target: Target) {
   if (!target.walletAddress) {
     return NextResponse.json({ error: 'No wallet is linked to this account.' }, { status: 400 });
@@ -204,10 +218,43 @@ async function unlinkWallet(actor: SessionUser, target: Target) {
       { status: 409 },
     );
   }
+  const wallet = target.walletAddress.toLowerCase();
+
+  // No wallet changes while the wallet has active loans or locked collateral —
+  // detaching it would strand funds on an address no account owns here. Fail
+  // closed: if the chain cannot be read, fix the node rather than unlink blind.
+  try {
+    const pos = await getOnChainPosition(wallet);
+    if (pos.collateral > BigInt(0) || pos.principal > BigInt(0)) {
+      return NextResponse.json({
+        error: 'This wallet has locked collateral or an outstanding loan on the contract. The user must repay and withdraw before the wallet can be changed.',
+      }, { status: 409 });
+    }
+  } catch (err) {
+    console.error('[admin unlink-wallet] on-chain position check failed:', err);
+    return NextResponse.json({
+      error: 'Could not verify on-chain loans/collateral for this wallet — is the Hardhat node running? Unlinking is blocked until the check succeeds.',
+    }, { status: 502 });
+  }
+
+  // Revoke the freed wallet's on-chain borrow permission (best-effort) — a
+  // detached address must not keep the approval for its next owner.
+  let chainRevoked = false;
+  try {
+    if (await isKycOnChain(wallet)) {
+      await setKycOnChain(wallet, false);
+      chainRevoked = true;
+    }
+  } catch (err) {
+    console.warn('[admin unlink-wallet] on-chain KYC revoke failed (continuing):', err);
+  }
 
   await prisma.user.update({ where: { id: target.id }, data: { walletAddress: null } });
-  await audit(actor, 'USER_UNLINK_WALLET', 'user', target.id, { wallet: target.walletAddress });
-  return NextResponse.json({ ok: true });
+  await audit(actor, 'USER_UNLINK_WALLET', 'user', target.id, { wallet, chainRevoked });
+  return NextResponse.json({
+    ok: true,
+    note: 'Wallet unlinked. The account keeps its KYC record; when the user links a new wallet, approve KYC again to re-enable borrowing on-chain.',
+  });
 }
 
 async function clearBank(actor: SessionUser, target: Target) {

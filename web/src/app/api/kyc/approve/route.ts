@@ -19,12 +19,28 @@ export async function POST(req: NextRequest) {
 
     // Ensure a KYC record exists before touching the chain. This prevents
     // a direct API call from setting on-chain KYC for a wallet that never submitted.
-    const record = await prisma.kycSubmission.findUnique({ where: { wallet: walletKey } });
+    const record = await prisma.kycSubmission.findFirst({
+      where: { wallet: walletKey },
+      select: { id: true, userId: true, fullName: true },
+    });
     if (!record) return NextResponse.json({ error: 'No KYC submission found for this wallet' }, { status: 404 });
+
+    // The wallet must still be linked to the account that submitted. Approving
+    // a wallet the submitter no longer holds would grant on-chain borrow
+    // permission to an address owned by nobody — or by someone else entirely.
+    const holder = await prisma.user.findFirst({
+      where: { walletAddress: { equals: walletKey, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (!holder || holder.id !== record.userId) {
+      return NextResponse.json({
+        error: 'This wallet is no longer linked to the account that submitted the KYC. Ask the user to re-link a wallet first.',
+      }, { status: 409 });
+    }
 
     // Update DB first so if the chain call fails we don't have a phantom approval.
     await prisma.kycSubmission.update({
-      where: { wallet: walletKey },
+      where: { id: record.id },
       data:  { status: 'approved' },
     });
 
