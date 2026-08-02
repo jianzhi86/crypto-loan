@@ -256,7 +256,7 @@ function Dashboard() {
   const ethGain         = colAmtNum * assetPrice * (holdMultiplier - 1);
   const netAdvantage    = ethGain - calcInterest;
   const breakEvenPrice  = colAmtNum > 0 ? (collUSD + calcInterest) / colAmtNum : 0;
-  const breakEvenDropPct = assetPrice > 0 ? ((assetPrice - breakEvenPrice) / assetPrice) * 100 : 0;
+  const breakEvenChangePct = assetPrice > 0 ? ((breakEvenPrice - assetPrice) / assetPrice) * 100 : 0;
 
   const isLive = wallet.isConnected && wallet.isCorrectNetwork && wallet.isDeployed;
 
@@ -927,9 +927,9 @@ function Dashboard() {
                       borderTop: `1px solid ${netAdvantage >= 0 ? C.teal + '20' : C.red + '20'}`,
                       color: C.ts, lineHeight: 1.6,
                     }}>
-                      Break-even: {calcAsset.symbol} needs to drop below{' '}
+                      Break-even:{' '}
                       <Box component="span" sx={{ color: C.gold }}>{rm(breakEvenPrice)}</Box>
-                      {' '}(−{breakEvenDropPct.toFixed(1)}%) for selling to have been the smarter move.
+                      {' '}({breakEvenChangePct >= 0 ? '+' : ''}{breakEvenChangePct.toFixed(1)}% from today) — borrowing wins above this price at maturity; selling wins below it.
                     </Typography>
                   )}
                 </Box>

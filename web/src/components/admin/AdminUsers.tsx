@@ -151,8 +151,8 @@ export default function AdminUsers() {
           </Box>
           {kyc && (
             <Typography variant="caption" sx={{ color: C.muted, mt: 1.25, display: 'block' }}>
-              KYC is stored per wallet, not per account, so this filter is applied after paging —
-              it narrows the current page rather than the whole directory.
+              KYC is filtered across the current page of results — clear the KYC filter before
+              changing pages to avoid missing matches.
             </Typography>
           )}
         </Card>

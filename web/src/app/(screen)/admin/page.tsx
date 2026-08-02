@@ -3,29 +3,40 @@ import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
-import Chip from '@mui/material/Chip';
 
 import { prisma } from '@/lib/db/prisma';
 import { getFlags } from '@/lib/features-server';
 import { FLAGS, ON } from '@/lib/features';
 import { AdminSyncPriceBtn } from '@/components/AdminSyncPriceBtn';
 import { ShieldIcon } from '@/components/Icons';
+import { Badge, C, type Tone } from '@/components/admin/ui';
 
 export const dynamic = 'force-dynamic';
 
-const C = {
-  border: 'rgba(255,255,255,0.12)', slate: 'rgba(255,255,255,0.65)', ink: '#F2F5FF', muted: 'rgba(255,255,255,0.4)',
-  blue: '#6E8BFF', green: '#2BD9A2', amber: '#FFB224', red: '#E5484D',
+const ACTION_TONE: Record<string, Tone> = {
+  USER_RESTRICT:        'red',
+  USER_CLEAR_BANK:      'red',
+  KYC_DELETE:           'red',
+  KYC_REJECT:           'red',
+  USER_RESET_PASSWORD:  'amber',
+  USER_RESET_KYC:       'amber',
+  USER_UNLINK_WALLET:   'amber',
+  USER_UNRESTRICT:      'green',
+  KYC_APPROVE:          'green',
+  FLAG_UPDATE:          'blue',
+  USER_SET_ADMIN:       'blue',
+  PRICE_SYNC:           'neutral',
 };
 
 export default async function AdminOverviewPage() {
-  const [users, restricted, admins, kycPending, kycApproved, loanTxs, transfers, flags, recent] =
+  const [users, restricted, admins, kycPending, kycApproved, kycRejected, loanTxs, transfers, flags, recent] =
     await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { status: 'RESTRICTED' } }),
       prisma.user.count({ where: { isAdmin: true } }),
       prisma.kycSubmission.count({ where: { status: 'pending' } }),
       prisma.kycSubmission.count({ where: { status: 'approved' } }),
+      prisma.kycSubmission.count({ where: { status: 'rejected' } }),
       prisma.loanTransaction.count(),
       prisma.bankTransfer.count(),
       getFlags(),
@@ -35,11 +46,12 @@ export default async function AdminOverviewPage() {
   const paused = FLAGS.filter(f => (flags[f.key]?.state ?? ON) !== ON);
 
   const stats = [
-    { label: 'Users',            value: users,       color: C.ink,   href: '/admin/users',        hint: `${admins} admin${admins === 1 ? '' : 's'}` },
-    { label: 'Restricted',       value: restricted,  color: restricted ? C.red : C.muted, href: '/admin/users?status=RESTRICTED', hint: 'read-only accounts' },
-    { label: 'KYC pending',      value: kycPending,  color: kycPending ? C.amber : C.muted, href: '/admin/kyc', hint: `${kycApproved} approved` },
-    { label: 'On-chain records', value: loanTxs,     color: C.slate, href: '/admin/transactions', hint: 'read-only mirror' },
-    { label: 'Bank transfers',   value: transfers,   color: C.slate, href: '/admin/transactions', hint: 'off-chain' },
+    { label: 'Users',            value: users,       color: C.ink,                              href: '/admin/users',        hint: `${admins} admin${admins === 1 ? '' : 's'}` },
+    { label: 'Restricted',       value: restricted,  color: restricted ? C.red   : C.muted,     href: '/admin/users',        hint: 'read-only accounts' },
+    { label: 'KYC pending',      value: kycPending,  color: kycPending ? C.amber : C.muted,     href: '/admin/kyc',          hint: `${kycApproved} approved` },
+    { label: 'KYC rejected',     value: kycRejected, color: kycRejected ? C.red  : C.muted,     href: '/admin/kyc',          hint: 'need attention' },
+    { label: 'On-chain records', value: loanTxs,     color: C.slate,                            href: '/admin/transactions', hint: 'read-only mirror' },
+    { label: 'Bank transfers',   value: transfers,   color: C.slate,                            href: '/admin/transactions', hint: 'off-chain' },
   ];
 
   return (
@@ -58,7 +70,34 @@ export default async function AdminOverviewPage() {
           </Box>
         </Box>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(5, 1fr)' }, gap: 2, mb: 3 }}>
+        {/* Attention callout when KYC items need review */}
+        {(kycPending > 0 || kycRejected > 0) && (
+          <Link href="/admin/kyc" style={{ textDecoration: 'none' }}>
+            <Box sx={{
+              mb: 3, p: 2, borderRadius: 2, cursor: 'pointer',
+              bgcolor: 'rgba(255,178,36,0.05)', border: '1px solid rgba(255,178,36,0.22)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1,
+              transition: 'border-color .15s',
+              '&:hover': { borderColor: 'rgba(255,178,36,0.45)' },
+            }}>
+              <Box>
+                <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: C.amber }}>
+                  {kycPending > 0
+                    ? `${kycPending} KYC submission${kycPending !== 1 ? 's' : ''} waiting for review`
+                    : `${kycRejected} KYC submission${kycRejected !== 1 ? 's' : ''} rejected`}
+                </Typography>
+                <Typography variant="caption" sx={{ color: C.muted }}>
+                  Open the KYC tab to approve or remove →
+                </Typography>
+              </Box>
+              {kycPending > 0 && (
+                <Badge label={`${kycPending} pending`} tone="amber" />
+              )}
+            </Box>
+          </Link>
+        )}
+
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)', md: 'repeat(6, 1fr)' }, gap: 2, mb: 3 }}>
           {stats.map(s => (
             <Link key={s.label} href={s.href} style={{ textDecoration: 'none' }}>
               <Paper sx={{
@@ -89,14 +128,9 @@ export default async function AdminOverviewPage() {
               <>
                 {paused.map(f => (
                   <Box key={f.key} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.6 }}>
-                    <Chip
+                    <Badge
                       label={flags[f.key]?.state === 'HIDDEN' ? 'hidden' : 'maintenance'}
-                      size="small"
-                      sx={{
-                        height: 19, fontSize: 10.5, fontWeight: 600, borderRadius: 1,
-                        bgcolor: flags[f.key]?.state === 'HIDDEN' ? 'rgba(90,102,117,.1)' : 'rgba(255,178,36,.1)',
-                        color: flags[f.key]?.state === 'HIDDEN' ? C.slate : C.amber,
-                      }}
+                      tone={flags[f.key]?.state === 'HIDDEN' ? 'neutral' : 'amber'}
                     />
                     <Typography variant="body2" sx={{ fontSize: 13, color: C.ink }}>{f.label}</Typography>
                   </Box>
@@ -117,15 +151,16 @@ export default async function AdminOverviewPage() {
             ) : (
               <>
                 {recent.map(e => (
-                  <Box key={e.id} sx={{ display: 'flex', gap: 1, py: 0.6, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <Box key={e.id} sx={{ display: 'flex', gap: 1, py: 0.6, alignItems: 'center', flexWrap: 'wrap' }}>
                     <Typography variant="caption" sx={{ color: C.muted, minWidth: 96, fontSize: 11 }}>
                       {new Date(e.createdAt).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </Typography>
-                    <Typography variant="body2" sx={{ fontSize: 12.5, color: C.ink }}>
-                      {e.action.replace(/_/g, ' ').toLowerCase()}
-                    </Typography>
+                    <Badge
+                      label={e.action.replace(/_/g, ' ').toLowerCase()}
+                      tone={ACTION_TONE[e.action] ?? 'neutral'}
+                    />
                     <Typography variant="caption" sx={{ color: C.muted, fontFamily: 'monospace', fontSize: 10.5 }}>
-                      {e.targetId.slice(0, 24)}
+                      {e.actorEmail ?? e.actorId.slice(0, 20)}
                     </Typography>
                   </Box>
                 ))}

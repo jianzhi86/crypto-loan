@@ -91,13 +91,17 @@ export async function POST() {
       where: { id: guard.user.id },
       data: { walletAddress: null },
     });
-    // Clear the submission's on-chain anchor too — a stale anchor pointing at
-    // a wallet someone else may claim next is how an auto-resync could target
-    // the wrong person. Re-anchored on the next link.
-    await prisma.kycSubmission.updateMany({
-      where: { userId: guard.user.id },
-      data:  { wallet: null },
-    });
+
+    // Clear the submission's on-chain anchor (best-effort — a stale anchor is
+    // cosmetic; link-time healing fixes it on the next link).
+    try {
+      await prisma.kycSubmission.updateMany({
+        where: { userId: guard.user.id },
+        data:  { wallet: null },
+      });
+    } catch (err) {
+      console.warn('[wallet/unlink] kycSubmission anchor clear failed (non-fatal):', err);
+    }
 
     // Self-service action, recorded with the user as their own actor.
     await audit(guard.user, 'USER_UNLINK_WALLET', 'user', guard.user.id, {
@@ -106,7 +110,8 @@ export async function POST() {
 
     return NextResponse.json({ success: true, wallet, kycKept: !!kyc });
   } catch (err) {
-    console.error('[POST /api/wallet/unlink]', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[POST /api/wallet/unlink] unexpected error:', msg, err);
     return NextResponse.json({
       error: 'Something went wrong while unlinking the wallet. Please try again in a moment.',
     }, { status: 500 });

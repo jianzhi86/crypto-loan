@@ -122,6 +122,7 @@ export type AuditAction =
   | 'USER_CLEAR_BANK'
   | 'USER_SET_ADMIN'
   | 'KYC_APPROVE'
+  | 'KYC_REJECT'
   | 'KYC_RESYNC'
   | 'KYC_DELETE'
   | 'FLAG_UPDATE'

@@ -116,7 +116,12 @@ export default function KYCPage() {
   const [submitError, setSubmitError] = useState('');
   const [submittedId, setSubmittedId] = useState<number | null>(null);
   const [mounted, setMounted]     = useState(false);
-  const [existingRef, setExistingRef] = useState<string | null>(null);
+  const [existingRef, setExistingRef]   = useState<string | null>(null);
+  const [wasRejected, setWasRejected]   = useState(false);
+
+  const [existingData, setExistingData]     = useState<FormData | null>(null);
+  const [existingImgSrc, setExistingImgSrc] = useState<{ front: string | null; back: string | null }>({ front: null, back: null });
+  const [imgErr, setImgErr]                 = useState<{ front: boolean; back: boolean }>({ front: false, back: false });
 
   const [files, setFiles] = useState<Record<DocKey, File | null>>({ front: null, back: null });
   const fileRefs: Record<DocKey, React.RefObject<HTMLInputElement | null>> = {
@@ -134,8 +139,45 @@ export default function KYCPage() {
     fetch('/api/kyc', { cache: 'no-store' })
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
-        if (d?.exists && d.status === 'pending') {
+        if (!d?.exists) return;
+        // Save the submitted values so "Edit Submission" pre-populates the form.
+        const dt: DocType = d.docType === 'passport' || d.docType === 'license' ? d.docType : 'ic';
+        const savedForm: FormData = {
+          docType:      dt,
+          fullName:     d.fullName     ?? '',
+          icNumber:     d.icNumber     ?? '',
+          dob:          d.dob          ?? '',
+          gender:       d.gender       ?? '',
+          nationality:  d.nationality  ?? 'Malaysian',
+          phone:        d.phone        ?? '',
+          email:        d.email        ?? '',
+          addr1:        d.addr1        ?? '',
+          addr2:        d.addr2        ?? '',
+          postcode:     d.postcode     ?? '',
+          city:         d.city         ?? '',
+          state:        d.state        ?? '',
+          employment:   d.employment   ?? '',
+          income:       d.income       ?? '',
+          purpose:      d.purpose      ?? '',
+          fundSource:   d.fundSource   ?? '',
+          agreeTerms:        false,
+          agreeDeclaration:  false,
+        };
+        setExistingData(savedForm);
+        // Always set URLs — onError in the img tag falls back to "Choose file"
+        // if an image isn't stored (e.g. old submission before images were required).
+        setExistingImgSrc({
+          front: '/api/kyc/documents?userId=me&type=front',
+          back:  '/api/kyc/documents?userId=me&type=back',
+        });
+        setImgErr({ front: false, back: false });
+        if (d.status === 'pending') {
           setExistingRef(`KYC-${String(d.id).padStart(6, '0')}`);
+        } else if (d.status === 'rejected') {
+          // Rejected users see the form directly with no "pending" screen —
+          // pre-populate so they can correct and resubmit without retyping.
+          setForm(savedForm);
+          setWasRejected(true);
         }
       })
       .catch(() => {});
@@ -150,7 +192,7 @@ export default function KYCPage() {
     if (step === 1) return !!(form.fullName && form.icNumber && form.dob && form.gender && form.phone && form.email);
     if (step === 2) return !!(form.addr1 && form.postcode && form.city && form.state);
     if (step === 3) return !!(form.employment && form.income && form.purpose && form.fundSource);
-    if (step === 4) return !!(files.front && files.back);
+    if (step === 4) return !!(files.front || (existingImgSrc.front && !imgErr.front)) && !!(files.back || (existingImgSrc.back && !imgErr.back));
     if (step === 5) return form.agreeTerms && form.agreeDeclaration;
     return false;
   };
@@ -331,7 +373,12 @@ export default function KYCPage() {
             </Paper>
 
             <Box sx={{ display: 'flex', gap: 1.5 }}>
-              <Button fullWidth variant="outlined" onClick={() => setExistingRef(null)}
+              <Button fullWidth variant="outlined"
+                onClick={() => {
+                  if (existingData) setForm(existingData);
+                  setImgErr({ front: false, back: false });
+                  setExistingRef(null);
+                }}
                 sx={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.65)', py: 1.25, borderRadius: 2,
                       '&:hover': { bgcolor: '#0B1226' } }}>
                 Edit Submission
@@ -359,6 +406,16 @@ export default function KYCPage() {
             Complete identity verification to access borrowing services
           </Typography>
         </Box>
+
+        {/* Rejection notice — only shown when resubmitting after a rejection */}
+        {wasRejected && (
+          <Alert severity="error"
+            sx={{ mb: 3, bgcolor: 'rgba(229,72,77,0.1)', color: '#FF9CA0',
+                  border: '1px solid rgba(229,72,77,0.3)', '& .MuiAlert-icon': { color: '#E5484D' } }}>
+            Your previous KYC submission was rejected. Please review your information below,
+            correct any errors, and resubmit.
+          </Alert>
+        )}
 
         {/* Stepper */}
         <Stepper activeStep={step - 1} sx={{ mb: 4 }}>
@@ -496,9 +553,12 @@ export default function KYCPage() {
 
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {DOC_SLOTS.map(doc => {
-                  const file = files[doc.key];
-                  const preview = file ? URL.createObjectURL(file) : null;
-                  const missingRequired = doc.required && !file;
+                  const file     = files[doc.key];
+                  const preview  = file ? URL.createObjectURL(file) : null;
+                  const savedSrc = existingImgSrc[doc.key];
+                  const imgOk    = savedSrc && !imgErr[doc.key];
+                  const hasImage = !!(file || imgOk);
+                  const missingRequired = doc.required && !hasImage;
                   return (
                     <Box key={doc.key}>
                       <input ref={fileRefs[doc.key]} type="file" accept="image/jpeg,image/png,image/webp"
@@ -507,11 +567,12 @@ export default function KYCPage() {
                       <Box onClick={() => fileRefs[doc.key].current?.click()}
                         sx={{
                           borderRadius: 2, overflow: 'hidden', cursor: 'pointer', transition: 'all 0.15s',
-                          border: `2px solid ${file ? '#2BD9A2' : missingRequired ? 'rgba(229,72,77,0.4)' : 'rgba(255,255,255,0.12)'}`,
+                          border: `2px solid ${hasImage ? '#2BD9A2' : missingRequired ? 'rgba(229,72,77,0.4)' : 'rgba(255,255,255,0.12)'}`,
                           bgcolor: '#0B1226',
-                          '&:hover': { borderColor: file ? '#2BD9A2' : '#6E8BFF' },
+                          '&:hover': { borderColor: hasImage ? '#2BD9A2' : '#6E8BFF' },
                         }}>
                         {file && preview ? (
+                          /* New file chosen */
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5 }}>
                             <Box component="img" src={preview} alt={doc.label}
                               sx={{ width: 80, height: 56, objectFit: 'cover', borderRadius: 1.5,
@@ -527,7 +588,26 @@ export default function KYCPage() {
                               </Typography>
                             </Box>
                           </Box>
+                        ) : imgOk ? (
+                          /* Previously uploaded — still on file in the DB */
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5 }}>
+                            <Box component="img" src={savedSrc!} alt={doc.label}
+                              onError={() => setImgErr(p => ({ ...p, [doc.key]: true }))}
+                              sx={{ width: 80, height: 56, objectFit: 'cover', borderRadius: 1.5,
+                                    border: '1px solid #2BD9A244', flexShrink: 0 }} />
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, color: '#2BD9A2' }}>
+                                <CheckCircleIcon size={14} />
+                                <Typography variant="body2" sx={{ color: '#2BD9A2', fontWeight: 600 }}>{doc.label}</Typography>
+                              </Box>
+                              <Typography variant="caption" color="text.secondary">Previously submitted</Typography>
+                              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', display: 'block', mt: 0.25 }}>
+                                tap to replace
+                              </Typography>
+                            </Box>
+                          </Box>
                         ) : (
+                          /* Empty — choose file */
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 2 }}>
                             <Box sx={{ width: 80, height: 56, borderRadius: 1.5, flexShrink: 0,
                                         bgcolor: '#0F1730', border: '1px dashed rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.4)',

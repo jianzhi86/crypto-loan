@@ -118,7 +118,12 @@ export default function SettingsPage() {
   }, []);
 
   const saveAccount = async () => {
-    setAcctError(''); setAcctSuccess(false); setAcctSaving(true);
+    setAcctError(''); setAcctSuccess(false);
+    if (newPw && hasPassword && !currentPw) {
+      setAcctError('Please enter your current password to set a new one.');
+      return;
+    }
+    setAcctSaving(true);
     try {
       const res = await fetch('/api/profile/account', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -283,7 +288,10 @@ export default function SettingsPage() {
                 <TextField
                   label="Current password" size="small" fullWidth type="password"
                   value={currentPw}
-                  onChange={e => setCurrentPw(e.target.value)}
+                  onChange={e => { setCurrentPw(e.target.value); setAcctError(''); }}
+                  error={/current password/i.test(acctError)}
+                  helperText={/current password/i.test(acctError) ? acctError : undefined}
+                  slotProps={{ formHelperText: { sx: { color: '#FF9CA0' } } }}
                   sx={inputSx}
                 />
               )}
@@ -296,7 +304,9 @@ export default function SettingsPage() {
                 sx={inputSx}
               />
 
-              {acctError   && <Alert severity="error"   sx={{ bgcolor: 'rgba(229,72,77,0.14)', color: '#FF9CA0' }}>{acctError}</Alert>}
+              {acctError && !/current password/i.test(acctError) && (
+                <Alert severity="error" sx={{ bgcolor: 'rgba(229,72,77,0.14)', color: '#FF9CA0' }}>{acctError}</Alert>
+              )}
               {acctSuccess && <Alert severity="success" sx={{ bgcolor: 'rgba(43,217,162,0.12)', color: '#2BD9A2' }}>Account details saved.</Alert>}
 
               <Box>
