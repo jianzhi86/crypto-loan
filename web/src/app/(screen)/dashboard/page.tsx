@@ -202,8 +202,9 @@ function Dashboard() {
   // on-chain quote so per-second interest can't leave dust debt behind.
   const [repayFull,        setRepayFull]         = useState(false);
   // Seconds until the payoff quote auto-refreshes from the chain. Interest
-  // accrues continuously, so the Repay tab re-reads the position every minute
-  // and shows the countdown so the number on screen is never silently stale.
+  // accrues continuously, so the position is re-read once a minute (driven by
+  // WalletContext's keep-fresh poll; this value counts down to its next fire)
+  // and the countdown is shown so the number on screen is never silently stale.
   const [quoteIn,          setQuoteIn]           = useState(60);
   // Borrow guardrails: T&C consent + a final confirmation step.
   const [agreedTerms,      setAgreedTerms]       = useState(false);
@@ -249,31 +250,31 @@ function Dashboard() {
     return () => clearTimeout(t);
   }, [wallet.txStatus, wallet.clearTx]);
 
-  // Live payoff quote for the Repay tab: tick down every second, re-read the
-  // position from the chain when the countdown hits zero. `refresh` is kept
-  // in a ref because its identity changes every render. `quoteInRef` mirrors
-  // the state value so the interval can read it without a closure over stale state
-  // — calling walletRefreshRef.current() inside a setState updater triggers a
-  // "setState during render" React error, so we check the condition via ref and
-  // call refresh directly in the setInterval callback instead.
+  // Live payoff quote for the Repay tab. The countdown is DERIVED from
+  // wallet.lastRefreshAt — the timestamp every refresh source stamps — rather
+  // than counted locally. WalletContext schedules its keep-fresh poll 60 s
+  // after that same timestamp, so the countdown, the chain read, and the
+  // interest bump below can never drift apart (a locally counted cycle used
+  // to sit out of phase with the context's own 60 s poll, which refreshed the
+  // quote mid-countdown). Refs because `refresh`'s identity changes every
+  // render and the 1 s ticker must read the latest timestamp without remounting.
   const walletRefreshRef = useRef(wallet.refresh);
   const walletRepayRef   = useRef(wallet.repay);
-  const quoteInRef       = useRef(60);
+  const lastRefreshAtRef = useRef(wallet.lastRefreshAt);
   useEffect(() => { walletRefreshRef.current = wallet.refresh; });
   useEffect(() => { walletRepayRef.current   = wallet.repay; });
+  useEffect(() => { lastRefreshAtRef.current = wallet.lastRefreshAt; });
   useEffect(() => {
     if (activeTab !== 'repay') return;
-    // Refresh immediately on tab open so the user always sees fresh data.
-    quoteInRef.current = 60;
-    setQuoteIn(60);
+    // Refresh immediately on tab open — stamps lastRefreshAt, so the countdown
+    // and the next auto-refresh both restart from this same instant.
     void walletRefreshRef.current();
-    const id = setInterval(() => {
-      const cur  = quoteInRef.current;
-      const next = cur <= 1 ? 60 : cur - 1;
-      quoteInRef.current = next;
-      setQuoteIn(next);
-      if (cur <= 1) void walletRefreshRef.current();
-    }, 1000);
+    const tick = () => {
+      const at = lastRefreshAtRef.current;
+      setQuoteIn(at > 0 ? Math.max(0, 60 - Math.floor((Date.now() - at) / 1000)) : 60);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [activeTab]);
 

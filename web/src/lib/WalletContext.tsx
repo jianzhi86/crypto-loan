@@ -85,6 +85,12 @@ export interface WalletState {
   // for this account (remembered locally). Lets the UI hide the "Add MYR" button.
   myrTokenAdded: boolean;
   isRefreshing: boolean;
+  // Epoch ms when the last position refresh STARTED, whatever triggered it
+  // (keep-fresh poll, Repay-tab open, post-transaction). The poll schedules
+  // the next auto-refresh 60 s after this, so every refresh source shares one
+  // cadence and UI countdowns derived from it stay in phase with the actual
+  // chain read.
+  lastRefreshAt: number;
   isConnecting: boolean;
   txStatus: TxStatus;
   txMessage: string;
@@ -117,6 +123,7 @@ const INIT: WalletState = {
   kycDbChecked: false,
   myrTokenAdded: false,
   isRefreshing: false,
+  lastRefreshAt: 0,
   isConnecting: false,
   txStatus: 'idle', txMessage: '',
   txStep: 1, txTotalSteps: 1,
@@ -314,7 +321,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async (address: string) => {
     const provider = getProvider();
     if (!provider || !address || LOAN_ADDR === ZERO_ADDR) return;
-    setS(p => ({ ...p, isRefreshing: true }));
+    setS(p => ({ ...p, isRefreshing: true, lastRefreshAt: Date.now() }));
     try {
       const c = await getContracts(false);
       if (!c) { setS(p => ({ ...p, isRefreshing: false })); return; }
@@ -867,15 +874,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [s.address, s.isCorrectNetwork, s.isDeployed, s.kycApprovedDb, s.kycApprovedChain, s.loanInfo, s.kycWallet, resyncKyc, authUser?.isAdmin, authUser?.walletAddress]);
 
-  // Periodic refresh every 60 s — keeps balances, loan state, and the on-chain
-  // KYC flag current. The KYC auto-sync effect above reacts to kycApprovedChain
-  // going false, so any redeploy is healed within one tick of this interval.
+  // Keep-fresh poll — keeps balances, loan state, and the on-chain KYC flag
+  // current. Scheduled 60 s after the LAST refresh started (not on a fixed
+  // interval): any refresh — tab open, post-transaction, price sync — pushes
+  // the next auto-refresh a full cycle out. A fixed setInterval here ran on
+  // its own phase and double-refreshed mid-countdown on the Repay tab. The
+  // KYC auto-sync effect above reacts to kycApprovedChain going false, so any
+  // redeploy is healed within one cycle.
   useEffect(() => {
     const addr = s.address;
     if (!addr || !s.isCorrectNetwork || !s.isDeployed) return;
-    const id = setInterval(() => { void refresh(addr); }, 60_000);
-    return () => clearInterval(id);
-  }, [s.address, s.isCorrectNetwork, s.isDeployed, refresh]);
+    const delay = Math.max(0, s.lastRefreshAt + 60_000 - Date.now());
+    const id = setTimeout(() => { void refresh(addr); }, delay);
+    return () => clearTimeout(id);
+  }, [s.address, s.isCorrectNetwork, s.isDeployed, s.lastRefreshAt, refresh]);
 
   // Listen for MetaMask events
   useEffect(() => {
