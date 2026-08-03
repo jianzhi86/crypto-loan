@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
@@ -10,7 +11,7 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
-import { DocIcon } from '@/components/Icons';
+import { CheckIcon, DocIcon } from '@/components/Icons';
 
 export interface KycRecord {
   id: number;
@@ -67,22 +68,87 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 const statusColors: Record<string, { bg: string; color: string }> = {
   pending:  { bg: 'rgba(255,178,36,0.1)', color: '#FFB224' },
   approved: { bg: 'rgba(43,217,162,0.1)', color: '#2BD9A2' },
-  rejected: { bg: 'rgba(229,72,77,0.1)', color: '#E5484D' },
+  rejected: { bg: 'rgba(229,72,77,0.1)',  color: '#E5484D' },
 };
+
+type FooterMode = 'normal' | 'confirmDelete' | 'confirmReject';
 
 export function AdminKycDetail({ record }: { record: KycRecord }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [open, setOpen]           = useState(false);
+  const [status, setStatus]       = useState(record.status);
+  const [footerMode, setFooterMode] = useState<FooterMode>('normal');
+
+  const [actioning, setActioning] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [note, setNote]           = useState('');
+
+  const [rejectReason, setRejectReason] = useState('');
+  const [deleting, setDeleting]   = useState(false);
   const [deleteError, setDeleteError] = useState('');
+
   const ref = `KYC-${String(record.id).padStart(6, '0')}`;
   const address = [record.addr1, record.addr2, record.postcode, record.city, record.state]
     .filter(Boolean).join(', ');
-  const sc = statusColors[record.status] ?? statusColors.pending;
+  const sc = statusColors[status] ?? statusColors.pending;
   const docLabel = ({ ic: 'MyKad / IC', passport: 'Passport', license: 'Driving License' } as Record<string, string>)[record.docType] ?? 'MyKad / IC';
 
-  const handleClose = () => { setOpen(false); setConfirmDelete(false); setDeleteError(''); };
+  const resetFooter = () => {
+    setFooterMode('normal');
+    setActionError('');
+    setDeleteError('');
+    setRejectReason('');
+  };
+
+  const handleClose = () => { setOpen(false); resetFooter(); };
+
+  const handleApprove = async () => {
+    setActioning(true);
+    setActionError('');
+    setNote('');
+    try {
+      const res = await fetch('/api/kyc/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: record.userId }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        setStatus('approved');
+        if (!d.onChain) setNote('No wallet linked yet — on-chain access is granted when the user links one.');
+        router.refresh();
+      } else {
+        setActionError(d.error ?? 'Failed to approve');
+      }
+    } catch {
+      setActionError('Network error');
+    }
+    setActioning(false);
+  };
+
+  const handleReject = async () => {
+    setActioning(true);
+    setActionError('');
+    try {
+      const res = await fetch('/api/kyc/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: record.userId, reason: rejectReason.trim() || undefined }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        setStatus('rejected');
+        setFooterMode('normal');
+        setRejectReason('');
+        router.refresh();
+      } else {
+        setActionError(d.error ?? 'Failed to reject');
+      }
+    } catch {
+      setActionError('Network error');
+    }
+    setActioning(false);
+  };
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -120,7 +186,7 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
             <Typography variant="h6" color="text.primary" sx={{ fontWeight: 700 }}>{record.fullName}</Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Chip label={record.status} size="small" sx={{ bgcolor: sc.bg, color: sc.color, fontWeight: 600, height: 22 }} />
+            <Chip label={status} size="small" sx={{ bgcolor: sc.bg, color: sc.color, fontWeight: 600, height: 22 }} />
             <IconButton size="small" onClick={handleClose} sx={{ color: 'rgba(255,255,255,0.65)' }}>
               <Typography sx={{ fontSize: 16, lineHeight: 1 }}>✕</Typography>
             </IconButton>
@@ -195,13 +261,21 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
           </Section>
         </DialogContent>
 
-        <DialogActions sx={{ position: 'sticky', bottom: 0, bgcolor: '#111B38', borderTop: '1px solid rgba(255,255,255,0.12)', p: 2, gap: 1 }}>
-          {confirmDelete ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%' }}>
+        <DialogActions sx={{ position: 'sticky', bottom: 0, bgcolor: '#111B38', borderTop: '1px solid rgba(255,255,255,0.12)', p: 2, gap: 1, flexDirection: 'column', alignItems: 'stretch' }}>
+          {/* Feedback messages */}
+          {(actionError || deleteError || note) && (
+            <Typography variant="caption" sx={{ color: actionError || deleteError ? '#E5484D' : '#FFB224', pb: 0.5 }}>
+              {actionError || deleteError || note}
+            </Typography>
+          )}
+
+          {/* ── Confirm delete ───────────────────────────────────────────────── */}
+          {footerMode === 'confirmDelete' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
               <Typography variant="caption" sx={{ color: '#E5484D', fontWeight: 500, flex: 1 }}>
                 Delete this submission? This can&apos;t be undone.
               </Typography>
-              <Button size="small" onClick={() => setConfirmDelete(false)} disabled={deleting}
+              <Button size="small" onClick={resetFooter} disabled={deleting}
                 sx={{ color: 'rgba(255,255,255,0.65)' }}>
                 Cancel
               </Button>
@@ -210,20 +284,81 @@ export function AdminKycDetail({ record }: { record: KycRecord }) {
                 {deleting ? 'Deleting…' : 'Confirm Delete'}
               </Button>
             </Box>
-          ) : (
-            <>
-              {deleteError && (
-                <Typography variant="caption" sx={{ color: '#E5484D', flex: 1 }}>{deleteError}</Typography>
-              )}
-              <Button size="small" onClick={() => setConfirmDelete(true)}
+          )}
+
+          {/* ── Confirm reject (inline reason input) ─────────────────────────── */}
+          {footerMode === 'confirmReject' && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              <TextField
+                fullWidth multiline rows={2} size="small"
+                label="Reason (optional — logged in audit trail)"
+                placeholder="e.g. IC image is blurry, name mismatch, etc."
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#0B1226', borderRadius: 1.5, fontSize: 13 } }}
+              />
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                <Button size="small" onClick={resetFooter} disabled={actioning}
+                  sx={{ color: 'rgba(255,255,255,0.65)', borderColor: 'rgba(255,255,255,0.2)',
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                  Cancel
+                </Button>
+                <Button size="small" variant="contained" onClick={handleReject} disabled={actioning}
+                  sx={{ bgcolor: '#E5484D', '&:hover': { bgcolor: '#FF6166' }, '&.Mui-disabled': { opacity: 0.5 } }}>
+                  {actioning ? 'Rejecting…' : 'Confirm Reject'}
+                </Button>
+              </Box>
+            </Box>
+          )}
+
+          {/* ── Normal footer ─────────────────────────────────────────────────── */}
+          {footerMode === 'normal' && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+              {/* Delete — always available */}
+              <Button size="small" onClick={() => setFooterMode('confirmDelete')}
                 sx={{ color: '#E5484D', mr: 'auto', '&:hover': { bgcolor: 'rgba(229,72,77,0.08)' } }}>
-                Delete Submission
+                Delete
               </Button>
+
               <Button size="small" variant="outlined" onClick={handleClose}
-                sx={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.65)', '&:hover': { borderColor: 'rgba(255,255,255,0.3)', bgcolor: '#0F1730' } }}>
+                sx={{ borderColor: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.65)',
+                      '&:hover': { borderColor: 'rgba(255,255,255,0.3)', bgcolor: '#0F1730' } }}>
                 Close
               </Button>
-            </>
+
+              {/* Approved state */}
+              {status === 'approved' && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#2BD9A2', ml: 0.5 }}>
+                  <CheckIcon size={13} strokeWidth={2.2} />
+                  <Typography variant="caption" sx={{ color: 'inherit', fontWeight: 600 }}>Approved</Typography>
+                </Box>
+              )}
+
+              {/* Rejected state — offer re-approval */}
+              {status === 'rejected' && (
+                <Button size="small" variant="outlined" onClick={handleApprove} disabled={actioning}
+                  sx={{ borderColor: '#2BD9A2', color: '#2BD9A2', bgcolor: 'rgba(43,217,162,0.08)',
+                        '&:hover': { bgcolor: 'rgba(43,217,162,0.15)' }, '&.Mui-disabled': { opacity: 0.4 } }}>
+                  {actioning ? 'Approving…' : 'Approve anyway'}
+                </Button>
+              )}
+
+              {/* Pending state — Reject + Approve */}
+              {status === 'pending' && (
+                <>
+                  <Button size="small" variant="outlined" onClick={() => setFooterMode('confirmReject')} disabled={actioning}
+                    sx={{ borderColor: '#E5484D', color: '#E5484D', bgcolor: 'rgba(229,72,77,0.08)',
+                          '&:hover': { bgcolor: 'rgba(229,72,77,0.15)' }, '&.Mui-disabled': { opacity: 0.4 } }}>
+                    Reject
+                  </Button>
+                  <Button size="small" variant="contained" onClick={handleApprove} disabled={actioning}
+                    sx={{ bgcolor: '#2BD9A2', color: '#0B1226', fontWeight: 700,
+                          '&:hover': { bgcolor: '#3DECB5' }, '&.Mui-disabled': { opacity: 0.4 } }}>
+                    {actioning ? 'Approving…' : 'Approve'}
+                  </Button>
+                </>
+              )}
+            </Box>
           )}
         </DialogActions>
       </Dialog>

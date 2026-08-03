@@ -38,7 +38,7 @@ const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5,
 
 const COLS = [
   'Wallet', 'Full Name', 'Type', 'IC Number', 'DOB', 'Phone',
-  'City / State', 'Employment', 'Purpose', 'Status', 'Submitted', 'Actions', 'Details',
+  'City / State', 'Employment', 'Purpose', 'Status', 'Submitted', 'Actions',
 ] as const;
 
 export default function KycTableClient({ submissions }: { submissions: KycRow[] }) {
@@ -96,7 +96,7 @@ export default function KycTableClient({ submissions }: { submissions: KycRow[] 
                   {COLS.map(h => (
                     <TableCell key={h} sx={{
                       ...headSx,
-                      ...(h === 'Details' && {
+                      ...(h === 'Actions' && {
                         position: 'sticky', right: 0, zIndex: 2,
                         boxShadow: '-4px 0 8px -4px rgba(0,0,0,0.2)',
                       }),
@@ -131,29 +131,28 @@ export default function KycTableClient({ submissions }: { submissions: KycRow[] 
                     <TableCell sx={cellSx}>
                       {new Date(s.submittedAt).toLocaleString('en-MY')}
                     </TableCell>
-                    <TableCell sx={cellSx}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                        <AdminApproveBtn userId={s.userId} initialStatus={s.status} />
-                        <AdminDeleteBtn userId={s.userId} />
-                      </Box>
-                    </TableCell>
                     <TableCell sx={{
+                      ...cellSx,
                       position: 'sticky', right: 0, zIndex: 1,
                       bgcolor: i % 2 === 0 ? '#111B38' : '#0F1A3D',
                       borderColor: C.border,
                       boxShadow: '-4px 0 8px -4px rgba(0,0,0,0.2)',
                     }}>
-                      <AdminKycDetail record={{
-                        id: s.id, userId: s.userId, wallet: s.wallet,
-                        fullName: s.fullName, docType: s.docType, icNumber: s.icNumber,
-                        dob: s.dob, gender: s.gender, nationality: s.nationality,
-                        phone: s.phone, email: s.email, addr1: s.addr1, addr2: s.addr2,
-                        postcode: s.postcode, city: s.city, state: s.state,
-                        employment: s.employment, income: s.income,
-                        purpose: s.purpose, fundSource: s.fundSource,
-                        hasFront: s.hasFront, hasBack: s.hasBack, hasSelfie: s.hasSelfie,
-                        status: s.status, submittedAt: s.submittedAt,
-                      }} />
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                        <AdminKycDetail record={{
+                          id: s.id, userId: s.userId, wallet: s.wallet,
+                          fullName: s.fullName, docType: s.docType, icNumber: s.icNumber,
+                          dob: s.dob, gender: s.gender, nationality: s.nationality,
+                          phone: s.phone, email: s.email, addr1: s.addr1, addr2: s.addr2,
+                          postcode: s.postcode, city: s.city, state: s.state,
+                          employment: s.employment, income: s.income,
+                          purpose: s.purpose, fundSource: s.fundSource,
+                          hasFront: s.hasFront, hasBack: s.hasBack, hasSelfie: s.hasSelfie,
+                          status: s.status, submittedAt: s.submittedAt,
+                        }} />
+                        <AdminApproveBtn userId={s.userId} initialStatus={s.status} />
+                        <AdminDeleteBtn userId={s.userId} />
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))}
