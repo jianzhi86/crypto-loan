@@ -18,8 +18,9 @@ import Alert from '@mui/material/Alert';
 import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
 
+import type { ComponentType } from 'react';
 import { TX_LABELS, TX_TYPES, TX_UNIT, formatTxAmount } from '@/lib/tx-query';
-import { LiveDot, SearchIcon } from '@/components/Icons';
+import { CartIcon, CashIcon, CheckCircleIcon, LiveDot, SearchIcon, TrayDownIcon, TrayUpIcon } from '@/components/Icons';
 
 interface Row {
   id: string; type: string; amount: string; wallet: string;
@@ -40,13 +41,28 @@ const TONE: Record<string, { bg: string; color: string }> = {
   MYRPurchased:        { bg: 'rgba(43,217,162,.12)',  color: C.green },
 };
 
-const TX_ICONS: Record<string, string> = {
-  CollateralDeposited: '⬇',
-  CollateralWithdrawn: '⬆',
-  Borrowed:            '💳',
-  Repaid:              '✅',
-  MYRPurchased:        '🏦',
+// Stroked SVGs, same set as the portfolio history — consistent, professional,
+// and they take the row's accent colour (emoji can do neither).
+const TX_ICONS: Record<string, ComponentType<{ size?: number; color?: string }>> = {
+  CollateralDeposited: TrayDownIcon,
+  CollateralWithdrawn: TrayUpIcon,
+  Borrowed:            CashIcon,
+  Repaid:              CheckCircleIcon,
+  MYRPurchased:        CartIcon,
 };
+
+// Shared chip renderer so the table and mobile cards stay identical.
+function TxTypeChip({ type, tone, height = 30 }: { type: string; tone: { bg: string; color: string }; height?: number }) {
+  const Icon = TX_ICONS[type];
+  return (
+    <Chip
+      icon={Icon ? <Box sx={{ display: 'flex', color: `${tone.color} !important`, ml: '8px !important' }}><Icon size={13} /></Box> : undefined}
+      label={TX_LABELS[type] ?? type}
+      sx={{ bgcolor: tone.bg, color: tone.color, fontWeight: 700, height, fontSize: 13, borderRadius: 1.5,
+            '& .MuiChip-label': { px: 1.25 } }}
+    />
+  );
+}
 
 /** "9 seconds ago" */
 function ago(iso: string, now: number): string {
@@ -82,6 +98,8 @@ export default function ExplorerContent() {
   const [from, setFrom] = useState('');
   const [to, setTo]     = useState('');
   const [page, setPage] = useState(1);
+  // Chronological by default — block #1 first, reading like a ledger.
+  const [order, setOrder] = useState<'asc' | 'desc'>('asc');
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -95,9 +113,10 @@ export default function ExplorerContent() {
     if (type) p.set('type', type);
     if (from) p.set('from', from);
     if (to) p.set('to', to);
+    p.set('order', order);
     p.set('page', String(page));
     return p.toString();
-  }, [q, type, from, to, page]);
+  }, [q, type, from, to, order, page]);
 
   const load = useCallback(() => {
     fetch(`/api/explorer?${query}`)
@@ -145,7 +164,7 @@ export default function ExplorerContent() {
             />
           </Box>
           <Typography variant="body2" sx={{ color: C.slate, mt: 0.75, maxWidth: 780, lineHeight: 1.7 }}>
-            Every loan action on the protocol, newest first. Wallet addresses are shortened —
+            Every loan action on the protocol, in chronological order. Wallet addresses are shortened —
             no personal information or KYC record is ever published here.
           </Typography>
         </Box>
@@ -182,12 +201,17 @@ export default function ExplorerContent() {
 
         {/* Filter bar */}
         <Card sx={{ p: 2.5, mb: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#111B38' }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '2fr 1.2fr 1fr 1fr auto' }, gap: 1.5, alignItems: 'center' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '2fr 1.2fr 1.2fr 1fr 1fr auto' }, gap: 1.5, alignItems: 'center' }}>
             <TextField sx={fieldSx} value={q} onChange={onFilter(setQ)}
               placeholder="Search wallet, tx hash or block…" />
             <TextField select label="Type" value={type} onChange={onFilter(setType)} sx={fieldSx}>
               <MenuItem value="">All types</MenuItem>
               {TX_TYPES.map(t => <MenuItem key={t} value={t}>{TX_LABELS[t]}</MenuItem>)}
+            </TextField>
+            <TextField select label="Order" value={order} sx={fieldSx}
+              onChange={e => { setOrder(e.target.value as 'asc' | 'desc'); setPage(1); }}>
+              <MenuItem value="asc">Oldest first</MenuItem>
+              <MenuItem value="desc">Newest first</MenuItem>
             </TextField>
             <TextField type="date" label="From" slotProps={{ inputLabel: { shrink: true } }}
               value={from} onChange={onFilter(setFrom)} sx={fieldSx} />
@@ -253,11 +277,7 @@ export default function ExplorerContent() {
                             #{t.blockNumber}
                           </TableCell>
                           <TableCell sx={{ borderColor: 'rgba(255,255,255,0.07)', whiteSpace: 'nowrap', py: 1.75, px: 2 }}>
-                            <Chip
-                              label={`${TX_ICONS[t.type] ?? ''} ${TX_LABELS[t.type] ?? t.type}`}
-                              sx={{ bgcolor: tone.bg, color: tone.color, fontWeight: 700, height: 30, fontSize: 13, borderRadius: 1.5,
-                                    '& .MuiChip-label': { px: 1.25 } }}
-                            />
+                            <TxTypeChip type={t.type} tone={tone} />
                           </TableCell>
                           <TableCell sx={{ fontSize: 15, fontWeight: 700, color: C.ink, borderColor: 'rgba(255,255,255,0.07)', whiteSpace: 'nowrap', py: 1.75, px: 2 }}>
                             {formatTxAmount(t.type, t.amount)}{' '}
@@ -296,11 +316,7 @@ export default function ExplorerContent() {
                   }}>
                     {/* Row 1: type chip + time + block */}
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25 }}>
-                      <Chip
-                        label={`${TX_ICONS[t.type] ?? ''} ${TX_LABELS[t.type] ?? t.type}`}
-                        sx={{ bgcolor: tone.bg, color: tone.color, fontWeight: 700, height: 28, fontSize: 13, borderRadius: 1.5,
-                              '& .MuiChip-label': { px: 1.25 } }}
-                      />
+                      <TxTypeChip type={t.type} tone={tone} height={28} />
                       <Box sx={{ textAlign: 'right' }}>
                         <Typography sx={{ fontSize: 13, color: C.muted }}>{ago(t.createdAt, now)}</Typography>
                         <Typography sx={{ fontSize: 12, fontFamily: 'monospace', color: C.blue, fontWeight: 600 }}>#{t.blockNumber}</Typography>

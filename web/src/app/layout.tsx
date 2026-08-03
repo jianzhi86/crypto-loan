@@ -6,6 +6,7 @@ import { FeatureProvider } from "@/lib/FeatureContext";
 import { AuthProvider } from "@/lib/AuthContext";
 import { ViewerProvider } from "@/lib/ViewerContext";
 import TxToast from "@/components/TxToast";
+import TxReceiptDialog from "@/components/TxReceiptDialog";
 import MuiProvider from "@/components/MuiProvider";
 import SmoothScrollProvider from "@/components/SmoothScrollProvider";
 import MaintenanceDialog from "@/components/MaintenanceDialog";
@@ -114,6 +115,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <SiteMaintenanceGate />
               )}
               <TxToast />
+              <TxReceiptDialog />
             </WalletProvider>
             </AuthProvider>
             </ViewerProvider>

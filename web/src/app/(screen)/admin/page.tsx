@@ -7,7 +7,7 @@ import Typography from '@mui/material/Typography';
 import { prisma } from '@/lib/db/prisma';
 import { getFlags } from '@/lib/features-server';
 import { FLAGS, ON } from '@/lib/features';
-import { AdminSyncPriceBtn } from '@/components/AdminSyncPriceBtn';
+import { AdminAutoSync } from '@/components/AdminAutoSync';
 import { ShieldIcon } from '@/components/Icons';
 import { Badge, C, type Tone } from '@/components/admin/ui';
 
@@ -66,7 +66,7 @@ export default async function AdminOverviewPage() {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
-            <AdminSyncPriceBtn />
+            <AdminAutoSync />
           </Box>
         </Box>
 

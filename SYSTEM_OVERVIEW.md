@@ -25,7 +25,7 @@ flowchart LR
 
 ## Smart contracts (`blockchain/contracts/`)
 
-**`CryptoLoan.sol`** — the core protocol. Key parameters: **70% max LTV**, **80% liquidation threshold**, **5% liquidator bonus**, **4.8% APR** interest (accrued linearly since last repayment). It deploys its own `MockMYR` token and holds the ETH/MYR price on-chain (owner-updated, sanity-capped at ±20% per move).
+**`CryptoLoan.sol`** — the core protocol. Key parameters: **70% max LTV**, **80% liquidation threshold**, **5% liquidator bonus**, **variable APR** (`currentAprBps()`: 3% base + up to 4% utilization premium + up to 3% volatility premium; accrued linearly since last repayment). It deploys its own `MockMYR` token and holds the ETH/MYR price on-chain (owner-updated, sanity-capped at ±20% per move).
 
 | Function | Who | What |
 |---|---|---|

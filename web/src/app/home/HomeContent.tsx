@@ -39,12 +39,12 @@ const STATEMENT = [
   { label: 'Total value locked', value: 'RM 24,180,000', note: 'across all collateral' },
   { label: 'Active loans', value: '1,842', note: 'borrowing right now' },
   { label: 'Total borrowed', value: 'RM 14,420,000', note: '59.6% utilised' },
-  { label: 'Base borrow rate', value: '4.80% APR', note: 'ETH collateral' },
+  { label: 'Base borrow rate', value: 'From 3.00% APR', note: 'Variable · ETH collateral' },
 ];
 
 const FEATURES = [
   { icon: <LockIcon size={22} />, title: 'Keep your crypto', body: 'Borrow against ETH, BTC, SOL and more — your collateral is never sold, so you keep all the upside.' },
-  { icon: <TrendDownIcon size={22} />, title: 'Rates from 4.8% APR', body: 'Transparent, competitive interest with no hidden fees. Pay only for the days you borrow.' },
+  { icon: <TrendDownIcon size={22} />, title: 'Rates from 3.0% APR', body: 'Variable rates that track market conditions, with no hidden fees. Pay only for the days you borrow.' },
   { icon: <BoltIcon size={22} />, title: 'No credit checks', body: 'Your crypto is your credit. Get an instant decision based on collateral, not paperwork or a credit score.' },
   { icon: <BankIcon size={22} />, title: 'Instant MYR via DuitNow', body: 'Receive Malaysian Ringgit straight to your bank account through DuitNow, or take it as MYRC tokens.' },
   { icon: <ShieldIcon size={22} />, title: 'Non-custodial escrow', body: 'Collateral is locked in audited smart contracts — not held by a company. You stay in control on-chain.' },
@@ -152,7 +152,7 @@ export default function HomeContent() {
 
                   <Box sx={{ display: 'flex', gap: { xs: 3, md: 4 }, flexWrap: 'wrap' }}>
                     {[
-                      { k: '4.8%', v: 'APR from' },
+                      { k: '3.0%', v: 'APR from' },
                       { k: '70%', v: 'Max LTV' },
                       { k: '9+', v: 'Assets' },
                     ].map((s) => (

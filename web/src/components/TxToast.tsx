@@ -76,6 +76,9 @@ export default function TxToast() {
   }, [wallet.txStatus, remaining]);
 
   if (wallet.txStatus === 'idle') return null;
+  // A success that produced a receipt is celebrated by the receipt dialog —
+  // showing the toast underneath it would be the same news twice.
+  if (wallet.txStatus === 'success' && wallet.lastReceipt) return null;
 
   const isPending = wallet.txStatus === 'pending';
   const isSuccess = wallet.txStatus === 'success';

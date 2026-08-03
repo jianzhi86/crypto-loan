@@ -34,7 +34,6 @@ const TRANSFER_STATUS: Record<string, { label: string; color: string; bg: string
   FAILED:     { label: 'Failed',     color: '#E5484D', bg: 'rgba(229,72,77,0.1)'   },
 };
 
-const APR       = 4.8;
 const ORIG_FEE  = 0.001;
 const MAX_LTV   = 70;
 const LIQ_THRES = 80;
@@ -63,6 +62,9 @@ function RowSkeleton() {
 export default function PortfolioPage() {
   const wallet     = useWallet();
   const { prices } = usePrices();
+  // Live variable borrow rate from the contract (falls back to 4.8% until the
+  // redeployed contract is on-chain).
+  const APR        = wallet.borrowAprBps / 100;
   const isLive     = wallet.isConnected && wallet.isCorrectNetwork && wallet.isDeployed;
   const { events: txHistory, loading: txLoading } = useTransactionHistory(isLive ? wallet.address ?? undefined : undefined);
 

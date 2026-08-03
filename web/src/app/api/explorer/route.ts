@@ -30,6 +30,9 @@ export async function GET(req: NextRequest) {
   const filters = parseTxFilters(sp);
   const page    = Math.max(1, Number(sp.get('page') ?? 1) || 1);
   const pageSize = Math.min(100, Math.max(10, Number(sp.get('pageSize') ?? 25) || 25));
+  // Chronological (oldest first) by default — reads like a ledger; the UI
+  // offers newest-first as an option.
+  const order: 'asc' | 'desc' = sp.get('order') === 'desc' ? 'desc' : 'asc';
 
   const where = buildTxWhere(filters);
 
@@ -38,7 +41,7 @@ export async function GET(req: NextRequest) {
       prisma.loanTransaction.count({ where }),
       prisma.loanTransaction.findMany({
         where,
-        orderBy: [{ blockNumber: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [{ blockNumber: order }, { createdAt: order }],
         skip: (page - 1) * pageSize,
         take: pageSize,
         select: { id: true, wallet: true, type: true, amount: true, txHash: true, blockNumber: true, createdAt: true },

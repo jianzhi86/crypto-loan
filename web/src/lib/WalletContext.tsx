@@ -28,6 +28,17 @@ declare global {
 
 export type TxStatus = 'idle' | 'pending' | 'success' | 'error';
 
+// A completed action's receipt — everything the user needs to reference the
+// transaction later: what happened, the exact amounts, and the on-chain hash.
+export interface TxReceipt {
+  action: 'deposit' | 'withdraw' | 'borrow' | 'repay' | 'buy' | 'transfer';
+  title: string;
+  amountLabel: string;
+  lines: { label: string; value: string }[];
+  txHash: string;
+  timestamp: number;
+}
+
 export interface LoanInfo {
   collateral: bigint;
   borrowed: bigint;
@@ -79,6 +90,7 @@ export interface WalletState {
   txMessage: string;
   txStep: number;
   txTotalSteps: number;
+  lastReceipt: TxReceipt | null;
   // Yield system (requires redeployed contract)
   borrowAprBps: number;
   supplyAprBps: number;
@@ -108,6 +120,7 @@ const INIT: WalletState = {
   isConnecting: false,
   txStatus: 'idle', txMessage: '',
   txStep: 1, txTotalSteps: 1,
+  lastReceipt: null,
   borrowAprBps: 480, supplyAprBps: 0, utilizationRate: 0, pendingYieldMYR: 0,
 };
 
@@ -225,11 +238,12 @@ interface WalletCtx extends WalletState {
   borrow: (myr: string) => Promise<boolean>;
   buyMYR: (myr: string) => Promise<void>;
   transferMYR: (myr: string, to: string) => Promise<boolean>;
-  repay: (myr: string) => Promise<void>;
+  repay: (myr: string, opts?: { full?: boolean }) => Promise<void>;
   withdrawCollateral: (eth: string) => Promise<void>;
   addTokenToWallet: () => Promise<void>;
   refresh: () => Promise<void>;
   clearTx: () => void;
+  clearReceipt: () => void;
 }
 
 const Ctx = createContext<WalletCtx | null>(null);
@@ -264,6 +278,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const setTx = (status: TxStatus, msg: string, step = 1, totalSteps = 1) =>
     setS(p => ({ ...p, txStatus: status, txMessage: msg, txStep: step, txTotalSteps: totalSteps }));
+
+  const setReceipt = (r: Omit<TxReceipt, 'timestamp'>) =>
+    setS(p => ({ ...p, lastReceipt: { ...r, timestamp: Date.now() } }));
 
   // Every state-changing operation runs through the account's LINKED wallet.
   // The "connected" MetaMask session is an internal detail the user never
@@ -340,12 +357,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // Wrap each call in .then() so that "not a function" TypeErrors (contract
       // not yet redeployed — function absent from ABI) become rejections rather
       // than synchronous throws, which would escape Promise.allSettled entirely.
-      const [aprBpsResult, protStatsResult, pendYieldResult] = await Promise.allSettled([
+      const [aprLiveResult, aprLegacyResult, protStatsResult, pendYieldResult] = await Promise.allSettled([
+        // Variable rate (utilization + volatility) on the current contract;
+        // the fixed BORROW_APR_BPS constant is the pre-redeploy fallback.
+        Promise.resolve().then(() => c.loan.currentAprBps()),
         Promise.resolve().then(() => c.loan.BORROW_APR_BPS()),
         Promise.resolve().then(() => c.loan.getProtocolStats()),
         Promise.resolve().then(() => c.loan.pendingYield(address)),
       ]);
-      const aprBps    = aprBpsResult.status    === 'fulfilled' ? aprBpsResult.value    : BigInt(480);
+      const aprBps    = aprLiveResult.status   === 'fulfilled' ? aprLiveResult.value
+                      : aprLegacyResult.status === 'fulfilled' ? aprLegacyResult.value : BigInt(480);
       const protStats = protStatsResult.status === 'fulfilled' ? protStatsResult.value : [BigInt(0), BigInt(0), BigInt(0), BigInt(0), BigInt(0)];
       const pendYield = pendYieldResult.status === 'fulfilled' ? pendYieldResult.value : BigInt(0);
       const borrowAprBps = Number(aprBps as bigint);
@@ -524,12 +545,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const receipt = await tx.wait();
       if (receipt && s.address) saveTxToDB(s.address, 'CollateralDeposited', ethers.parseEther(ethAmt).toString(), receipt);
       setTx('success', `Deposited ${ethAmt} ETH as collateral`);
+      if (receipt) {
+        setReceipt({
+          action: 'deposit',
+          title: 'Collateral Deposited',
+          amountLabel: `${ethAmt} ETH`,
+          lines: [
+            { label: 'Value (on-chain price)', value: `≈ RM ${(parseFloat(ethAmt) * s.ethPriceMYR).toLocaleString('en-MY', { maximumFractionDigits: 0 })}` },
+            { label: 'New credit line (70% LTV)', value: `up to RM ${(parseFloat(ethAmt) * s.ethPriceMYR * 0.7).toLocaleString('en-MY', { maximumFractionDigits: 0 })} more` },
+          ],
+          txHash: receipt.hash,
+        });
+      }
       await refresh(s.address);
     } catch (e) {
       const reason = revertReason(e);
       setTx('error', reason ? `Deposit failed: ${reason}` : 'Deposit failed');
     }
-  }, [getContracts, s.address, refresh, guardTx]);
+  }, [getContracts, s.address, s.ethPriceMYR, refresh, guardTx]);
 
   const borrow = useCallback(async (myrAmt: string): Promise<boolean> => {
     if (!guardTx()) return false;
@@ -542,6 +575,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const receipt = await tx.wait();
       if (receipt && s.address) saveTxToDB(s.address, 'Borrowed', units.toString(), receipt);
       setTx('success', `Borrowed RM ${myrAmt}`);
+      if (receipt) {
+        setReceipt({
+          action: 'borrow',
+          title: 'Loan Disbursed',
+          amountLabel: `RM ${parseFloat(myrAmt).toFixed(2)}`,
+          lines: [
+            { label: 'Interest rate', value: `${(s.borrowAprBps / 100).toFixed(2)}% APR (variable)` },
+            { label: 'Delivered as', value: 'MYR tokens to your wallet' },
+            { label: 'Repay anytime', value: 'No penalties or lock-in' },
+          ],
+          txHash: receipt.hash,
+        });
+      }
       await refresh(s.address);
       return true;
     } catch (e) {
@@ -557,7 +603,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (reason === 'KYC required' && s.address) void resyncKyc(s.address);
       return false;
     }
-  }, [getContracts, s.address, refresh, resyncKyc, guardTx]);
+  }, [getContracts, s.address, s.borrowAprBps, refresh, resyncKyc, guardTx]);
 
   const buyMYR = useCallback(async (myrAmt: string) => {
     if (!guardTx()) return;
@@ -575,6 +621,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const receipt = await tx.wait();
       if (receipt && s.address) saveTxToDB(s.address, 'MYRPurchased', units.toString(), receipt);
       setTx('success', `Bought RM ${myrAmt} MYR`);
+      if (receipt) {
+        setReceipt({
+          action: 'buy',
+          title: 'MYR Purchased',
+          amountLabel: `RM ${parseFloat(myrAmt).toFixed(2)}`,
+          lines: [
+            { label: 'Paid with', value: `≈ ${ethers.formatEther(ethNeeded)} ETH` },
+            { label: 'Rate (on-chain)', value: `RM ${s.ethPriceMYR.toLocaleString()}/ETH` },
+          ],
+          txHash: receipt.hash,
+        });
+      }
       await refresh(s.address);
     } catch (e) {
       const reason = revertReason(e);
@@ -590,27 +648,79 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
       const tx = await (c.myr.transfer as (to: string, amount: bigint) => Promise<ethers.TransactionResponse>)(to, units);
-      await tx.wait();
+      const receipt = await tx.wait();
       setTx('success', `RM ${myrAmt} transferred on-chain to bank wallet`);
+      if (receipt) {
+        setReceipt({
+          action: 'transfer',
+          title: 'Transfer Sent',
+          amountLabel: `RM ${parseFloat(myrAmt).toFixed(2)}`,
+          lines: [{ label: 'Recipient', value: `${to.slice(0, 6)}…${to.slice(-4)}` }],
+          txHash: receipt.hash,
+        });
+      }
       await refresh(s.address);
       return true;
     } catch { setTx('error', 'Transfer failed'); return false; }
   }, [getContracts, s.address, refresh, guardTx]);
 
-  const repay = useCallback(async (myrAmt: string) => {
+  const repay = useCallback(async (myrAmt: string, opts?: { full?: boolean }) => {
     if (!guardTx()) return;
     const c = await getContracts(true);
     if (!c || !s.address) return;
     setTx('pending', 'Approving MYR spend…', 1, 2);
     try {
-      const units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
+      let units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
+      if (opts?.full) {
+        // Full payoff: interest accrues every second, so the amount quoted in
+        // the UI is already stale by the time both MetaMask confirmations are
+        // signed — repaying that exact figure left a few ringgit of debt
+        // behind. repay() only ever pulls min(amount, actual debt), so ask the
+        // contract for a fresh payoff quote and add headroom for the minutes
+        // the user spends signing; the excess is never charged.
+        const due = await (c.loan.totalDue as (a: string) => Promise<bigint>)(s.address);
+        units = due + due / BigInt(500) + BigInt(1_000_000); // +0.2% + RM 1 headroom
+      }
       const approveTx = await c.myr.approve(CONTRACT_ADDRESSES.CryptoLoan, units);
       await approveTx.wait();
       setTx('pending', `Repaying RM ${myrAmt}…`, 2, 2);
       const repayTx = await c.loan.repay(units);
-      const repayReceipt = await repayTx.wait();
-      if (repayReceipt && s.address) saveTxToDB(s.address, 'Repaid', units.toString(), repayReceipt);
-      setTx('success', `Repaid RM ${myrAmt}`, 2, 2);
+      const repayReceipt: ethers.TransactionReceipt | null = await repayTx.wait();
+      // The Repaid event carries what was actually charged — principal and
+      // interest split — which can differ slightly from the requested amount.
+      let principalPaid = 0, interestPaid = 0;
+      try {
+        const parsed = (repayReceipt?.logs ?? [])
+          .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } })
+          .find(p => p?.name === 'Repaid');
+        if (parsed) {
+          principalPaid = Number(parsed.args[1] as bigint) / 1e6;
+          interestPaid  = Number(parsed.args[2] as bigint) / 1e6;
+        }
+      } catch { /* event decode is best-effort */ }
+      const totalPaid = principalPaid + interestPaid;
+      const paidLabel = totalPaid > 0 ? totalPaid.toFixed(2) : parseFloat(myrAmt).toFixed(2);
+      if (repayReceipt && s.address) {
+        saveTxToDB(s.address, 'Repaid',
+          totalPaid > 0 ? BigInt(Math.round(principalPaid * 1e6)).toString() : units.toString(),
+          repayReceipt);
+      }
+      setTx('success', opts?.full
+        ? `Loan fully repaid (RM ${paidLabel}) — collateral unlocked`
+        : `Repaid RM ${paidLabel}`, 2, 2);
+      if (repayReceipt) {
+        setReceipt({
+          action: 'repay',
+          title: opts?.full ? 'Loan Fully Repaid' : 'Repayment Successful',
+          amountLabel: `RM ${paidLabel}`,
+          lines: [
+            { label: 'Principal repaid', value: `RM ${principalPaid.toFixed(2)}` },
+            { label: 'Interest paid',    value: `RM ${interestPaid.toFixed(4)}` },
+            ...(opts?.full ? [{ label: 'Collateral', value: 'Unlocked — withdraw anytime' }] : []),
+          ],
+          txHash: repayReceipt.hash,
+        });
+      }
       await refresh(s.address);
     } catch (e) {
       const reason = revertReason(e);
@@ -628,12 +738,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const receipt = await tx.wait();
       if (receipt && s.address) saveTxToDB(s.address, 'CollateralWithdrawn', ethers.parseEther(ethAmt).toString(), receipt);
       setTx('success', `Withdrawn ${ethAmt} ETH`);
+      if (receipt) {
+        setReceipt({
+          action: 'withdraw',
+          title: 'Collateral Withdrawn',
+          amountLabel: `${ethAmt} ETH`,
+          lines: [
+            { label: 'Sent to', value: `${s.address.slice(0, 6)}…${s.address.slice(-4)}` },
+            { label: 'Value (on-chain price)', value: `≈ RM ${(parseFloat(ethAmt) * s.ethPriceMYR).toLocaleString('en-MY', { maximumFractionDigits: 0 })}` },
+          ],
+          txHash: receipt.hash,
+        });
+      }
       await refresh(s.address);
     } catch (e) {
       const reason = revertReason(e);
       setTx('error', reason ? `Withdraw failed: ${reason}` : 'Withdraw failed — would violate LTV');
     }
-  }, [getContracts, s.address, refresh, guardTx]);
+  }, [getContracts, s.address, s.ethPriceMYR, refresh, guardTx]);
 
   // Prompt MetaMask to import the MockMYR token so the borrowed balance is
   // visible in the wallet (ERC-20s don't show up automatically).
@@ -836,6 +958,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     addTokenToWallet,
     refresh: () => s.address ? refresh(s.address) : Promise.resolve(),
     clearTx: () => setS(p => ({ ...p, txStatus: 'idle', txMessage: '' })),
+    clearReceipt: () => setS(p => ({ ...p, lastReceipt: null })),
   };
 
   return (

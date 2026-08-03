@@ -205,10 +205,15 @@ describe("CryptoLoan", function () {
       expect(info.startTime).to.equal(0n);
     });
 
-    it("accrues interest over 1 year", async () => {
+    it("accrues interest over 1 year at the live variable rate", async () => {
       await time.increase(365 * 24 * 3600);
+      const aprBps = await loan.currentAprBps();
+      // Variable rate = 3% base + utilization/volatility premiums; must sit
+      // inside the formula's designed band.
+      expect(aprBps).to.be.gte(300n);
+      expect(aprBps).to.be.lte(1000n);
       const interest = await loan.accruedInterest(user.address);
-      const expected = (borrowed * 480n) / 10_000n;
+      const expected = (borrowed * aprBps) / 10_000n;
       expect(interest).to.be.closeTo(expected, expected / 100n);
     });
 

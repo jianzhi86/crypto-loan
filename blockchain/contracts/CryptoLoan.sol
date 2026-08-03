@@ -14,14 +14,21 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     uint256 public constant MAX_LTV          = 70;   // 70% max loan-to-value
     uint256 public constant LIQ_THRESHOLD    = 80;   // 80% liquidation trigger
     uint256 public constant LIQ_BONUS        = 5;    // 5% bonus for liquidators
-    uint256 public constant BORROW_APR_BPS   = 480;  // 4.8% APR base rate
     uint256 public constant MIN_HEALTH       = 1e18; // HF below this = liquidatable
     uint256 public constant PRECISION        = 1e18;
     uint256 public constant MYR_DECIMALS     = 1e6;
     uint256 public constant MAX_PRICE_CHANGE = 20;   // max 20% price move per update
 
+    // Variable borrow rate, bank-style: a base rate plus premiums that move
+    // with market conditions. APR = BASE + utilization premium + volatility
+    // premium — see currentAprBps().
+    uint256 public constant BASE_APR_BPS     = 300;  // 3.0% floor
+    uint256 public constant UTIL_SLOPE_BPS   = 400;  // up to +4.0% as lending capacity fills
+    uint256 public constant VOL_SLOPE_BPS    = 300;  // up to +3.0% on a max (20%) ETH/MYR move
+
     // ── State ──────────────────────────────────────────────────────────────
     uint256 public ethPrice;       // MYR per ETH (whole number, e.g. 18000)
+    uint256 public prevEthPrice;   // price before the last update (volatility input)
     uint256 public lastPriceTime;  // last price update timestamp
     uint256 public protocolFees;   // accumulated interest revenue (MYR units)
     uint256 public totalBorrowed;  // protocol-wide outstanding debt (MYR units)
@@ -92,6 +99,7 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
             uint256 diff = _price > old ? _price - old : old - _price;
             require(diff * 100 / old <= MAX_PRICE_CHANGE, "Price move too large");
         }
+        prevEthPrice  = old;
         ethPrice      = _price;
         lastPriceTime = block.timestamp;
         emit PriceUpdated(old, _price, msg.sender);
@@ -264,11 +272,42 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
 
     // ── Views ───────────────────────────────────────────────────────────────
 
+    /// @notice The live borrow APR in basis points. Bank-style variable rate:
+    ///         BASE_APR_BPS floor
+    ///         + utilization premium — rises as outstanding debt fills the
+    ///           protocol's lending capacity (MAX_LTV of all collateral value)
+    ///         + volatility premium — rises with the size of the last ETH/MYR
+    ///           price move (a turbulent market makes lending riskier).
+    function currentAprBps() public view returns (uint256) {
+        uint256 apr = BASE_APR_BPS;
+
+        uint256 capacity = (totalCollateral * ethPrice * MAX_LTV * MYR_DECIMALS) / (PRECISION * 100);
+        if (capacity > 0) {
+            uint256 utilBps = totalBorrowed >= capacity
+                ? 10_000
+                : (totalBorrowed * 10_000) / capacity;
+            apr += (UTIL_SLOPE_BPS * utilBps) / 10_000;
+        }
+
+        if (prevEthPrice > 0) {
+            uint256 diff = ethPrice > prevEthPrice ? ethPrice - prevEthPrice : prevEthPrice - ethPrice;
+            uint256 movePct = (diff * 100) / prevEthPrice;
+            if (movePct > MAX_PRICE_CHANGE) movePct = MAX_PRICE_CHANGE;
+            apr += (VOL_SLOPE_BPS * movePct) / MAX_PRICE_CHANGE;
+        }
+
+        return apr;
+    }
+
+    /// @dev Interest accrues at the CURRENT rate over the whole elapsed period
+    ///      — a demo-grade simplification (production protocols index each
+    ///      rate change). The rate only moves with utilization and price
+    ///      updates, so the error window is small.
     function accruedInterest(address user) public view returns (uint256) {
         Loan storage loan = loans[user];
         if (loan.principal == 0 || loan.startTime == 0) return 0;
         uint256 elapsed = block.timestamp - loan.lastRepayTime;
-        return (loan.principal * BORROW_APR_BPS * elapsed) / (10_000 * 365 days);
+        return (loan.principal * currentAprBps() * elapsed) / (10_000 * 365 days);
     }
 
     function totalDue(address user) public view returns (uint256) {

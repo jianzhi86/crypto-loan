@@ -18,7 +18,10 @@ import LinearProgress from '@mui/material/LinearProgress';
 import MuiSkeleton from '@mui/material/Skeleton';
 import Tooltip from '@mui/material/Tooltip';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
-import { SolanaIcon } from '@/components/Icons';
+import { useSparklines } from '@/hooks/useSparklines';
+import Sparkline from '@/components/Sparkline';
+import { dynamicApr } from '@/lib/rates';
+import { BankIcon, CashIcon, CoinIcon, SolanaIcon, TrendUpIcon } from '@/components/Icons';
 
 const MARKETS = [
   { symbol: 'BTC',   name: 'Bitcoin',   icon: '₿', color: '#F7931A', id: 'bitcoin',     supplyAPR: 2.1, borrowAPR: 5.2, maxLTV: 70, liqThresh: 80, liquidity: 'RM 11.2B', totalBorrowed: 'RM 7.8B',  util: 70 },
@@ -46,6 +49,7 @@ const RISK_FILTERS: { id: RiskFilter; label: string; desc: string }[] = [
 
 export default function MarketsPage() {
   const { prices, loading, lastUpdated, flash } = usePrices();
+  const sparklines = useSparklines();
   const [search,    setSearch]    = useState('');
   const [sortKey,   setSortKey]   = useState<SortKey>(null);
   const [sortDir,   setSortDir]   = useState<SortDir>('desc');
@@ -56,6 +60,10 @@ export default function MarketsPage() {
     const key = SYMBOL_TO_ID[m.symbol];
     return key ? prices[key] : { myr: 0, usd: 0, change24h: 0 };
   };
+
+  // Variable borrow APR — the listed base rate plus a live risk premium from
+  // the asset's 24h market move (see lib/rates.ts).
+  const getApr = (m: typeof MARKETS[0]) => dynamicApr(m.borrowAPR, getPrice(m).change24h);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -84,7 +92,7 @@ export default function MarketsPage() {
       if (sortKey === 'price')     { va = getPrice(a).myr;        vb = getPrice(b).myr; }
       if (sortKey === 'change')    { va = getPrice(a).change24h;   vb = getPrice(b).change24h; }
       if (sortKey === 'maxLTV')    { va = a.maxLTV;    vb = b.maxLTV; }
-      if (sortKey === 'borrowAPR') { va = a.borrowAPR; vb = b.borrowAPR; }
+      if (sortKey === 'borrowAPR') { va = getApr(a);   vb = getApr(b); }
       if (sortKey === 'supplyAPR') { va = a.supplyAPR; vb = b.supplyAPR; }
       if (sortKey === 'util')      { va = a.util;      vb = b.util; }
       return sortDir === 'asc' ? va - vb : vb - va;
@@ -157,10 +165,14 @@ export default function MarketsPage() {
         {/* Market stats */}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, 1fr)' }, gap: 2, mb: 3 }}>
           {[
-            { label: 'Total Value Locked', value: 'RM 28.3B', sub: 'Across all assets',  icon: '🏦', c: '#2BD9A2', bc: '#2BD9A2' },
-            { label: 'Total Borrowed',     value: 'RM 17.5B', sub: '61.8% utilisation',   icon: '💸', c: '#FFB224', bc: '#FFB224' },
-            { label: 'Avg Borrow APR',     value: '7.1%',      sub: 'Weighted average',    icon: '📈', c: '#E5484D', bc: '#E5484D' },
-            { label: 'Avg Supply APR',     value: '3.9%',      sub: 'Weighted average',    icon: '💰', c: '#2BD9A2', bc: '#2BD9A2' },
+            { label: 'Total Value Locked', value: 'RM 28.3B', sub: 'Across all assets',  icon: <BankIcon size={15} />, c: '#2BD9A2', bc: '#2BD9A2' },
+            { label: 'Total Borrowed',     value: 'RM 17.5B', sub: '61.8% utilisation',   icon: <CashIcon size={15} />, c: '#FFB224', bc: '#FFB224' },
+            {
+              label: 'Avg Borrow APR',
+              value: loading ? '…' : `${(MARKETS.reduce((sum, m) => sum + getApr(m), 0) / MARKETS.length).toFixed(1)}%`,
+              sub: 'Variable · live average', icon: <TrendUpIcon size={15} />, c: '#E5484D', bc: '#E5484D',
+            },
+            { label: 'Avg Supply APR',     value: '3.9%',      sub: 'Weighted average',    icon: <CoinIcon size={15} />, c: '#2BD9A2', bc: '#2BD9A2' },
           ].map(s => (
             <Paper key={s.label} sx={{
               p: 2, bgcolor: '#111B38', borderRadius: 2,
@@ -170,7 +182,7 @@ export default function MarketsPage() {
               '&:hover': { transform: 'translateY(-2px)', boxShadow: `0 8px 24px ${s.bc}18` },
             }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
-                <Typography sx={{ fontSize: 15 }}>{s.icon}</Typography>
+                <Box sx={{ display: 'flex', color: s.bc }}>{s.icon}</Box>
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>{s.label}</Typography>
               </Box>
               <Typography variant="h5" color="text.primary" sx={{ my: 0.25, fontWeight: 700, fontSize: { xs: 18, sm: 22 } }}>{s.value}</Typography>
@@ -331,11 +343,16 @@ export default function MarketsPage() {
 
                       <TableCell sx={{ borderColor: 'rgba(255,255,255,0.07)' }}>
                         {loading ? (
-                          <MuiSkeleton width={52} height={20} sx={{ bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 999 }} />
+                          <MuiSkeleton width={72} height={24} sx={{ bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 1 }} />
                         ) : (
-                          <Chip label={`${p.change24h >= 0 ? '+' : ''}${p.change24h.toFixed(2)}%`} size="small"
-                            sx={{ bgcolor: p.change24h >= 0 ? '#2BD9A220' : '#E5484D20',
-                                  color: p.change24h >= 0 ? '#2BD9A2' : '#E5484D', fontSize: 11, fontWeight: 700, height: 20 }} />
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                            <Sparkline points={sparklines[SYMBOL_TO_ID[m.symbol]] ?? []} up={p.change24h >= 0} width={80} height={26} />
+                            <Typography variant="caption" sx={{
+                              color: p.change24h >= 0 ? '#2BD9A2' : '#E5484D', fontWeight: 700, fontSize: 10.5, lineHeight: 1,
+                            }}>
+                              {p.change24h >= 0 ? '+' : ''}{p.change24h.toFixed(2)}%
+                            </Typography>
+                          </Box>
                         )}
                       </TableCell>
 
@@ -346,7 +363,8 @@ export default function MarketsPage() {
                       </TableCell>
 
                       <TableCell sx={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-                        <Chip label={`${m.borrowAPR}%`} size="small"
+                        <Chip label={`${getApr(m).toFixed(2)}%`} size="small"
+                          title="Variable rate — base rate plus a live market-risk premium"
                           sx={{ bgcolor: '#E5484D20', color: '#E5484D', fontSize: 11, fontWeight: 700, height: 20 }} />
                       </TableCell>
 
@@ -434,7 +452,7 @@ export default function MarketsPage() {
                     {[
                       { label: 'Max LTV',    value: `${m.maxLTV}%`,    vc: '#6E8BFF' },
                       { label: 'Liq. Thresh',value: `${m.liqThresh}%`, vc: 'rgba(255,255,255,0.55)' },
-                      { label: 'Borrow APR', value: `${m.borrowAPR}%`, vc: '#E5484D' },
+                      { label: 'Borrow APR', value: `${getApr(m).toFixed(2)}%`, vc: '#E5484D' },
                       { label: 'Supply APR', value: `${m.supplyAPR}%`, vc: '#2BD9A2' },
                     ].map(s => (
                       <Box key={s.label} sx={{ bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 1.5, p: 1 }}>

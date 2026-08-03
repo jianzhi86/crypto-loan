@@ -277,7 +277,7 @@ export default function DocsPage() {
                   </svg>
                 ),
               },
-              { label: 'Annual Interest',      value: '4.8% APR',      color: C.gold, grad: GRAD.gold, icon: <TrendUpIcon size={18} /> },
+              { label: 'Annual Interest',      value: '3–10% variable', color: C.gold, grad: GRAD.gold, icon: <TrendUpIcon size={18} /> },
               { label: 'Liq. Threshold',       value: '80% LTV',       color: C.red,   grad: GRAD.red,  icon: <AlertIcon size={18} />     },
               { label: 'Origination Fee',      value: '0.1%',          color: C.slate, grad: GRAD.teal, icon: <CashIcon size={18} />      },
               { label: 'Loan Term',            value: '90 days',       color: C.slate, grad: GRAD.blue, icon: <ClockIcon size={18} />     },
@@ -422,12 +422,15 @@ Example (ETH price = RM 18,000):
               origination fee on new borrows and a variable APR on the outstanding principal.
             </P>
             <CodeTable />
-            <CodeBlock>{`Daily interest   = Principal × (4.8% ÷ 365)
-Accrued interest = Daily interest × days elapsed
+            <CodeBlock>{`Variable APR = 3.0% base
+             + up to 4.0% utilization premium (how full the lending pool is)
+             + up to 3.0% volatility premium  (size of the last ETH/MYR move)
 
+Daily interest   = Principal × (APR ÷ 365)
+Accrued interest = Daily interest × days elapsed
 Repay amount today = Principal + accrued interest
 
-Example (RM 10,000 borrowed for 30 days):
+Example (RM 10,000 borrowed for 30 days at 4.8% APR):
   Daily interest   = 10,000 × (0.048 ÷ 365) ≈ RM 1.315 / day
   After 30 days    = 10,000 + (1.315 × 30)   ≈ RM 10,039.45`}</CodeBlock>
             <Alert severity="info" sx={{ borderRadius: 2, fontSize: 13 }}>
@@ -574,7 +577,7 @@ function CodeTable() {
         </TableHead>
         <TableBody>
           {[
-            ['Annual Interest (APR)',  '4.8%',     'Accrues continuously on borrowed principal'],
+            ['Annual Interest (APR)',  '3–10% variable', 'Base 3% + utilization & volatility premiums; accrues continuously'],
             ['Origination Fee',        '0.1%',     'Charged once when a borrow is issued'],
             ['Liquidation Penalty',    '10%',      'Applied to collateral seized during liquidation'],
             ['Repayment',             'None',      'No early repayment or prepayment penalty'],

@@ -2,8 +2,7 @@ import { prisma } from '@/lib/db/prisma';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
-import { AdminResyncAllBtn } from '@/components/AdminResyncAllBtn';
-import { AdminSyncPriceBtn } from '@/components/AdminSyncPriceBtn';
+import { AdminAutoSync } from '@/components/AdminAutoSync';
 import { AdminAutoRefresh } from '@/components/AdminAutoRefresh';
 import { Badge, C, PageHeader } from '@/components/admin/ui';
 import KycTableClient, { type KycRow } from '@/components/admin/KycTableClient';
@@ -46,8 +45,7 @@ export default async function AdminKycPage() {
                   title="Submissions waiting for review"
                 />
               )}
-              <AdminResyncAllBtn />
-              <AdminSyncPriceBtn />
+              <AdminAutoSync />
             </Box>
           }
         />
