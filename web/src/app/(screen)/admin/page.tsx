@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
+import Divider from '@mui/material/Divider';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 
@@ -10,6 +11,39 @@ import { FLAGS, ON } from '@/lib/features';
 import { AdminAutoSync } from '@/components/AdminAutoSync';
 import { ShieldIcon } from '@/components/Icons';
 import { Badge, C, type Tone } from '@/components/admin/ui';
+
+type TxAgg = {
+  total_borrowed:  number;
+  borrow_count:    number;
+  total_repaid:    number;
+  repay_count:     number;
+  total_deposited: number;
+  deposit_count:   number;
+  total_withdrawn: number;
+  total_purchased: number;
+  purchase_count:  number;
+  unique_wallets:  number;
+};
+
+function rm(n: number) {
+  return n >= 1_000_000
+    ? `RM ${(n / 1_000_000).toFixed(2)}M`
+    : n >= 1_000
+      ? `RM ${(n / 1_000).toFixed(2)}K`
+      : `RM ${n.toFixed(2)}`;
+}
+
+function StatRow({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.9,
+      borderBottom: `1px solid ${C.border}`, '&:last-child': { borderBottom: 'none' } }}>
+      <Typography variant="caption" sx={{ color: C.slate }}>{label}</Typography>
+      <Typography variant="caption" sx={{ color: highlight ? C.green : C.ink, fontWeight: 600, fontFamily: 'monospace' }}>
+        {value}
+      </Typography>
+    </Box>
+  );
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +63,7 @@ const ACTION_TONE: Record<string, Tone> = {
 };
 
 export default async function AdminOverviewPage() {
-  const [users, restricted, admins, kycPending, kycApproved, kycRejected, loanTxs, transfers, flags, recent] =
+  const [users, restricted, admins, kycPending, kycApproved, kycRejected, loanTxs, transfers, flags, recent, txAgg, bankAgg] =
     await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { status: 'RESTRICTED' } }),
@@ -41,7 +75,43 @@ export default async function AdminOverviewPage() {
       prisma.bankTransfer.count(),
       getFlags(),
       prisma.adminAuditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 6 }),
+      prisma.$queryRaw<TxAgg[]>`
+        SELECT
+          COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Borrowed'),            0)::float8 AS total_borrowed,
+          (COUNT(*) FILTER (WHERE type = 'Borrowed'))::float8                                           AS borrow_count,
+          COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Repaid'),              0)::float8 AS total_repaid,
+          (COUNT(*) FILTER (WHERE type = 'Repaid'))::float8                                             AS repay_count,
+          COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralDeposited'), 0)::float8 AS total_deposited,
+          (COUNT(*) FILTER (WHERE type = 'CollateralDeposited'))::float8                                AS deposit_count,
+          COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralWithdrawn'), 0)::float8 AS total_withdrawn,
+          COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'MYRPurchased'),        0)::float8 AS total_purchased,
+          (COUNT(*) FILTER (WHERE type = 'MYRPurchased'))::float8                                       AS purchase_count,
+          COUNT(DISTINCT wallet)::float8                                                                 AS unique_wallets
+        FROM "LoanTransaction"
+      `,
+      prisma.bankTransfer.aggregate({ _sum: { amountMYR: true }, _count: { _all: true } }),
     ]);
+
+  const stat = txAgg[0] ?? {
+    total_borrowed: 0,   borrow_count:  0,
+    total_repaid:   0,   repay_count:   0,
+    total_deposited: 0,  deposit_count: 0,
+    total_withdrawn: 0,  total_purchased: 0,
+    purchase_count: 0,   unique_wallets: 0,
+  };
+
+  const totalBorrowedMYR  = stat.total_borrowed  / 1e6;
+  const totalRepaidMYR    = stat.total_repaid    / 1e6;
+  const netOutstandingMYR = totalBorrowedMYR - totalRepaidMYR;
+  const originationFees   = totalBorrowedMYR * 0.001;
+  const totalPurchasedMYR = stat.total_purchased / 1e6;
+
+  const totalDepositedEth = stat.total_deposited / 1e18;
+  const totalWithdrawnEth = stat.total_withdrawn / 1e18;
+  const netLockedEth      = totalDepositedEth - totalWithdrawnEth;
+
+  const bankSum   = bankAgg._sum.amountMYR ?? 0;
+  const bankCount = bankAgg._count._all;
 
   const paused = FLAGS.filter(f => (flags[f.key]?.state ?? ON) !== ON);
 
@@ -170,6 +240,50 @@ export default async function AdminOverviewPage() {
               </>
             )}
           </Card>
+        </Box>
+
+        {/* Protocol Analytics */}
+        <Box sx={{ mt: 2.5 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink, mb: 1.5 }}>Protocol Analytics</Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2 }}>
+
+            <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
+              <Typography sx={{ fontWeight: 600, fontSize: 12, color: C.slate, mb: 1.25, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                MYR Volume
+              </Typography>
+              <StatRow label="Total Borrowed" value={rm(totalBorrowedMYR)} highlight />
+              <StatRow label="Total Repaid" value={rm(totalRepaidMYR)} />
+              <StatRow label="Net Outstanding" value={rm(netOutstandingMYR)} highlight />
+              <Divider sx={{ my: 1, borderColor: C.border }} />
+              <StatRow label="Borrow Transactions" value={stat.borrow_count} />
+              <StatRow label="Repay Transactions" value={stat.repay_count} />
+            </Card>
+
+            <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
+              <Typography sx={{ fontWeight: 600, fontSize: 12, color: C.slate, mb: 1.25, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                ETH Collateral
+              </Typography>
+              <StatRow label="Total Deposited" value={`${totalDepositedEth.toFixed(4)} ETH`} highlight />
+              <StatRow label="Total Withdrawn" value={`${totalWithdrawnEth.toFixed(4)} ETH`} />
+              <StatRow label="Net Locked" value={`${netLockedEth.toFixed(4)} ETH`} highlight />
+              <Divider sx={{ my: 1, borderColor: C.border }} />
+              <StatRow label="Deposit Transactions" value={stat.deposit_count} />
+              <StatRow label="Unique Wallets" value={stat.unique_wallets} />
+            </Card>
+
+            <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
+              <Typography sx={{ fontWeight: 600, fontSize: 12, color: C.slate, mb: 1.25, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Revenue & Transfers
+              </Typography>
+              <StatRow label="Origination Fees (0.1%)" value={rm(originationFees)} highlight />
+              <StatRow label="MYR Purchased (total)" value={rm(totalPurchasedMYR)} />
+              <StatRow label="Bank Transfer Volume" value={rm(bankSum)} />
+              <Divider sx={{ my: 1, borderColor: C.border }} />
+              <StatRow label="Bank Transfers" value={bankCount} />
+              <StatRow label="MYR Purchase Txs" value={stat.purchase_count} />
+            </Card>
+
+          </Box>
         </Box>
 
         <Card sx={{ mt: 2.5, p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: 'rgba(110,139,255,0.03)' }}>

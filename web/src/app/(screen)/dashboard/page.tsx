@@ -251,19 +251,30 @@ function Dashboard() {
 
   // Live payoff quote for the Repay tab: tick down every second, re-read the
   // position from the chain when the countdown hits zero. `refresh` is kept
-  // in a ref because its identity changes every render.
+  // in a ref because its identity changes every render. `quoteInRef` mirrors
+  // the state value so the interval can read it without a closure over stale state
+  // — calling walletRefreshRef.current() inside a setState updater triggers a
+  // "setState during render" React error, so we check the condition via ref and
+  // call refresh directly in the setInterval callback instead.
   const walletRefreshRef = useRef(wallet.refresh);
+  const walletRepayRef   = useRef(wallet.repay);
+  const quoteInRef       = useRef(60);
   useEffect(() => { walletRefreshRef.current = wallet.refresh; });
+  useEffect(() => { walletRepayRef.current   = wallet.repay; });
   useEffect(() => {
     if (activeTab !== 'repay') return;
-    const start = setTimeout(() => setQuoteIn(60), 0);
+    // Refresh immediately on tab open so the user always sees fresh data.
+    quoteInRef.current = 60;
+    setQuoteIn(60);
+    void walletRefreshRef.current();
     const id = setInterval(() => {
-      setQuoteIn(t => {
-        if (t <= 1) { void walletRefreshRef.current(); return 60; }
-        return t - 1;
-      });
+      const cur  = quoteInRef.current;
+      const next = cur <= 1 ? 60 : cur - 1;
+      quoteInRef.current = next;
+      setQuoteIn(next);
+      if (cur <= 1) void walletRefreshRef.current();
     }, 1000);
-    return () => { clearTimeout(start); clearInterval(id); };
+    return () => clearInterval(id);
   }, [activeTab]);
 
   // Stop Lenis smooth scroll while the dialog is open so it doesn't intercept
@@ -307,6 +318,41 @@ function Dashboard() {
   const breakEvenChangePct = assetPrice > 0 ? ((breakEvenPrice - assetPrice) / assetPrice) * 100 : 0;
 
   const isLive = wallet.isConnected && wallet.isCorrectNetwork && wallet.isDeployed;
+
+  // Displayed accrued interest for the Repay panel — updates once per minute.
+  // Many contracts store an interest *checkpoint* that only changes when a
+  // transaction is mined (common on local test chains where no new blocks
+  // advance between reads). To avoid the number freezing, we add one perMin
+  // estimate each cycle when the chain returns the same value as before.
+  // If the chain returns a genuinely higher value (new transaction / real network)
+  // that wins and the estimate resets.
+  const [repayDisplayInt,  setRepayDisplayInt]  = useState(0);
+  const repayDisplayIntRef = useRef<number | null>(null);
+  const liveAprPctRef      = useRef(liveAprPct);
+  useEffect(() => { liveAprPctRef.current = liveAprPct; });
+  useEffect(() => {
+    if (activeTab !== 'repay') { repayDisplayIntRef.current = null; setRepayDisplayInt(0); }
+  }, [activeTab]);
+  useEffect(() => {
+    if (!isLive || !wallet.loanInfo || wallet.isRefreshing) return;
+    const chainInt  = Number(wallet.loanInfo.accruedInterest) / 1e6;
+    const principal = Number(wallet.loanInfo.borrowed) / 1e6;
+    // Loan fully repaid — wipe the estimate and clear the input.
+    if (principal === 0) {
+      repayDisplayIntRef.current = 0;
+      setRepayDisplayInt(0);
+      setRepayAmt('');
+      setRepayFull(false);
+      return;
+    }
+    const perMin = principal * (liveAprPctRef.current / 100) / 525_600;
+    const next = repayDisplayIntRef.current === null
+      ? chainInt
+      : Math.max(chainInt, repayDisplayIntRef.current + perMin);
+    repayDisplayIntRef.current = next;
+    setRepayDisplayInt(next);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet.isRefreshing, isLive]);
 
   const liveColMYR  = wallet.loanInfo?.collateralValueMYR ?? null;
   const liveBorMYR  = wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : null;
@@ -1857,7 +1903,9 @@ function Dashboard() {
                           </Button>
                         </Box>
                         {isLive && wallet.loanInfo && (() => {
-                          const contractAvail = Number(wallet.loanInfo!.available) / 1e6;
+                          // Floor to 2dp — same as the MAX button — so the displayed
+                          // limit matches what can actually be submitted.
+                          const contractAvail = Math.floor(Number(wallet.loanInfo!.available) / 1e4) / 100;
                           const mktAvail      = Math.max(0, colEth * mktEthPrice * 0.7 - (Number(wallet.loanInfo!.borrowed) / 1e6));
                           return (
                             <Box sx={{ mt: 0.75 }}>
@@ -2048,7 +2096,8 @@ function Dashboard() {
                         sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
                     </Box>
                     {isLive && wallet.loanInfo && (() => {
-                      const due = (Number(wallet.loanInfo!.borrowed) + Number(wallet.loanInfo!.accruedInterest)) / 1e6;
+                      const principal = Number(wallet.loanInfo!.borrowed) / 1e6;
+                      const due       = principal + repayDisplayInt;
                       return (
                         <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
                           {[25, 50, 75].map(pct => (
@@ -2092,14 +2141,20 @@ function Dashboard() {
                   })()}
 
                   <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Row label="Outstanding Principal"
-                      value={isLive && wallet.loanInfo ? `RM ${(Number(wallet.loanInfo.borrowed)/1e6).toFixed(2)}` : '—'} />
-                    <Row label="Accrued Interest"
-                      value={isLive && wallet.loanInfo ? `RM ${(Number(wallet.loanInfo.accruedInterest)/1e6).toFixed(4)}` : '—'} vc={C.gold} />
-                    <Row label="Total Due"
-                      value={isLive && wallet.loanInfo
-                        ? `RM ${((Number(wallet.loanInfo.borrowed)+Number(wallet.loanInfo.accruedInterest))/1e6).toFixed(2)}`
-                        : '—'} vc={C.teal} />
+                    {(() => {
+                      const principal = isLive && wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0;
+                      const liveInt   = repayDisplayInt;
+                      return (
+                        <>
+                          <Row label="Outstanding Principal"
+                            value={isLive && wallet.loanInfo ? `RM ${principal.toFixed(2)}` : '—'} />
+                          <Row label="Accrued Interest"
+                            value={isLive && wallet.loanInfo ? `RM ${liveInt.toFixed(4)}` : '—'} vc={C.gold} />
+                          <Row label="Total Due"
+                            value={isLive && wallet.loanInfo ? `RM ${(principal + liveInt).toFixed(2)}` : '—'} vc={C.teal} />
+                        </>
+                      );
+                    })()}
                     <Row label="Repaying" value={repayAmt ? `RM ${parseFloat(repayAmt).toFixed(2)}` : '—'} vc={C.teal} />
                     <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
                       <Row label="New Health Factor"
@@ -2131,62 +2186,121 @@ function Dashboard() {
                     </Box>
                   )}
 
-                  {/* Low MYR balance warning */}
-                  {isLive && wallet.loanInfo && (() => {
-                    const due = (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6;
-                    const bal = parseFloat(wallet.myrBalance || '0');
-                    const shortage = due - bal;
-                    if (shortage <= 0) return null;
-                    // Small headroom so interest accrued while buying + signing
-                    // doesn't leave the balance short again at repay time.
-                    const topUp = Math.ceil((shortage * 1.002 + 1) * 100) / 100;
+                  {/* Balance check, 3-step flow hint, info box and main button all share one IIFE */}
+                  {(() => {
+                    const myrBal      = parseFloat(wallet.myrBalance || '0');
+                    const principal   = isLive && wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0;
+                    const chainInt    = isLive && wallet.loanInfo ? Number(wallet.loanInfo.accruedInterest) / 1e6 : 0;
+                    const chainDue    = principal + chainInt;
+
+                    const repayAmtNum   = parseFloat(repayAmt || '0');
+                    // For full repay: use the max of the live-animated repayAmt and chainDue.
+                    // chainDue can be stale (interest = 0 right after a fresh borrow) while
+                    // the repayAmt already includes the animated estimate — the max catches
+                    // the case where interest accrued between the last refresh and now.
+                    const needed        = repayFull ? Math.max(repayAmtNum, chainDue) : repayAmtNum;
+                    // 5-min APR buffer covers interest accrued across 3 MetaMask pops.
+                    const perMin      = principal * (liveAprPct / 100) / 525_600;
+                    const shortage    = Math.max(0, needed - myrBal);
+                    const topUp       = shortage > 0 ? Math.ceil((shortage + Math.max(perMin * 5, 1)) * 100) / 100 : 0;
+
+                    const insufficientBal = isLive && !!wallet.loanInfo && needed > 0 && needed > myrBal;
+                    const isPending       = wallet.txStatus === 'pending';
+                    const canSubmit       = isLive && !!repayAmt && !isPending && !insufficientBal && principal > 0;
+                    // Full-repay with shortage → main button becomes "Auto top-up + Repay"
+                    const canAutoRepay    = repayFull && shortage > 0 && isLive && !!wallet.loanInfo && principal > 0 && !isPending;
+
+                    const doAutoTopUp = async () => {
+                      const repayTotal = (principal + repayDisplayInt).toFixed(2);
+                      const bought = await wallet.buyMYR(topUp.toFixed(2));
+                      if (!bought) return;
+                      // walletRepayRef always points to the latest wallet.repay closure
+                      await walletRepayRef.current(repayTotal, { full: true });
+                    };
+
                     return (
-                      <Box sx={{ p: 2, bgcolor: `${C.red}08`, border: `1px solid ${C.red}30`, borderRadius: 2 }}>
-                        <Typography variant="caption" sx={{ color: C.red, fontWeight: 700, display: 'block', mb: 0.75 }}>
-                          Insufficient MYR balance
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1.25, lineHeight: 1.6 }}>
-                          You need <b style={{ color: C.tp }}>RM {due.toFixed(2)}</b> to repay in full but only have{' '}
-                          <b style={{ color: C.tp }}>RM {bal.toFixed(2)}</b>.{' '}
-                          You&apos;re short by <b style={{ color: C.red }}>RM {shortage.toFixed(2)}</b>.
-                        </Typography>
+                      <>
+                        {/* 3-step insufficient-balance card */}
+                        {shortage > 0 && (
+                          <Box sx={{ p: 2, bgcolor: `${C.red}08`, border: `1px solid ${C.red}30`, borderRadius: 2 }}>
+                            <Typography variant="caption" sx={{ color: C.red, fontWeight: 700, display: 'block', mb: 0.5 }}>
+                              Insufficient MYR balance
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1.5, lineHeight: 1.6 }}>
+                              You&apos;re short by <b style={{ color: C.red }}>RM {shortage.toFixed(2)}</b>.
+                              {' '}Your ETH will be exchanged for <b style={{ color: C.tp }}>RM {topUp.toFixed(2)}</b> MYR, then the loan repays automatically.
+                            </Typography>
+                            {/* 3-step flow chips */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5, flexWrap: 'wrap' }}>
+                              {([
+                                { label: '① Exchange ETH', sub: `→ RM ${topUp.toFixed(2)} MYR` },
+                                { label: '② Approve MYR',  sub: 'MetaMask confirm'              },
+                                { label: '③ Repay Loan',   sub: 'Collateral unlocked'           },
+                              ] as { label: string; sub: string }[]).map((step, i) => (
+                                <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                  <Box sx={{ bgcolor: `${C.teal}15`, border: `1px solid ${C.teal}35`, borderRadius: 1.5, px: 1.25, py: 0.6, textAlign: 'center', minWidth: 88 }}>
+                                    <Typography sx={{ color: C.teal, fontWeight: 700, fontSize: 11, lineHeight: 1.4 }}>
+                                      {step.label}
+                                    </Typography>
+                                    <Typography sx={{ color: C.ts, fontSize: 10, lineHeight: 1.3 }}>
+                                      {step.sub}
+                                    </Typography>
+                                  </Box>
+                                  {i < 2 && <Typography sx={{ color: C.ts, fontSize: 13, lineHeight: 1 }}>→</Typography>}
+                                </Box>
+                              ))}
+                            </Box>
+                            <Button
+                              size="small" variant="text"
+                              onClick={() => { setBuyAmt(topUp.toFixed(2)); setActiveTab('buy'); }}
+                              sx={{ fontSize: 12, borderRadius: 2, color: C.ts, p: 0, minWidth: 0 }}
+                            >
+                              Or buy manually in Buy MYR tab →
+                            </Button>
+                          </Box>
+                        )}
+
+                        {/* Confirmation count hint — updates for 2-step vs 3-step flow */}
+                        <Box sx={{ p: 1.75, bgcolor: `${C.blue}08`, border: `1px solid ${C.blue}20`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+                          <Typography sx={{ fontSize: 14, flexShrink: 0 }}>ℹ</Typography>
+                          <Box>
+                            <Typography variant="caption" sx={{ color: C.ts, display: 'block', lineHeight: 1.6 }}>
+                              {shortage > 0
+                                ? <><b style={{ color: C.tp }}>3 MetaMask confirmations</b>: ① Exchange ETH → MYR, ② Approve MYR spend, ③ Repay loan.</>
+                                : <>Two MetaMask confirmations: <b style={{ color: C.tp }}>① Approve MYR spend</b>, then <b style={{ color: C.tp }}>② Repay loan</b>.</>
+                              }
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: C.ts, display: 'block', mt: 0.5, lineHeight: 1.6 }}>
+                              Full repayment unlocks your ETH collateral immediately.
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {/* Main action button — transforms when auto top-up is needed */}
                         <Button
-                          size="small"
-                          variant="contained"
-                          onClick={() => { setBuyAmt(topUp.toFixed(2)); setActiveTab('buy'); }}
-                          sx={{ fontSize: 12, borderRadius: 2, bgcolor: C.teal, '&:hover': { bgcolor: '#0b8a5e' } }}
+                          fullWidth variant="contained"
+                          disabled={canAutoRepay ? false : !canSubmit}
+                          onClick={canAutoRepay ? doAutoTopUp : () => {
+                            const rawDue = wallet.loanInfo
+                              ? (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6 : 0;
+                            const full = repayFull || (rawDue > 0 && repayAmtNum >= rawDue - 0.005);
+                            void wallet.repay(repayAmt, { full }).then(() => { setRepayAmt(''); setRepayFull(false); });
+                          }}
+                          sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5, background: (canSubmit || canAutoRepay) ? `linear-gradient(135deg, ${C.teal}, #0B8B5E)` : undefined }}
                         >
-                          Buy RM {topUp.toFixed(2)} MYR →
+                          {isPending
+                            ? 'Waiting for confirmation…'
+                            : canAutoRepay
+                              ? `Auto top-up RM ${topUp.toFixed(2)} + Repay`
+                              : insufficientBal
+                                ? 'Insufficient MYR Balance'
+                                : repayFull
+                                  ? 'Repay Loan in Full'
+                                  : 'Repay Loan'}
                         </Button>
-                      </Box>
+                      </>
                     );
                   })()}
-
-                  <Box sx={{ p: 1.75, bgcolor: `${C.blue}08`, border: `1px solid ${C.blue}20`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
-                    <Typography sx={{ fontSize: 14, flexShrink: 0 }}>ℹ</Typography>
-                    <Box>
-                      <Typography variant="caption" sx={{ color: C.ts, display: 'block', lineHeight: 1.6 }}>
-                        Two MetaMask confirmations: <b style={{ color: C.tp }}>① Approve MYR spend</b>, then <b style={{ color: C.tp }}>② Repay loan</b>.
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: C.ts, display: 'block', mt: 0.5, lineHeight: 1.6 }}>
-                        Full repayment unlocks your ETH collateral immediately.
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  <Button fullWidth variant="contained"
-                    disabled={!isLive || !repayAmt || wallet.txStatus === 'pending'}
-                    onClick={() => {
-                      // Typing an amount ≥ the outstanding debt is a full payoff
-                      // even if the FULL button wasn't used.
-                      const due = wallet.loanInfo
-                        ? (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6 : 0;
-                      const full = repayFull || (due > 0 && parseFloat(repayAmt) >= due - 0.005);
-                      void wallet.repay(repayAmt, { full }).then(() => { setRepayAmt(''); setRepayFull(false); });
-                    }}
-                    sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5, background: (isLive && !!repayAmt && wallet.txStatus !== 'pending') ? `linear-gradient(135deg, ${C.teal}, #0B8B5E)` : undefined }}>
-                    {wallet.txStatus === 'pending' ? 'Waiting for confirmation…' : repayFull ? 'Repay Loan in Full' : 'Repay Loan'}
-                  </Button>
                 </Box>
               )}
 

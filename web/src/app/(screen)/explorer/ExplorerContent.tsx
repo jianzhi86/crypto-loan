@@ -19,7 +19,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
 
 import type { ComponentType } from 'react';
-import { TX_LABELS, TX_TYPES, TX_UNIT, formatTxAmount } from '@/lib/tx-query';
+import { TX_DECIMALS, TX_LABELS, TX_TYPES, TX_UNIT, formatTxAmount } from '@/lib/tx-query';
 import { CartIcon, CashIcon, CheckCircleIcon, LiveDot, SearchIcon, TrayDownIcon, TrayUpIcon } from '@/components/Icons';
 
 interface Row {
@@ -99,7 +99,10 @@ export default function ExplorerContent() {
   const [to, setTo]     = useState('');
   const [page, setPage] = useState(1);
   // Chronological by default — block #1 first, reading like a ledger.
-  const [order, setOrder] = useState<'asc' | 'desc'>('asc');
+  const [order, setOrder]       = useState<'asc' | 'desc'>('asc');
+  // 'time' sends the sort to the API; 'amount' sorts the current page client-side.
+  const [sortField, setSortField] = useState<'time' | 'amount'>('time');
+  const [amtDir, setAmtDir]     = useState<'desc' | 'asc'>('desc');
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -141,6 +144,18 @@ export default function ExplorerContent() {
     (e: { target: { value: string } }) => { set(e.target.value); setPage(1); };
 
   const pickType = (t: string) => { setType(t); setPage(1); };
+
+  // Convert raw stored amount (wei/token-units) to a human-readable number for
+  // comparison. Different types use different decimal scales, so we normalise
+  // each to its display unit (ETH or MYR) before comparing.
+  const toNum = (r: Row) => {
+    try { return Number(BigInt(r.amount)) / 10 ** (TX_DECIMALS[r.type] ?? 18); }
+    catch { return 0; }
+  };
+
+  const displayRows = sortField === 'amount'
+    ? [...rows].sort((a, b) => amtDir === 'desc' ? toNum(b) - toNum(a) : toNum(a) - toNum(b))
+    : rows;
 
   const hasFilters = !!(q || type || from || to);
 
@@ -208,10 +223,18 @@ export default function ExplorerContent() {
               <MenuItem value="">All types</MenuItem>
               {TX_TYPES.map(t => <MenuItem key={t} value={t}>{TX_LABELS[t]}</MenuItem>)}
             </TextField>
-            <TextField select label="Order" value={order} sx={fieldSx}
-              onChange={e => { setOrder(e.target.value as 'asc' | 'desc'); setPage(1); }}>
-              <MenuItem value="asc">Oldest first</MenuItem>
-              <MenuItem value="desc">Newest first</MenuItem>
+            <TextField select label="Sort" value={sortField === 'amount' ? `amt_${amtDir}` : `time_${order}`} sx={fieldSx}
+              onChange={e => {
+                const v = e.target.value;
+                if (v === 'amt_desc')  { setSortField('amount'); setAmtDir('desc');  }
+                else if (v === 'amt_asc') { setSortField('amount'); setAmtDir('asc'); }
+                else { setSortField('time'); setOrder(v === 'time_desc' ? 'desc' : 'asc'); }
+                setPage(1);
+              }}>
+              <MenuItem value="time_asc">Oldest first</MenuItem>
+              <MenuItem value="time_desc">Newest first</MenuItem>
+              <MenuItem value="amt_desc">Amount: High → Low</MenuItem>
+              <MenuItem value="amt_asc">Amount: Low → High</MenuItem>
             </TextField>
             <TextField type="date" label="From" slotProps={{ inputLabel: { shrink: true } }}
               value={from} onChange={onFilter(setFrom)} sx={fieldSx} />
@@ -253,18 +276,49 @@ export default function ExplorerContent() {
                 <Table sx={{ minWidth: 860 }}>
                   <TableHead>
                     <TableRow>
-                      {['Block', 'Type', 'Amount', 'Wallet', 'Tx Hash', 'Time'].map(h => (
-                        <TableCell key={h} sx={{
-                          color: C.slate, bgcolor: C.head, fontSize: 13,
-                          fontWeight: 700, whiteSpace: 'nowrap',
-                          borderBottom: `1px solid ${C.border}`,
-                          py: 1.75, px: 2,
-                        }}>{h}</TableCell>
-                      ))}
+                      {(['Block', 'Type', 'Amount', 'Wallet', 'Tx Hash', 'Time'] as const).map(h => {
+                        const isAmtCol  = h === 'Amount';
+                        const isTimeCol = h === 'Time' || h === 'Block';
+                        const amtActive = sortField === 'amount' && isAmtCol;
+                        const timeActive = sortField === 'time' && isTimeCol && h === 'Time';
+                        const sortable  = isAmtCol || h === 'Time';
+                        const indicator = amtActive
+                          ? (amtDir === 'desc' ? ' ↓' : ' ↑')
+                          : timeActive
+                            ? (order === 'desc' ? ' ↓' : ' ↑')
+                            : sortable ? ' ↕' : '';
+                        return (
+                          <TableCell key={h}
+                            onClick={sortable ? () => {
+                              if (isAmtCol) {
+                                if (sortField === 'amount') {
+                                  setAmtDir(d => d === 'desc' ? 'asc' : 'desc');
+                                } else {
+                                  setSortField('amount'); setAmtDir('desc');
+                                }
+                              } else {
+                                setSortField('time');
+                                setOrder(o => o === 'asc' ? 'desc' : 'asc');
+                              }
+                              setPage(1);
+                            } : undefined}
+                            sx={{
+                              color: (amtActive || timeActive) ? C.blue : C.slate,
+                              bgcolor: C.head, fontSize: 13,
+                              fontWeight: 700, whiteSpace: 'nowrap',
+                              borderBottom: `1px solid ${C.border}`,
+                              py: 1.75, px: 2,
+                              ...(sortable && { cursor: 'pointer', userSelect: 'none',
+                                '&:hover': { color: C.ink } }),
+                            }}>
+                            {h}{indicator}
+                          </TableCell>
+                        );
+                      })}
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {rows.map((t, i) => {
+                    {displayRows.map((t, i) => {
                       const tone = TONE[t.type] ?? { bg: 'rgba(90,102,117,.1)', color: C.slate };
                       return (
                         <TableRow key={t.id} sx={{
@@ -305,7 +359,7 @@ export default function ExplorerContent() {
             {/* ── CARD LIST — mobile ───────────────────────────────────────── */}
             <Box sx={{ display: { xs: 'flex', md: 'none' }, flexDirection: 'column', gap: 0,
                         border: `1px solid ${C.border}`, borderRadius: 3, overflow: 'hidden' }}>
-              {rows.map((t, i) => {
+              {displayRows.map((t, i) => {
                 const tone = TONE[t.type] ?? { bg: 'rgba(90,102,117,.1)', color: C.slate };
                 return (
                   <Box key={t.id} sx={{

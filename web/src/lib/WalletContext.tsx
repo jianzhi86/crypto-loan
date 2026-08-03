@@ -236,7 +236,7 @@ interface WalletCtx extends WalletState {
   switchToHardhat: () => Promise<void>;
   depositCollateral: (eth: string) => Promise<void>;
   borrow: (myr: string) => Promise<boolean>;
-  buyMYR: (myr: string) => Promise<void>;
+  buyMYR: (myr: string) => Promise<boolean>;
   transferMYR: (myr: string, to: string) => Promise<boolean>;
   repay: (myr: string, opts?: { full?: boolean }) => Promise<void>;
   withdrawCollateral: (eth: string) => Promise<void>;
@@ -351,31 +351,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const ethBalance = parseFloat(ethers.formatEther(ethBal)).toFixed(4);
       const myrBalance = (Number(myrBal) / 1e6).toFixed(2);
       const ethPriceMYR = Number(price as bigint);
-      // Yield-system calls — only exist on the redeployed contract.
-      // Promise.allSettled prevents a BAD_DATA decode (old contract returns 5
-      // values instead of 7) from crashing the whole refresh.
-      // Wrap each call in .then() so that "not a function" TypeErrors (contract
-      // not yet redeployed — function absent from ABI) become rejections rather
-      // than synchronous throws, which would escape Promise.allSettled entirely.
-      const [aprLiveResult, aprLegacyResult, protStatsResult, pendYieldResult] = await Promise.allSettled([
-        // Variable rate (utilization + volatility) on the current contract;
-        // the fixed BORROW_APR_BPS constant is the pre-redeploy fallback.
+      // Optional calls — only exist on the current contract version.
+      // Promise.allSettled so a missing function never crashes the whole refresh.
+      const [aprLiveResult, protStatsResult] = await Promise.allSettled([
         Promise.resolve().then(() => c.loan.currentAprBps()),
-        Promise.resolve().then(() => c.loan.BORROW_APR_BPS()),
         Promise.resolve().then(() => c.loan.getProtocolStats()),
-        Promise.resolve().then(() => c.loan.pendingYield(address)),
       ]);
-      const aprBps    = aprLiveResult.status   === 'fulfilled' ? aprLiveResult.value
-                      : aprLegacyResult.status === 'fulfilled' ? aprLegacyResult.value : BigInt(480);
+      const aprBps    = aprLiveResult.status   === 'fulfilled' ? aprLiveResult.value : BigInt(480);
       const protStats = protStatsResult.status === 'fulfilled' ? protStatsResult.value : [BigInt(0), BigInt(0), BigInt(0), BigInt(0), BigInt(0)];
-      const pendYield = pendYieldResult.status === 'fulfilled' ? pendYieldResult.value : BigInt(0);
       const borrowAprBps = Number(aprBps as bigint);
       const ps = protStats as [bigint, bigint, bigint, bigint, bigint];
       const totalBorrowedMYR   = Number(ps[0]) / 1e6;
       const totalCollateralMYR = (Number(ps[1]) / 1e18) * ethPriceMYR;
       const utilizationRate    = totalCollateralMYR > 0 ? Math.min(totalBorrowedMYR / totalCollateralMYR, 1) : 0;
       const supplyAprBps       = Math.round(borrowAprBps * utilizationRate * 0.8);
-      const pendingYieldMYR    = Number(pendYield as bigint) / 1e6;
+      const pendingYieldMYR    = 0;
       // Remember this position so it survives a disconnect / reload.
       cachePosition(address, { info: loanInfo, ethBalance, myrBalance, ethPriceMYR });
       setS(p => ({
@@ -421,11 +411,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (resyncingKyc.current === address.toLowerCase()) return;
     resyncingKyc.current = address.toLowerCase();
     try {
-      const r = await fetch('/api/kyc/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet: address }),
-      });
+      // Self-service: the server checks the caller's own DB approval and sets
+      // the on-chain flag for their linked wallet — no admin auth needed.
+      const r = await fetch('/api/kyc/self-resync', { method: 'POST' });
       if (r.ok) await refresh(address);
     } catch (e) {
       console.error('resyncKyc', e);
@@ -567,13 +555,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const borrow = useCallback(async (myrAmt: string): Promise<boolean> => {
     if (!guardTx()) return false;
     const c = await getContracts(true);
-    if (!c || !s.address) return false;
-    setTx('pending', `Borrowing RM ${myrAmt}…`);
-    try {
+    const addr = s.address;
+    if (!c || !addr) return false;
+
+    const attemptBorrow = async () => {
+      setTx('pending', `Borrowing RM ${myrAmt}…`);
       const units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
       const tx = await c.loan.borrow(units);
       const receipt = await tx.wait();
-      if (receipt && s.address) saveTxToDB(s.address, 'Borrowed', units.toString(), receipt);
+      if (receipt) saveTxToDB(addr, 'Borrowed', units.toString(), receipt);
       setTx('success', `Borrowed RM ${myrAmt}`);
       if (receipt) {
         setReceipt({
@@ -588,27 +578,36 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           txHash: receipt.hash,
         });
       }
-      await refresh(s.address);
+      await refresh(addr);
+    };
+
+    try {
+      await attemptBorrow();
       return true;
     } catch (e) {
       const reason = revertReason(e);
-      // "KYC required" means on-chain KYC was lost (e.g. contract redeploy) even
-      // though the DB shows approved — point the user at re-verifying on-chain.
-      const msg = reason === 'KYC required'
-        ? 'On-chain KYC is out of sync — re-syncing. Try again in a moment.'
-        : reason
-          ? `Borrow failed: ${reason}`
-          : 'Borrow failed — check LTV or collateral';
-      setTx('error', msg);
-      if (reason === 'KYC required' && s.address) void resyncKyc(s.address);
+      if (reason === 'KYC required') {
+        // On-chain KYC lost (e.g. contract redeploy) — re-sync silently and retry once.
+        setTx('pending', 'Re-syncing KYC…');
+        await resyncKyc(addr);
+        try {
+          await attemptBorrow();
+          return true;
+        } catch (e2) {
+          const r2 = revertReason(e2);
+          setTx('error', r2 ? `Borrow failed: ${r2}` : 'Borrow failed — check LTV or collateral');
+          return false;
+        }
+      }
+      setTx('error', reason ? `Borrow failed: ${reason}` : 'Borrow failed — check LTV or collateral');
       return false;
     }
   }, [getContracts, s.address, s.borrowAprBps, refresh, resyncKyc, guardTx]);
 
-  const buyMYR = useCallback(async (myrAmt: string) => {
-    if (!guardTx()) return;
+  const buyMYR = useCallback(async (myrAmt: string): Promise<boolean> => {
+    if (!guardTx()) return false;
     const c = await getContracts(true);
-    if (!c || !s.address) return;
+    if (!c || !s.address) return false;
     setTx('pending', `Buying RM ${myrAmt} of MYR…`);
     try {
       const units    = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
@@ -634,9 +633,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         });
       }
       await refresh(s.address);
+      return true;
     } catch (e) {
       const reason = revertReason(e);
       setTx('error', reason ? `Buy failed: ${reason}` : 'Buy MYR failed — check ETH balance');
+      return false;
     }
   }, [getContracts, s.address, s.ethPriceMYR, refresh, guardTx]);
 
@@ -672,14 +673,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       let units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
       if (opts?.full) {
-        // Full payoff: interest accrues every second, so the amount quoted in
-        // the UI is already stale by the time both MetaMask confirmations are
-        // signed — repaying that exact figure left a few ringgit of debt
-        // behind. repay() only ever pulls min(amount, actual debt), so ask the
-        // contract for a fresh payoff quote and add headroom for the minutes
-        // the user spends signing; the excess is never charged.
-        const due = await (c.loan.totalDue as (a: string) => Promise<bigint>)(s.address);
-        units = due + due / BigInt(500) + BigInt(1_000_000); // +0.2% + RM 1 headroom
+        // Full payoff: ask the contract for a live payoff quote so stale UI
+        // interest doesn't leave residual debt. Falls back to the cached
+        // loanInfo if totalDue isn't in the deployed contract yet.
+        try {
+          const due = await (c.loan.totalDue as (a: string) => Promise<bigint>)(s.address);
+          units = due + due / BigInt(500) + BigInt(1_000_000); // +0.2% + RM 1 headroom
+        } catch {
+          const principal = s.loanInfo?.borrowed      ?? units;
+          const interest  = s.loanInfo?.accruedInterest ?? BigInt(0);
+          const due = principal + interest;
+          units = due + due / BigInt(500) + BigInt(1_000_000);
+        }
+        // Pre-flight balance check: the contract caps what it takes to totalDue,
+        // but if totalDue > balance the ERC20 transferFrom throws a custom error
+        // that surfaced as "Internal JSON-RPC error". Catch it here instead.
+        const myrBalUnits = BigInt(Math.floor(parseFloat(s.myrBalance || '0') * 1e6));
+        const due = units - units / BigInt(500) - BigInt(1_000_000); // strip the headroom back
+        if (due > myrBalUnits) {
+          const shortfall = Number(due - myrBalUnits) / 1e6;
+          setTx('error', `Insufficient MYR — short by RM ${shortfall.toFixed(2)}. Use Auto top-up or buy MYR first.`);
+          return;
+        }
       }
       const approveTx = await c.myr.approve(CONTRACT_ADDRESSES.CryptoLoan, units);
       await approveTx.wait();
@@ -851,6 +866,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       void resyncKyc(s.address);
     }
   }, [s.address, s.isCorrectNetwork, s.isDeployed, s.kycApprovedDb, s.kycApprovedChain, s.loanInfo, s.kycWallet, resyncKyc, authUser?.isAdmin, authUser?.walletAddress]);
+
+  // Periodic refresh every 60 s — keeps balances, loan state, and the on-chain
+  // KYC flag current. The KYC auto-sync effect above reacts to kycApprovedChain
+  // going false, so any redeploy is healed within one tick of this interval.
+  useEffect(() => {
+    const addr = s.address;
+    if (!addr || !s.isCorrectNetwork || !s.isDeployed) return;
+    const id = setInterval(() => { void refresh(addr); }, 60_000);
+    return () => clearInterval(id);
+  }, [s.address, s.isCorrectNetwork, s.isDeployed, refresh]);
 
   // Listen for MetaMask events
   useEffect(() => {
