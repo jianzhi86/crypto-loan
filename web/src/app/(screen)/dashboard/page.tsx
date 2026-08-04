@@ -203,6 +203,10 @@ function Dashboard() {
   // True when the user chose FULL payoff — repay() then fetches a fresh
   // on-chain quote so per-second interest can't leave dust debt behind.
   const [repayFull,        setRepayFull]         = useState(false);
+  // True once the user hand-edits the repay amount. A tranche selection then
+  // stops overwriting the input (the ticks stay as "which borrows to settle"),
+  // so selecting never locks the field.
+  const [repayAmtEdited,   setRepayAmtEdited]    = useState(false);
   // Seconds until the payoff quote auto-refreshes from the chain. Interest
   // accrues continuously, so the position is re-read once a minute (driven by
   // WalletContext's keep-fresh poll; this value counts down to its next fire)
@@ -354,9 +358,16 @@ function Dashboard() {
   // Load on tab open; re-sync after every completed refresh (covers
   // post-borrow and post-repay, both of which trigger a refresh).
   useEffect(() => {
-    if (activeTab !== 'repay') { setSelectedBorrowIds([]); return; }
+    if (activeTab !== 'repay') { setSelectedBorrowIds([]); setRepayAmtEdited(false); return; }
     void fetchBorrows();
   }, [activeTab, fetchBorrows]);
+  // The Step-1 top-up default tracks the live shortage; a manually typed
+  // amount goes stale the moment the quote refreshes (interest grew), so
+  // clear it each refresh cycle and let the recomputed default show through.
+  useEffect(() => {
+    if (activeTab === 'repay') setBuyAmt('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet.lastRefreshAt]);
   useEffect(() => {
     if (activeTab !== 'repay' || wallet.isRefreshing) return;
     void fetchBorrows();
@@ -366,7 +377,7 @@ function Dashboard() {
   useEffect(() => {
     if (!isLive || !wallet.loanInfo) return;
     if (Number(wallet.loanInfo.borrowed) === 0 && (repayAmt || repayFull || selectedBorrowIds.length > 0)) {
-      setRepayAmt(''); setRepayFull(false); setSelectedBorrowIds([]);
+      setRepayAmt(''); setRepayFull(false); setSelectedBorrowIds([]); setRepayAmtEdited(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet.loanInfo, isLive]);
@@ -420,24 +431,31 @@ function Dashboard() {
   // What the Repay panel is actually paying: FULL (or all-selected) pins to the
   // on-chain total due (principal + contract's accruedInterest). A partial tranche
   // selection sums chosen borrows at locked rates. Otherwise the typed amount.
-  const repayAmtEffective = ledger && (repayFull || allSelected)
+  const repayAmtEffective = ledger && (repayFull || (allSelected && !repayAmtEdited))
     ? (ledger.totalPrincipal + liveChainInt).toFixed(2)
-    : selectedRows.length > 0
+    : selectedRows.length > 0 && !repayAmtEdited
       ? selectedTotal.toFixed(2)
       : repayAmt;
   const toggleBorrow = (id: string) => {
-    setRepayFull(false); setRepayAmt('');
+    // Re-arm the auto-filled amount: ticking rows is a fresh choice, so the
+    // input follows the selection again until the user types over it.
+    setRepayFull(false); setRepayAmt(''); setRepayAmtEdited(false);
     setSelectedBorrowIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
   // Ledger tranches this payment settles (legacy pseudo-row excluded — it has
-  // no DB row). Full payoffs settle everything regardless of selection.
+  // no DB row). Full payoffs settle everything regardless of selection. A
+  // hand-typed amount below the selected total is a partial payment — it
+  // reduces the chain debt but clears no tranche, so nothing is marked REPAID.
   const settleForRepay = (full: boolean) => {
     const rows = (full || allSelected) ? (ledger?.rows ?? []) : selectedRows;
     const real = rows.filter(r => r.id !== LEGACY_ID);
-    return real.length > 0 ? {
+    if (real.length === 0) return undefined;
+    const rowsTotal = rows.reduce((s, r) => s + r.principalMYR + r.interest, 0);
+    if (!full && parseFloat(repayAmtEffective || '0') + 0.01 < rowsTotal) return undefined;
+    return {
       ids: real.map(r => r.id),
       interest: Object.fromEntries(real.map(r => [r.id, String(Math.round(r.interest * 1e6))])),
-    } : undefined;
+    };
   };
 
   const liveColMYR  = wallet.loanInfo?.collateralValueMYR ?? null;
@@ -1674,7 +1692,7 @@ function Dashboard() {
                     <Box sx={{ display: 'flex' }}>
                       {[
                         { label: 'Collateral', value: `${colEthPos.toFixed(3)} ETH`, color: C.tp,   sub: `≈ ${rm(colEthPos * wallet.ethPriceMYR)}` },
-                        { label: 'Borrowed',   value: borMYRPos > 0 ? `RM ${borMYRPos.toFixed(2)}` : '—', color: borMYRPos > 0 ? C.gold : C.ts, sub: borMYRPos > 0 ? `${liveAprPct.toFixed(2)}% APR (var.)` : 'No debt' },
+                        { label: 'Borrowed',   value: borMYRPos > 0 ? `RM ${borMYRPos.toFixed(2)}` : '—', color: borMYRPos > 0 ? C.gold : C.ts, sub: borMYRPos > 0 ? `${liveAprPct.toFixed(2)}% base · ${(wallet.currentAprBps / 100).toFixed(2)}% eff. APR` : 'No debt' },
                         { label: 'Earning',    value: `RM ${earnedMYR.toFixed(4)}`, color: C.teal, sub: `${stripSupApr.toFixed(2)}% Supply APR` },
                         { label: 'Health',     value: borMYRPos > 0 ? fmtHF(hfPos) : '—', color: hfColor, sub: borMYRPos > 0 ? hfLabel : '—' },
                       ].map((item, i) => (
@@ -2194,7 +2212,14 @@ function Dashboard() {
 
                       <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
                         <Row label="Principal"                               value={borrowMYR > 0 ? rm(borrowMYR, 2) : '—'} />
-                        <Row label={`Interest (${loanTermDays}d · ${liveAprPct.toFixed(2)}% var.)`}  value={borrowMYR > 0 ? rm(panelInterest, 2) : '—'} vc={C.gold} />
+                        {/* Rate breakdown — the base rate is what this borrow LOCKS
+                            (market-driven, revised hourly); the premiums show what
+                            the protocol's live effective rate adds on top. */}
+                        <Row label="Base Rate (p.a.) — locked at borrow"     value={`${liveAprPct.toFixed(2)}%`} />
+                        <Row label="Market Premium (utilisation + volatility)"
+                          value={`+${(Math.max(0, wallet.currentAprBps - wallet.borrowAprBps) / 100).toFixed(2)}%`} />
+                        <Row label="Effective APR (p.a.)"                    value={`${(wallet.currentAprBps / 100).toFixed(2)}%`} vc={C.gold} />
+                        <Row label={`Interest (${loanTermDays}d · at ${liveAprPct.toFixed(2)}% base)`}  value={borrowMYR > 0 ? rm(panelInterest, 2) : '—'} vc={C.gold} />
                         <Row label="Monthly Payment (est.)"                 value={borrowMYR > 0 ? rm(panelMonthly, 2) : '—'} vc={C.blue} />
                         <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
                           <Row label="Total to Repay"                       value={borrowMYR > 0 ? rm(panelTotal, 2) : '—'} vc={C.teal} bold />
@@ -2320,9 +2345,29 @@ function Dashboard() {
                 const due          = principal + liveChainInt;
                 const perDay       = principal > 0 ? principal * (lockedAprPct / 100) / 365 : 0;
                 const repayAmtNum  = parseFloat(repayAmtEffective || '0');
-                const shortage     = repayAmtNum > 0 ? Math.max(0, repayAmtNum - myrBal) : 0;
+                // What the CONTRACT will actually pull on a full settlement:
+                // interest at the live dynamic rate (base + premiums) over real
+                // elapsed time since its clock last reset. That is more than the
+                // itemized ledger figure (locked base rates), and shortage math
+                // that chased the ledger number kept users "still short" after
+                // topping up exactly what was listed.
+                const contractAprPct = wallet.currentAprBps / 100;
+                const contractIntNow = (() => {
+                  if (!wallet.loanInfo || principal <= 0) return 0;
+                  const since = Number(wallet.loanInfo.lastRepayTime || wallet.loanInfo.startTime) * 1000;
+                  if (since <= 0) return 0;
+                  const years = Math.max(0, (wallet.lastRefreshAt || Date.now()) - since) / 31_536_000_000;
+                  return principal * (contractAprPct / 100) * years;
+                })();
+                const contractPerMin = principal * (contractAprPct / 100) / 525_600;
+                // Full payoff must be funded to the contract's cost, whatever the
+                // input shows; partial repays only need the typed amount.
+                const requiredBal  = repayFull ? Math.max(repayAmtNum, principal + contractIntNow) : repayAmtNum;
+                const shortage     = repayAmtNum > 0 ? Math.max(0, requiredBal - myrBal) : 0;
                 const perMin       = principal * (lockedAprPct / 100) / 525_600;
-                const topUpAmt     = shortage > 0 ? Math.ceil((shortage + Math.max(perMin * 5, 1)) * 100) / 100 : 0;
+                // Buffer: 30 min of growth at the contract rate (min RM 1), so the
+                // suggested top-up survives signing time and the next few refreshes.
+                const topUpAmt     = shortage > 0 ? Math.ceil((shortage + Math.max(contractPerMin * 30, 1)) * 100) / 100 : 0;
                 const hasDue       = principal > 0;
                 const isPending    = wallet.txStatus === 'pending';
                 const insuffBal    = shortage > 0;
@@ -2384,21 +2429,26 @@ function Dashboard() {
                     <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Typography variant="body2" sx={{ color: C.teal, fontWeight: 800, fontSize: 17 }}>RM</Typography>
                       <InputBase type="number" value={repayAmtEffective}
-                        onChange={e => { setRepayAmt(e.target.value); setRepayFull(false); setSelectedBorrowIds([]); }}
+                        onChange={e => {
+                          // Typing takes over the amount but keeps the ticked
+                          // borrows — they still mark which tranches this
+                          // payment settles (if the amount covers them).
+                          setRepayAmt(e.target.value); setRepayAmtEdited(true); setRepayFull(false);
+                        }}
                         placeholder="0.00"
                         sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
                     </Box>
                     {isLive && wallet.loanInfo && hasDue && (
                       <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
                         {[25, 50, 75].map(pct => (
-                          <Box key={pct} onClick={() => { setRepayAmt((due * pct / 100).toFixed(2)); setRepayFull(false); setSelectedBorrowIds([]); }}
+                          <Box key={pct} onClick={() => { setRepayAmt((due * pct / 100).toFixed(2)); setRepayAmtEdited(true); setRepayFull(false); setSelectedBorrowIds([]); }}
                             sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: C.inner, borderRadius: 1.5,
                               cursor: 'pointer', border: `1px solid ${C.border}`,
                               '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
                             <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.ts }}>{pct}%</Typography>
                           </Box>
                         ))}
-                        <Box onClick={() => { setRepayAmt(''); setRepayFull(true); setSelectedBorrowIds(ledger ? ledger.rows.map(r => r.id) : []); }}
+                        <Box onClick={() => { setRepayAmt(''); setRepayAmtEdited(false); setRepayFull(true); setSelectedBorrowIds(ledger ? ledger.rows.map(r => r.id) : []); }}
                           sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: repayFull ? `${C.teal}25` : `${C.teal}10`, borderRadius: 1.5,
                             cursor: 'pointer', border: `1px solid ${repayFull ? C.teal : C.teal + '30'}`,
                             '&:hover': { bgcolor: `${C.teal}18` } }}>
@@ -2502,7 +2552,7 @@ function Dashboard() {
                             />
                           </Box>
                           <Button variant="contained" size="small" disabled={isPending}
-                            onClick={() => wallet.buyMYR(buyAmt !== '' ? buyAmt : topUpAmt.toFixed(2)).then(() => {})}
+                            onClick={() => wallet.buyMYR(buyAmt !== '' ? buyAmt : topUpAmt.toFixed(2)).then(ok => { if (ok) setBuyAmt(''); })}
                             sx={{ px: 2.5, py: 1.15, borderRadius: 2, fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap',
                               background: `linear-gradient(135deg, ${C.blue}, #4458E8)` }}>
                             Buy MYR →

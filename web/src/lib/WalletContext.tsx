@@ -738,12 +738,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // What the contract will actually pull (before any headroom).
       let due = units;
       if (opts?.full) {
-        // Full payoff: ask the contract for a live payoff quote so stale UI
-        // interest doesn't leave residual debt. Falls back to the caller's
-        // UI estimate (myrAmt already includes animated interest) — never to
-        // s.loanInfo which is stale until refresh() completes.
+        // Full payoff: quote the real payoff, not the stale view. totalDue()
+        // is computed against the LAST MINED block's timestamp — frozen
+        // between transactions on a local chain — while the repay tx itself
+        // mines a fresh block and charges interest up to real wall-clock time
+        // at the live dynamic rate. Project the quote forward to now and take
+        // the max, so the approval and balance check cover what the contract
+        // will actually pull. Falls back to the caller's amount on old contracts.
         try {
-          due = await (c.loan.totalDue as (a: string) => Promise<bigint>)(s.address);
+          const [dueView, loanRaw, aprNow] = await Promise.all([
+            (c.loan.totalDue as (a: string) => Promise<bigint>)(s.address),
+            (c.loan.loans as (a: string) => Promise<bigint[]>)(s.address),
+            (c.loan.currentAprBps as () => Promise<bigint>)(),
+          ]);
+          const principalU = loanRaw[1];
+          const lastRepay  = Number(loanRaw[3]);
+          const elapsed    = Math.max(0, Math.floor(Date.now() / 1000) - lastRepay);
+          const projected  = lastRepay > 0
+            ? principalU + (principalU * aprNow * BigInt(elapsed)) / BigInt(10_000 * 31_536_000)
+            : dueView;
+          due = projected > dueView ? projected : dueView;
         } catch { /* totalDue unavailable: trust the caller's amount */ }
         units = due + due / BigInt(500) + BigInt(1_000_000); // +0.2% + RM 1 headroom
       }
