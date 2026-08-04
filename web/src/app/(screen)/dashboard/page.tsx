@@ -314,7 +314,7 @@ function Dashboard() {
   // demo assets get the display-side formula so every APR moves with market
   // conditions instead of sitting frozen.
   const liveAprPct = wallet.borrowAprBps / 100;
-  const calcApr    = calcAsset.symbol === 'ETH' && wallet.isConnected && wallet.isDeployed
+  const calcApr    = calcAsset.symbol === 'ETH'
     ? liveAprPct
     : dynamicApr(liveAprPct, calcAsset.riskMul, prices[SYMBOL_TO_ID[calcAsset.symbol]]?.change24h ?? 0);
 
@@ -775,7 +775,7 @@ function Dashboard() {
                       const p      = prices[SYMBOL_TO_ID[a.symbol]];
                       const change = p?.change24h ?? 0;
                       const sel    = calcAssetIdx === i;
-                      const bApr   = a.symbol === 'ETH' && isLive ? liveAprPct : dynamicApr(liveAprPct, a.riskMul, change);
+                      const bApr   = a.symbol === 'ETH' ? liveAprPct : dynamicApr(liveAprPct, a.riskMul, change);
                       const sApr   = supplyApr(bApr, a.supplyRatio);
                       return (
                         <TableRow key={a.symbol}
@@ -848,7 +848,7 @@ function Dashboard() {
                   const p      = prices[SYMBOL_TO_ID[a.symbol]];
                   const change = p?.change24h ?? 0;
                   const sel    = calcAssetIdx === i;
-                  const bApr   = a.symbol === 'ETH' && isLive ? liveAprPct : dynamicApr(liveAprPct, a.riskMul, change);
+                  const bApr   = a.symbol === 'ETH' ? liveAprPct : dynamicApr(liveAprPct, a.riskMul, change);
                   const sApr   = supplyApr(bApr, a.supplyRatio);
                   return (
                     <Box key={a.symbol}

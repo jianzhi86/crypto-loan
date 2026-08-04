@@ -8,8 +8,10 @@ import Typography from '@mui/material/Typography';
 import { prisma } from '@/lib/db/prisma';
 import { getFlags } from '@/lib/features-server';
 import { FLAGS, ON } from '@/lib/features';
+import { readChainStats } from '@/lib/contract-read';
+import { dynamicApr, supplyApr } from '@/lib/rates';
 import { AdminAutoSync } from '@/components/AdminAutoSync';
-import { ShieldIcon } from '@/components/Icons';
+import { ShieldIcon, BoltIcon, PulseIcon } from '@/components/Icons';
 import { Badge, C, type Tone } from '@/components/admin/ui';
 import { Sparkline, ProtocolAreaChart, ActivityDonut } from '@/components/admin/AdminCharts';
 
@@ -69,7 +71,7 @@ export default async function AdminOverviewPage() {
     users, restricted, admins,
     kycPending, kycApproved, kycRejected,
     loanTxs, transfers, flags,
-    recent, txAgg, bankAgg, recentTxs,
+    recent, txAgg, bankAgg, recentTxs, chain,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.user.count({ where: { status: 'RESTRICTED' } }),
@@ -97,6 +99,7 @@ export default async function AdminOverviewPage() {
     `,
     prisma.bankTransfer.aggregate({ _sum: { amountMYR: true }, _count: { _all: true } }),
     prisma.loanTransaction.findMany({ orderBy: { id: 'desc' }, take: 7, select: { id: true, wallet: true, type: true, amount: true, txHash: true } }),
+    readChainStats(),
   ]);
 
   const stat = txAgg[0] ?? {
@@ -122,6 +125,12 @@ export default async function AdminOverviewPage() {
   const lockRate       = pct(netLockedEth, totalDepositedEth);
   const kycApproveRate = pct(kycApproved, kycApproved + kycRejected);
   const kycRate        = pct(kycApproved, users);
+
+  // On-chain live rates (null when node is unreachable)
+  const liveAprPct   = chain ? chain.aprBps / 100 : null;
+  const baseAprPct   = chain ? chain.baseRateBps / 100 : null;
+  const ethSupplyApr = liveAprPct ? supplyApr(liveAprPct, 0.38) : null;
+  const btcBorrowApr = liveAprPct ? dynamicApr(liveAprPct, 0.78, 0) : null;
 
   const paused = FLAGS.filter(f => (flags[f.key]?.state ?? ON) !== ON);
 
@@ -260,6 +269,64 @@ export default async function AdminOverviewPage() {
             </Link>
           ))}
         </Box>
+
+        {/* ── Live on-chain rates ───────────────────────────────────────── */}
+        <Card sx={{ mb: 3, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.green}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628', overflow: 'hidden' }}>
+          <Box sx={{ px: 2.5, pt: 2, pb: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ color: chain?.paused ? C.amber : C.green }}><PulseIcon size={15} /></Box>
+              <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Live On-Chain Rates</Typography>
+              {chain ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 1, bgcolor: chain.paused ? `${C.amber}15` : `${C.green}12`, border: `1px solid ${chain.paused ? C.amber : C.green}30` }}>
+                  <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: chain.paused ? C.amber : C.green }} />
+                  <Typography sx={{ fontSize: 10, fontWeight: 700, color: chain.paused ? C.amber : C.green }}>
+                    {chain.paused ? 'PAUSED' : 'LIVE'}
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: `${C.red}15`, border: `1px solid ${C.red}30` }}>
+                  <Typography sx={{ fontSize: 10, fontWeight: 700, color: C.red }}>NODE OFFLINE</Typography>
+                </Box>
+              )}
+            </Box>
+            <Typography sx={{ fontSize: 11, color: C.muted, fontFamily: 'monospace' }}>
+              {chain ? `ETH: RM ${chain.ethPriceMYR.toLocaleString('en-MY')} · from contract` : 'Cannot reach local node'}
+            </Typography>
+          </Box>
+
+          <Divider sx={{ borderColor: C.border }} />
+
+          {chain ? (
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', sm: 'repeat(4,1fr)', md: 'repeat(7,1fr)' } }}>
+              {[
+                { label: 'Borrow APR (ETH)',  value: `${liveAprPct!.toFixed(2)}%`,   color: C.green,  sub: `base ${baseAprPct!.toFixed(2)}%`    },
+                { label: 'Supply APR (ETH)',  value: `${ethSupplyApr!.toFixed(2)}%`,  color: '#2BD9A2', sub: '38% of borrow'                     },
+                { label: 'Borrow APR (BTC)',  value: `${btcBorrowApr!.toFixed(2)}%`, color: '#F7931A', sub: '0.78× ETH rate'                    },
+                { label: 'ETH Price',         value: `RM ${chain.ethPriceMYR.toLocaleString('en-MY')}`, color: '#627EEA', sub: 'on-chain'        },
+                { label: 'On-chain Borrowed', value: rm(chain.totalBorrowedMYR),      color: C.ink,    sub: 'contract state'                     },
+                { label: 'Collateral',        value: `${chain.totalCollateralETH.toFixed(2)} ETH`, color: C.ink, sub: 'contract state'           },
+                { label: 'Protocol Fees',     value: rm(chain.protocolFeesMYR),       color: C.amber,  sub: 'unclaimed'                          },
+              ].map((s, i) => (
+                <Box key={s.label} sx={{
+                  px: 2.5, py: 1.75,
+                  borderLeft: i > 0 ? `1px solid ${C.border}` : 'none',
+                  borderTop: { xs: i > 1 ? `1px solid ${C.border}` : 'none', sm: i > 3 ? `1px solid ${C.border}` : 'none', md: 'none' },
+                }}>
+                  <Typography sx={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.5 }}>{s.label}</Typography>
+                  <Typography sx={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1.1, letterSpacing: -0.3 }}>{s.value}</Typography>
+                  <Typography sx={{ fontSize: 10.5, color: C.muted, mt: 0.25 }}>{s.sub}</Typography>
+                </Box>
+              ))}
+            </Box>
+          ) : (
+            <Box sx={{ px: 2.5, py: 2 }}>
+              <Typography sx={{ fontSize: 13, color: C.muted }}>
+                APR data unavailable — the local Hardhat node is not reachable at <code>{process.env.NEXT_PUBLIC_RPC_URL ?? 'http://127.0.0.1:8545'}</code>.
+                Start the node with <code>npm run node</code> to see live rates.
+              </Typography>
+            </Box>
+          )}
+        </Card>
 
         {/* ── Middle row: area chart + sidebar ─────────────────────────── */}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 340px' }, gap: 2, mb: 3 }}>

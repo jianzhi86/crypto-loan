@@ -67,9 +67,11 @@ export default function MarketsPage() {
     return key ? prices[key] : { myr: 0, usd: 0, change24h: 0 };
   };
 
-  // All borrow APRs derived from the live on-chain ETH rate (riskMul scales each asset).
+  // All borrow APRs derived from the live on-chain base rate (riskMul scales each asset).
+  // ETH uses the base rate directly — no volatility premium since this IS the base.
   // Supply APR derived from borrow APR using per-asset utilization ratio.
-  const getApr  = (m: typeof MARKETS[0]) => dynamicApr(ethRate, m.riskMul, getPrice(m).change24h);
+  const getApr  = (m: typeof MARKETS[0]) =>
+    m.symbol === 'ETH' ? ethRate : dynamicApr(ethRate, m.riskMul, getPrice(m).change24h);
   const getSApr = (m: typeof MARKETS[0]) => supplyApr(getApr(m), m.supplyRatio);
 
   const handleSort = (key: SortKey) => {

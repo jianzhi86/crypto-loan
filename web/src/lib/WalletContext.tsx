@@ -128,7 +128,7 @@ const INIT: WalletState = {
   txStatus: 'idle', txMessage: '',
   txStep: 1, txTotalSteps: 1,
   lastReceipt: null,
-  borrowAprBps: 480, supplyAprBps: 0, utilizationRate: 0, pendingYieldMYR: 0,
+  borrowAprBps: 300, supplyAprBps: 0, utilizationRate: 0, pendingYieldMYR: 0,
 };
 
 const HN_PARAMS = {
@@ -361,10 +361,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // Optional calls — only exist on the current contract version.
       // Promise.allSettled so a missing function never crashes the whole refresh.
       const [aprLiveResult, protStatsResult] = await Promise.allSettled([
-        Promise.resolve().then(() => c.loan.currentAprBps()),
+        Promise.resolve().then(() => c.loan.baseRateBps()),
         Promise.resolve().then(() => c.loan.getProtocolStats()),
       ]);
-      const aprBps    = aprLiveResult.status   === 'fulfilled' ? aprLiveResult.value : BigInt(480);
+      const aprBps    = aprLiveResult.status   === 'fulfilled' ? aprLiveResult.value : BigInt(300);
       const protStats = protStatsResult.status === 'fulfilled' ? protStatsResult.value : [BigInt(0), BigInt(0), BigInt(0), BigInt(0), BigInt(0)];
       const borrowAprBps = Number(aprBps as bigint);
       const ps = protStats as [bigint, bigint, bigint, bigint, bigint];
