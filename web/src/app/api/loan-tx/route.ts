@@ -23,6 +23,15 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ ok: true, id: tx.id });
   } catch (err) {
+    // Postgres upsert isn't atomic against a true concurrent duplicate: two
+    // requests for the same txHash can both see "no row" and both attempt the
+    // insert, so the loser hits a unique-constraint error (P2002) instead of
+    // the no-op an upsert is supposed to give. The row exists either way —
+    // that's what the caller wanted, so treat it as success, not a failure.
+    if ((err as { code?: string }).code === 'P2002') {
+      const existing = await prisma.loanTransaction.findUnique({ where: { txHash } });
+      if (existing) return NextResponse.json({ ok: true, id: existing.id });
+    }
     console.error('[POST /api/loan-tx]', err);
     return NextResponse.json({ error: 'DB error' }, { status: 500 });
   }

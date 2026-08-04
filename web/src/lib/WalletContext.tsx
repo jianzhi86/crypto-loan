@@ -231,6 +231,24 @@ function writeMyrAdded(addr: string) {
   try { localStorage.setItem(MYR_ADDED_KEY(addr), '1'); } catch { /* unavailable */ }
 }
 
+// Depth-first collection of every string-valued message/reason/data field in
+// an ethers/MetaMask error, however deeply it's nested — different provider
+// versions wrap the underlying node rejection at different depths (top-level
+// .reason, .info.error.message, .info.error.data.message, .error.error.message,
+// .cause.message…), and a shallow fixed-path read misses whichever one a given
+// version actually used.
+function collectErrorStrings(v: unknown, depth = 0, out: string[] = []): string[] {
+  if (v == null || depth > 6) return out;
+  if (typeof v === 'string') { out.push(v); return out; }
+  if (typeof v === 'object') {
+    for (const key of ['reason', 'shortMessage', 'message', 'data', 'error', 'info', 'cause']) {
+      const child: unknown = (v as Record<string, unknown>)[key];
+      if (child !== undefined && child !== v) collectErrorStrings(child, depth + 1, out);
+    }
+  }
+  return out;
+}
+
 // Pull a human-readable revert reason out of an ethers v6 error so the UI can
 // show *why* a transaction failed (e.g. "KYC required") instead of a guess.
 function revertReason(err: unknown): string | null {
@@ -242,17 +260,30 @@ function revertReason(err: unknown): string | null {
   const raw = e?.reason || e?.info?.error?.message || e?.shortMessage || e?.data?.message;
   if (!raw) return null;
   // A restarted Hardhat node resets every account's nonce to 0, but MetaMask
-  // keeps signing with its cached higher nonce — ethers surfaces that as
-  // "could not coalesce error" / "Nonce too high", which tells the user
-  // nothing. Point them at the actual fix.
-  const all = [e?.reason, e?.shortMessage, e?.info?.error?.message, e?.data?.message]
-    .filter(Boolean).join(' | ');
-  if (/nonce too high|could not coalesce/i.test(all)) {
+  // keeps signing with its cached higher nonce — the rejection this causes
+  // gets buried at different nesting depths depending on the provider version,
+  // and its actual wording ranges from "Nonce too high" / "could not coalesce
+  // error" to MetaMask's own generic "Internal JSON-RPC error". Search the
+  // whole error tree for the specific nonce wording rather than trusting one
+  // fixed-depth field, so the fix only shows when we've actually found that
+  // signal — not merely because the top-level message happened to be vague.
+  const all = collectErrorStrings(e).join(' | ');
+  if (/nonce too (high|low)|could not coalesce/i.test(all)) {
     return 'the local chain was restarted. In MetaMask: Settings → Advanced → "Clear activity tab data", then retry';
   }
   // Strip ethers' "execution reverted: " / "...: reverted: " prefixes.
   const m = raw.match(/reverted(?: with reason string)?:?\s*"?([^"]+)"?/i);
-  return (m?.[1] ?? raw).trim();
+  const reason = (m?.[1] ?? raw).trim();
+  // A bare, undecoded "Internal JSON-RPC error" says nothing on its own — but
+  // on this local dev chain (restarted often during testing) a stale MetaMask
+  // nonce cache is by far the most common cause even when its wording didn't
+  // match the specific patterns above. Hedge rather than assert: name the
+  // likely fix but don't claim it as fact, and keep the raw text for anyone
+  // who wants to check the console themselves.
+  if (/^internal json-rpc error\.?$/i.test(reason)) {
+    return `${reason} — if this just started happening after restarting the local chain, try MetaMask: Settings → Advanced → "Clear activity tab data", then retry`;
+  }
+  return reason;
 }
 
 interface WalletCtx extends WalletState {
@@ -262,7 +293,7 @@ interface WalletCtx extends WalletState {
   tryAutoConnect: (linkedWallet?: string | null) => Promise<void>;
   switchToHardhat: () => Promise<void>;
   depositCollateral: (eth: string) => Promise<void>;
-  borrow: (myr: string) => Promise<boolean>;
+  borrow: (myr: string, opts?: { termMonths?: number }) => Promise<boolean>;
   buyMYR: (myr: string) => Promise<boolean>;
   transferMYR: (myr: string, to: string) => Promise<boolean>;
   repay: (myr: string, opts?: {
@@ -592,7 +623,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [getContracts, s.address, s.ethPriceMYR, refresh, guardTx]);
 
-  const borrow = useCallback(async (myrAmt: string): Promise<boolean> => {
+  const borrow = useCallback(async (myrAmt: string, opts?: { termMonths?: number }): Promise<boolean> => {
     if (!guardTx()) return false;
     const c = await getContracts(true);
     const addr = s.address;
@@ -615,13 +646,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         aprBps = Number(await (c.loan.baseRateBps as () => Promise<bigint>)());
       } catch { /* pre-redeploy contract — keep the state value */ }
       if (receipt) {
-        // Tranche ledger row — lets the Repay tab itemize borrows and settle
-        // them individually. Fire-and-forget like saveTxToDB — a miss only
-        // degrades itemization.
-        fetch('/api/borrows', {
+        // Tranche ledger row — lets the Repay tab itemize borrows, settle them
+        // individually, and (via termMonths) run the installment-bill math.
+        // Awaited — not truly fire-and-forget — because refresh() below
+        // triggers the dashboard's ledger re-fetch; letting this race that
+        // re-fetch showed the borrow's collateral/principal on-chain while the
+        // new "Your Borrows" row itself was still missing. Failures still
+        // never fail the borrow result, same as before.
+        await fetch('/api/borrows', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ wallet: addr, principal: units.toString(), aprBps, txHash: receipt.hash }),
+          body: JSON.stringify({
+            wallet: addr, principal: units.toString(), aprBps,
+            termMonths: opts?.termMonths ?? 1, txHash: receipt.hash,
+          }),
         }).catch(() => {});
       }
       setTx('success', `Borrowed RM ${myrAmt}`);
@@ -727,7 +765,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const repay = useCallback(async (myrAmt: string, opts?: {
     full?: boolean;
-    settle?: { ids: string[]; interest?: Record<string, string> };
+    // Rows this payment applies to, oldest-first — a partial payment pays
+    // down the oldest tranche(s) first (see /api/borrows/settle).
+    settle?: { ids: string[] };
   }) => {
     if (!guardTx()) return;
     const c = await getContracts(true);
@@ -770,7 +810,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const myrBalUnits = (await c.myr.balanceOf(s.address)) as bigint;
       if (due > myrBalUnits) {
         const shortfall = Number(due - myrBalUnits) / 1e6;
-        setTx('error', `Insufficient MYR — short by RM ${shortfall.toFixed(2)}. Use Auto top-up or buy MYR first.`);
+        // "Auto top-up" only exists in the UI for a FULL payoff (it's gated on
+        // repayFull there) — pointing a partial/custom-amount repay at a button
+        // that isn't on screen just strands the user. Tell them what's actually
+        // clickable in their current mode.
+        const fix = opts?.full
+          ? 'Use Auto top-up or buy MYR first.'
+          : 'Buy MYR first, or switch to FULL repay to use Auto top-up.';
+        setTx('error', `Insufficient MYR — short by RM ${shortfall.toFixed(2)}. ${fix}`);
         return;
       }
       const approveTx = await c.myr.approve(CONTRACT_ADDRESSES.CryptoLoan, units);
@@ -780,18 +827,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const repayReceipt: ethers.TransactionReceipt | null = await repayTx.wait();
       // The Repaid event carries what was actually charged — principal and
       // interest split — which can differ slightly from the requested amount.
-      let principalPaid = 0, interestPaid = 0, colReturnedEth = 0;
+      // Collateral is never auto-returned by repay() (see CryptoLoan.sol) —
+      // it stays deposited so the same collateral can back a new borrow
+      // without redepositing; withdraw it separately whenever you want it.
+      let principalPaid = 0, interestPaid = 0;
       try {
-        const parsedLogs = (repayReceipt?.logs ?? [])
-          .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } });
-        const repaidEvt = parsedLogs.find(p => p?.name === 'Repaid');
+        const repaidEvt = (repayReceipt?.logs ?? [])
+          .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } })
+          .find(p => p?.name === 'Repaid');
         if (repaidEvt) {
           principalPaid = Number(repaidEvt.args[1] as bigint) / 1e6;
           interestPaid  = Number(repaidEvt.args[2] as bigint) / 1e6;
-        }
-        const colEvt = parsedLogs.find(p => p?.name === 'CollateralWithdrawn');
-        if (colEvt) {
-          colReturnedEth = Number(colEvt.args[1] as bigint) / 1e18;
         }
       } catch { /* event decode is best-effort */ }
       const totalPaid = principalPaid + interestPaid;
@@ -800,15 +846,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         saveTxToDB(s.address, 'Repaid',
           totalPaid > 0 ? BigInt(Math.round(principalPaid * 1e6)).toString() : units.toString(),
           repayReceipt);
-        if (colReturnedEth > 0) {
-          saveTxToDB(s.address, 'CollateralWithdrawn',
-            BigInt(Math.round(colReturnedEth * 1e18)).toString(),
-            repayReceipt);
-        }
       }
-      const colLabel = colReturnedEth > 0 ? ` + ${colReturnedEth.toFixed(4)} ETH returned` : '';
       setTx('success', opts?.full
-        ? `Loan fully repaid (RM ${paidLabel})${colLabel}`
+        ? `Loan fully repaid (RM ${paidLabel})`
         : `Repaid RM ${paidLabel}`, 2, 2);
       if (repayReceipt) {
         setReceipt({
@@ -818,25 +858,31 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           lines: [
             { label: 'Principal repaid', value: `RM ${principalPaid.toFixed(2)}` },
             { label: 'Interest paid',    value: `RM ${interestPaid.toFixed(4)}` },
-            ...(opts?.full && colReturnedEth > 0
-              ? [{ label: 'Collateral returned', value: `${colReturnedEth.toFixed(4)} ETH` }]
-              : opts?.full
-              ? [{ label: 'Collateral', value: 'Returned to wallet' }]
+            ...(opts?.full
+              ? [{ label: 'Collateral', value: 'Still deposited — withdraw anytime, or borrow again against it' }]
               : []),
           ],
           txHash: repayReceipt.hash,
         });
       }
-      // Flip the settled ledger tranches to REPAID now that the chain confirmed.
-      // Fire-and-forget: a miss leaves the tranche OPEN, which the user can
-      // simply settle again — never blocks the repay result.
+      // Apply the confirmed payment to the ledger tranches it was meant to
+      // cover — fully settles rows the payment cleared, pays down the
+      // principal of whichever row it only partially covered (oldest-first).
+      // Awaited (though errors still never fail the repay result) because the
+      // refresh() below triggers the dashboard's ledger re-fetch — firing this
+      // without waiting raced that re-fetch against this write, and the
+      // re-fetch usually won, showing the pre-repay ledger row until some
+      // unrelated event happened to trigger another refetch.
       if (repayReceipt && opts?.settle?.ids.length) {
-        fetch('/api/borrows/settle', {
+        const paidUnits = principalPaid > 0
+          ? BigInt(Math.round(principalPaid * 1e6))
+          : units;
+        await fetch('/api/borrows/settle', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ids: opts.settle.ids,
-            interest: opts.settle.interest ?? {},
+            principalPaid: paidUnits.toString(),
             repayTxHash: repayReceipt.hash,
           }),
         }).catch(() => {});
@@ -849,8 +895,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (opts?.full) {
         setS(p => ({
           ...p,
+          // Collateral is untouched by repay() now — it stays deposited, so
+          // it must NOT be optimistically zeroed here (that used to mirror
+          // the auto-return this contract no longer does).
           loanInfo: p.loanInfo
-            ? { ...p.loanInfo, borrowed: BigInt(0), accruedInterest: BigInt(0), collateral: BigInt(0) }
+            ? { ...p.loanInfo, borrowed: BigInt(0), accruedInterest: BigInt(0) }
             : p.loanInfo,
           pendingYieldMYR: 0,
         }));
@@ -871,7 +920,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const tx = await c.loan.withdrawCollateral(ethers.parseEther(ethAmt));
       const receipt = await tx.wait();
       if (receipt && s.address) saveTxToDB(s.address, 'CollateralWithdrawn', ethers.parseEther(ethAmt).toString(), receipt);
-      setTx('success', `Withdrawn ${ethAmt} ETH`);
+      // Withdrawing ALL collateral auto-claims any accrued supply interest in
+      // the same transaction (see CryptoLoan.sol) — surface it if it fired.
+      let interestClaimed = 0;
+      try {
+        const claimEvt = ((receipt?.logs ?? []) as ethers.Log[])
+          .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } })
+          .find((p: ethers.LogDescription | null) => p?.name === 'SupplyInterestClaimed');
+        if (claimEvt) interestClaimed = Number(claimEvt.args[1] as bigint) / 1e6;
+      } catch { /* event decode is best-effort */ }
+      setTx('success', interestClaimed > 0
+        ? `Withdrawn ${ethAmt} ETH + RM ${interestClaimed.toFixed(4)} interest claimed`
+        : `Withdrawn ${ethAmt} ETH`);
       if (receipt) {
         setReceipt({
           action: 'withdraw',
@@ -880,6 +940,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           lines: [
             { label: 'Sent to', value: `${s.address.slice(0, 6)}…${s.address.slice(-4)}` },
             { label: 'Value (on-chain price)', value: `≈ RM ${(parseFloat(ethAmt) * s.ethPriceMYR).toLocaleString('en-MY', { maximumFractionDigits: 0 })}` },
+            ...(interestClaimed > 0
+              ? [{ label: 'Supply interest claimed', value: `RM ${interestClaimed.toFixed(4)}` }]
+              : []),
           ],
           txHash: receipt.hash,
         });

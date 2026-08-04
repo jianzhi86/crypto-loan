@@ -60,10 +60,10 @@ const ASSETS = [
 ];
 
 const LOAN_TERMS = [
-  { days: 30,  label: '1 Month'  },
-  { days: 90,  label: '3 Months' },
-  { days: 180, label: '6 Months' },
-  { days: 365, label: '1 Year'   },
+  { days: 30,  months: 1,  label: '1 Month'  },
+  { days: 90,  months: 3,  label: '3 Months' },
+  { days: 180, months: 6,  label: '6 Months' },
+  { days: 365, months: 12, label: '1 Year'   },
 ];
 
 const DEMO_LOANS = [
@@ -343,15 +343,26 @@ function Dashboard() {
   // is measured up to wallet.lastRefreshAt (not the render instant), so the
   // figures step once per quote cycle, exactly when the countdown wraps —
   // never creeping between refreshes.
-  type LedgerRow = { id: string; principalMYR: number; aprBps: number; interest: number; label: string };
+  // Installment fields (termMonths/monthsElapsed/remainingMonths/thisMonthDue):
+  // Shopee-PayLater-style plan tracking. termMonths is locked at borrow time;
+  // monthsElapsed counts 30-day cycles since borrowedAt (matching LOAN_TERMS'
+  // own 30-day "1 month" convention); thisMonthDue is always CURRENT remaining
+  // balance ÷ months left in the plan — so it recomputes smaller on its own
+  // after any payment (the balance shrank) without any special-case "recompute
+  // after paying" logic, and grows in your favor as billing cycles pass even
+  // with zero payments, same as any straight-line installment plan would.
+  type LedgerRow = {
+    id: string; principalMYR: number; aprBps: number; interest: number; label: string;
+    termMonths: number; monthsElapsed: number; remainingMonths: number; thisMonthDue: number;
+  };
   const LEGACY_ID = '__legacy__';
-  const [borrowRows, setBorrowRows] = useState<{ id: string; principal: string; aprBps: number; borrowedAt: string }[]>([]);
+  const [borrowRows, setBorrowRows] = useState<{ id: string; principal: string; aprBps: number; termMonths: number; borrowedAt: string }[]>([]);
   const [selectedBorrowIds, setSelectedBorrowIds] = useState<string[]>([]);
   const fetchBorrows = useCallback(async () => {
     if (!wallet.address) { setBorrowRows([]); return; }
     try {
       const r = await fetch(`/api/borrows?wallet=${wallet.address}`);
-      const d = await r.json() as { borrows?: { id: string; principal: string; aprBps: number; borrowedAt: string }[] };
+      const d = await r.json() as { borrows?: { id: string; principal: string; aprBps: number; termMonths: number; borrowedAt: string }[] };
       if (Array.isArray(d.borrows)) setBorrowRows(d.borrows);
     } catch { /* keep the last known list */ }
   }, [wallet.address]);
@@ -389,29 +400,40 @@ function Dashboard() {
     // Pinned to the 60s refresh stamp so interest advances each time the
     // wallet re-reads the chain, not on every render.
     const now = wallet.lastRefreshAt || Date.now();
-    const YEAR_MS = 31_536_000_000;
+    const YEAR_MS  = 31_536_000_000;
+    const MONTH_MS = 30 * 86_400_000; // matches LOAN_TERMS' own 30-day "1 month"
+    const installment = (principalMYR: number, interest: number, termMonths: number, borrowedAtMs: number) => {
+      const monthsElapsed   = Math.max(0, Math.floor((now - borrowedAtMs) / MONTH_MS));
+      const remainingMonths = Math.max(1, termMonths - monthsElapsed);
+      return { termMonths, monthsElapsed, remainingMonths, thisMonthDue: (principalMYR + interest) / remainingMonths };
+    };
     const rows: LedgerRow[] = borrowRows.map(r => {
-      const principalMYR = Number(r.principal) / 1e6;
-      const years = Math.max(0, now - new Date(r.borrowedAt).getTime()) / YEAR_MS;
+      const principalMYR  = Number(r.principal) / 1e6;
+      const borrowedAtMs  = new Date(r.borrowedAt).getTime();
+      const years         = Math.max(0, now - borrowedAtMs) / YEAR_MS;
+      const interest       = principalMYR * (r.aprBps / 10_000) * years;
       return {
-        id: r.id, principalMYR, aprBps: r.aprBps,
-        interest: principalMYR * (r.aprBps / 10_000) * years,
+        id: r.id, principalMYR, aprBps: r.aprBps, interest,
         label: new Date(r.borrowedAt).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+        ...installment(principalMYR, interest, r.termMonths, borrowedAtMs),
       };
     });
     // Debt that predates the itemized ledger (or rows lost to a DB miss):
     // surface it as one synthetic tranche at the current APR, accruing since
     // the contract's interest clock last reset. Never selectable for DB
     // settlement — it has no row to flip — but repayable like any other.
+    // No stored plan to inherit, so it's a 1-month (pay-it-this-cycle) term —
+    // the same fallback a missing termMonths gets everywhere else.
     const covered   = rows.reduce((sum, r) => sum + r.principalMYR, 0);
     const remainder = chainPrincipal - covered;
     if (remainder > 0.01) {
       const sinceMs = Number(wallet.loanInfo.lastRepayTime || wallet.loanInfo.startTime) * 1000;
       const years = sinceMs > 0 ? Math.max(0, now - sinceMs) / YEAR_MS : 0;
+      const interest = remainder * (wallet.borrowAprBps / 10_000) * years;
       rows.unshift({
-        id: LEGACY_ID, principalMYR: remainder, aprBps: wallet.borrowAprBps,
-        interest: remainder * (wallet.borrowAprBps / 10_000) * years,
+        id: LEGACY_ID, principalMYR: remainder, aprBps: wallet.borrowAprBps, interest,
         label: 'Earlier borrows (before itemized ledger)',
+        ...installment(remainder, interest, 1, sinceMs || now),
       });
     }
     return { rows, totalInt: rows.reduce((s, r) => s + r.interest, 0), totalPrincipal: chainPrincipal };
@@ -442,20 +464,20 @@ function Dashboard() {
     setRepayFull(false); setRepayAmt(''); setRepayAmtEdited(false);
     setSelectedBorrowIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
-  // Ledger tranches this payment settles (legacy pseudo-row excluded — it has
-  // no DB row). Full payoffs settle everything regardless of selection. A
-  // hand-typed amount below the selected total is a partial payment — it
-  // reduces the chain debt but clears no tranche, so nothing is marked REPAID.
+  // Ledger tranches this payment applies to (legacy pseudo-row excluded — it
+  // has no DB row). Full payoffs, and an ALL-selected payment, apply to every
+  // row regardless. A SPECIFIC tick selection targets just those rows. But an
+  // unselected payment (nothing ticked, not full) must NOT settle nothing —
+  // that used to leave the ledger silently frozen at its pre-payment value
+  // forever, since nothing else ever re-applies a missed payment. Default it
+  // to every open row too, oldest first, exactly like /api/borrows/settle
+  // already distributes a payment when everything IS selected — an
+  // unselected payment is just that same default, not an opt-out.
   const settleForRepay = (full: boolean) => {
-    const rows = (full || allSelected) ? (ledger?.rows ?? []) : selectedRows;
+    const rows = (full || allSelected || selectedRows.length === 0) ? (ledger?.rows ?? []) : selectedRows;
     const real = rows.filter(r => r.id !== LEGACY_ID);
     if (real.length === 0) return undefined;
-    const rowsTotal = rows.reduce((s, r) => s + r.principalMYR + r.interest, 0);
-    if (!full && parseFloat(repayAmtEffective || '0') + 0.01 < rowsTotal) return undefined;
-    return {
-      ids: real.map(r => r.id),
-      interest: Object.fromEntries(real.map(r => [r.id, String(Math.round(r.interest * 1e6))])),
-    };
+    return { ids: real.map(r => r.id) };
   };
 
   const liveColMYR  = wallet.loanInfo?.collateralValueMYR ?? null;
@@ -550,7 +572,8 @@ function Dashboard() {
   // scope so both the dialog's Confirm button and the flow below share it.
   const executeBorrow = async () => {
     setBorrowConfirmOpen(false);
-    const borrowed = await wallet.borrow(borrowAmt);
+    const termMonths = LOAN_TERMS.find(t => t.days === loanTermDays)?.months ?? 1;
+    const borrowed = await wallet.borrow(borrowAmt, { termMonths });
     if (!borrowed) return;
     if (deliveryMethod === 'bank') {
       try {
@@ -1832,6 +1855,42 @@ function Dashboard() {
                     );
                   })()}
 
+                  {/* Earn-rate estimate — read-only preview of what this deposit would
+                      earn; live claim balance lives on the Portfolio page instead. */}
+                  {(() => {
+                    const ethSupplyApr = supplyApr(liveAprPct, 0.38);
+                    const depEth       = parseFloat(depositAmt || '0');
+                    const price        = isLive ? wallet.ethPriceMYR : ethPriceMYR;
+                    const hourlyEarn   = depEth > 0 ? depEth * price * (ethSupplyApr / 100) / 8760 : 0;
+                    return (
+                      <Box sx={{ p: 1.5, bgcolor: `${C.teal}07`, border: `1px solid ${C.teal}25`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.teal} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+                          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
+                        </svg>
+                        <Box sx={{ flex: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Typography sx={{ fontSize: 12, color: C.teal, fontWeight: 700, lineHeight: 1 }}>
+                              Earn {ethSupplyApr.toFixed(2)}% Supply APR on deposited ETH
+                            </Typography>
+                            <LiveDot color={C.teal} />
+                            <Typography sx={{ fontSize: 9, color: C.ts, letterSpacing: 0.3 }}>{earnCountdown}s</Typography>
+                          </Box>
+                          <Typography sx={{ fontSize: 11, color: C.ts, mt: 0.5, lineHeight: 1 }}>
+                            Est. hourly earnings: <Box component="span" sx={{ color: C.teal, fontWeight: 600 }}>
+                              RM {depEth > 0 ? hourlyEarn.toFixed(4) : (price * (ethSupplyApr / 100) / 8760).toFixed(6) + ' / ETH'}
+                            </Box>
+                          </Typography>
+                          <Typography sx={{ fontSize: 10, color: C.ts, mt: 0.5, lineHeight: 1.4, opacity: 0.7 }}>
+                            Rate = {liveAprPct.toFixed(2)}% borrow APR × 38% — auto-updates with market
+                          </Typography>
+                          <Typography sx={{ fontSize: 10, color: C.ts, mt: 0.25, lineHeight: 1.4, opacity: 0.7 }}>
+                            = {(ethSupplyApr / 8760).toFixed(6)}% APR / hr
+                          </Typography>
+                        </Box>
+                      </Box>
+                    );
+                  })()}
+
                   {/* Fee breakdown — gas only, no protocol fee on deposit */}
                   {(() => {
                     const depEth = parseFloat(depositAmt || '0');
@@ -1852,55 +1911,6 @@ function Dashboard() {
                         </Typography>
                       </Box>
                     ) : null;
-                  })()}
-
-                  {/* Earn APR badge — derived from the live on-chain borrow rate, refreshes every 60 s */}
-                  {(() => {
-                    const ethSupplyApr = supplyApr(liveAprPct, 0.38);
-                    const depEth       = parseFloat(depositAmt || '0');
-                    const price        = isLive ? wallet.ethPriceMYR : ethPriceMYR;
-                    const hourlyEarn   = depEth > 0 ? depEth * price * (ethSupplyApr / 100) / 8760 : 0;
-                    const earnedSoFar  = wallet.pendingYieldMYR;
-                    const hasClaim     = earnedSoFar > 0.000001;
-                    return (
-                      <Box sx={{ p: 1.5, bgcolor: `${C.teal}07`, border: `1px solid ${C.teal}25`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.teal} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
-                          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
-                        </svg>
-                        <Box sx={{ flex: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                            <Typography sx={{ fontSize: 12, color: C.teal, fontWeight: 700, lineHeight: 1 }}>
-                              Earn {ethSupplyApr.toFixed(2)}% Supply APR on deposited ETH
-                            </Typography>
-                            <LiveDot color={C.teal} />
-                            <Typography sx={{ fontSize: 9, color: C.ts, letterSpacing: 0.3 }}>{earnCountdown}s</Typography>
-                          </Box>
-                          {depEth > 0 && (
-                            <Typography sx={{ fontSize: 11, color: C.ts, mt: 0.5, lineHeight: 1 }}>
-                              Est. hourly earnings: <Box component="span" sx={{ color: C.teal, fontWeight: 600 }}>RM {hourlyEarn.toFixed(4)}</Box>
-                            </Typography>
-                          )}
-                          {isLive && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.75 }}>
-                              <Typography sx={{ fontSize: 11, color: C.ts, lineHeight: 1 }}>
-                                Earned so far: <Box component="span" sx={{ color: C.teal, fontWeight: 700 }}>RM {earnedSoFar.toFixed(4)}</Box>
-                              </Typography>
-                              {hasClaim && (
-                                <Button size="small" variant="contained" disableElevation
-                                  onClick={() => wallet.claimSupplyInterest()}
-                                  disabled={wallet.txStatus === 'pending'}
-                                  sx={{ fontSize: 10, px: 1.25, py: 0.4, minWidth: 0, borderRadius: 1.5, bgcolor: C.teal, color: '#0B1226', fontWeight: 700, '&:hover': { bgcolor: '#22c98f' } }}>
-                                  Claim MYR
-                                </Button>
-                              )}
-                            </Box>
-                          )}
-                          <Typography sx={{ fontSize: 10, color: C.ts, mt: 0.5, lineHeight: 1.4, opacity: 0.7 }}>
-                            Rate = {liveAprPct.toFixed(2)}% borrow APR × 38% — auto-updates with market
-                          </Typography>
-                        </Box>
-                      </Box>
-                    );
                   })()}
 
                   <Box sx={{ p: 1.5, bgcolor: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`, borderRadius: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -2392,9 +2402,16 @@ function Dashboard() {
                         <Typography sx={{ fontSize: 11, color: C.gold, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                           Active Loan
                         </Typography>
-                        <Chip label={`${lockedAprPct.toFixed(2)}% APR`} size="small"
-                          sx={{ bgcolor: `${C.gold}18`, color: C.gold, border: `1px solid ${C.gold}45`, fontSize: 11, fontWeight: 700, height: 22 }} />
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <LiveDot color={C.gold} />
+                          <Chip label={`${lockedAprPct.toFixed(2)}% APR`} size="small"
+                            sx={{ bgcolor: `${C.gold}18`, color: C.gold, border: `1px solid ${C.gold}45`, fontSize: 11, fontWeight: 700, height: 22 }} />
+                        </Box>
                       </Box>
+                      <Typography sx={{ fontSize: 10, color: C.ts, mt: -0.75, mb: 1, lineHeight: 1.4 }}>
+                        Variable rate — moves with the market, never fixed. Currently{' '}
+                        <Box component="span" sx={{ color: C.gold, fontWeight: 600 }}>{contractAprPct.toFixed(2)}% effective</Box> on new interest.
+                      </Typography>
                       <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1 }}>
                         {[
                           { label: 'Outstanding',   val: `RM ${principal.toFixed(2)}`,        color: C.tp   },
@@ -2418,6 +2435,50 @@ function Dashboard() {
                       </Box>
                     </Box>
                   )}
+
+                  {/* ── This Month's Bill — Shopee-PayLater-style installment tracker.
+                      No term picker here: the term was already chosen on the Borrow tab
+                      when each tranche was taken out. This sums every open row's own
+                      thisMonthDue (its current remaining balance ÷ months left in ITS
+                      plan). Pay any amount, of any size — the balance shrinks, and next
+                      time this renders (immediately, since it's a live formula, not a
+                      cached quote) the bill is recalculated from the new smaller balance
+                      over the same remaining months, automatically smaller too. ── */}
+                  {hasDue && ledger && ledger.rows.length > 0 && (() => {
+                    const billDue = ledger.rows.reduce((s, r) => s + r.thisMonthDue, 0);
+                    const isThisBill = repayAmtEdited && !repayFull
+                      && Math.abs(repayAmtNum - billDue) < 0.005;
+                    // Single-row case: name the plan directly ("Month 2 of 3"). Mixed
+                    // terms across multiple rows have no one shared "month N of M" to
+                    // show, so just label it as the combined bill.
+                    const single = ledger.rows.length === 1 ? ledger.rows[0] : null;
+                    const planLabel = single
+                      ? `Month ${Math.min(single.monthsElapsed + 1, single.termMonths)} of ${single.termMonths}`
+                      : `${ledger.rows.length} active plans`;
+                    return (
+                      <Box sx={{ p: 2, borderRadius: 2.5, bgcolor: `${C.blue}0F`, border: `1px solid ${C.blue}35`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap' }}>
+                        <Box>
+                          <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: C.tp }}>This Month&apos;s Bill</Typography>
+                          <Typography sx={{ fontSize: 10.5, color: C.ts, mt: 0.25 }}>
+                            {planLabel} · remaining balance ÷ months left · variable rate, tracks the market
+                          </Typography>
+                          <Typography sx={{ fontSize: 17, fontWeight: 800, color: C.blue, mt: 0.5 }}>RM {billDue.toFixed(2)}</Typography>
+                        </Box>
+                        <Button variant="contained" disableElevation disabled={isPending}
+                          onClick={() => {
+                            setRepayAmt(billDue.toFixed(2)); setRepayAmtEdited(true);
+                            setRepayFull(false); setSelectedBorrowIds([]);
+                          }}
+                          sx={{ px: 2.25, py: 1, borderRadius: 2, fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap',
+                            bgcolor: isThisBill ? `${C.blue}25` : C.blue, color: isThisBill ? C.blue : '#0B1226',
+                            border: isThisBill ? `1px solid ${C.blue}60` : 'none',
+                            '&:hover': { bgcolor: isThisBill ? `${C.blue}30` : '#4458E8' } }}>
+                          {isThisBill ? '✓ Amount Set' : 'Pay This Month'}
+                        </Button>
+                      </Box>
+                    );
+                  })()}
 
                   {/* ── Repay amount ── */}
                   <Box>
@@ -2449,14 +2510,32 @@ function Dashboard() {
                           </Box>
                         ))}
                         <Box onClick={() => { setRepayAmt(''); setRepayAmtEdited(false); setRepayFull(true); setSelectedBorrowIds(ledger ? ledger.rows.map(r => r.id) : []); }}
-                          sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: repayFull ? `${C.teal}25` : `${C.teal}10`, borderRadius: 1.5,
-                            cursor: 'pointer', border: `1px solid ${repayFull ? C.teal : C.teal + '30'}`,
-                            '&:hover': { bgcolor: `${C.teal}18` } }}>
-                          <Typography sx={{ fontSize: 11, fontWeight: 700, color: C.teal }}>FULL</Typography>
+                          sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: repayFull ? `${C.teal}25` : C.inner, borderRadius: 1.5,
+                            cursor: 'pointer', border: `1px solid ${repayFull ? C.teal : C.border}`,
+                            '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
+                          <Typography sx={{ fontSize: 11, fontWeight: 700, color: repayFull ? C.teal : C.ts }}>FULL</Typography>
                         </Box>
                       </Box>
                     )}
                   </Box>
+
+                  {/* Too-small-to-touch-principal warning — interest is always paid
+                      first, so a payment under the currently accrued interest lands
+                      entirely on interest and leaves principal (and this tranche's
+                      balance) completely unchanged. */}
+                  {hasDue && !repayFull && repayAmtNum > 0 && repayAmtNum <= contractIntNow && (
+                    <Box sx={{ p: 1.5, bgcolor: `${C.red}0A`, border: `1px solid ${C.red}30`, borderRadius: 2, display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                      </svg>
+                      <Typography sx={{ fontSize: 11, color: C.red, lineHeight: 1.5 }}>
+                        This won&apos;t reduce your principal — RM {contractIntNow.toFixed(2)} of interest has already
+                        accrued and is always paid first. Repay at least{' '}
+                        <Box component="span" sx={{ fontWeight: 700 }}>RM {(contractIntNow + 0.01).toFixed(2)}</Box>{' '}
+                        to start paying down principal too.
+                      </Typography>
+                    </Box>
+                  )}
 
                   {/* Itemized borrows */}
                   {isLive && ledger && ledger.rows.length > 0 && (
@@ -2485,10 +2564,13 @@ function Dashboard() {
                                 <Box component="span" sx={{ color: C.ts, fontWeight: 500 }}> · {(r.aprBps / 100).toFixed(2)}% APR</Box>
                               </Typography>
                               <Typography sx={{ fontSize: 10.5, color: C.ts }}>{r.label}</Typography>
+                              <Typography sx={{ fontSize: 10.5, color: C.blue, mt: 0.25 }}>
+                                Month {Math.min(r.monthsElapsed + 1, r.termMonths)} of {r.termMonths} · RM {r.thisMonthDue.toFixed(2)} this month
+                              </Typography>
                             </Box>
                             <Box sx={{ textAlign: 'right' }}>
                               <Typography sx={{ fontSize: 11, color: C.gold }}>+RM {r.interest < 0.01 ? r.interest.toFixed(4) : r.interest.toFixed(2)} int.</Typography>
-                              <Typography sx={{ fontSize: 10.5, color: C.ts }}>RM {(r.principalMYR + r.interest).toFixed(2)} to settle</Typography>
+                              <Typography sx={{ fontSize: 10.5, color: C.ts }}>RM {(r.principalMYR + Number(r.interest.toFixed(2))).toFixed(2)} to settle</Typography>
                             </Box>
                           </Box>
                         );
@@ -2579,7 +2661,7 @@ function Dashboard() {
                           const principalPaid = Math.max(0, repayAmtNum - liveChainInt);
                           const rem = Math.max(0, principal - principalPaid);
                           return repayFull || rem <= 0
-                            ? <Row key="hf" label="After repay" value="∞ (fully paid — collateral unlocked)" vc={C.teal} bold />
+                            ? <Row key="hf" label="After repay" value="∞ (fully paid — collateral stays deposited)" vc={C.teal} bold />
                             : <Row key="hf" label="New health factor" value={fmtHF((wallet.loanInfo.collateralValueMYR * 0.8) / rem)} vc={C.teal} />;
                         })()}
                       </Box>
@@ -2602,7 +2684,12 @@ function Dashboard() {
                         onClick={canAutoRepay ? doAutoTopUp : () => {
                           const rawDue = wallet.loanInfo
                             ? (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6 : 0;
-                          const full = repayFull || allSelected || (rawDue > 0 && repayAmtNum >= rawDue - 0.005);
+                          // Ticking every row (allSelected) only picks which ledger
+                          // tranches this payment settles — it must never override an
+                          // explicitly typed amount into a full payoff. "full" is only
+                          // true when the user chose FULL, or their typed amount
+                          // actually covers the whole due.
+                          const full = repayFull || (rawDue > 0 && repayAmtNum >= rawDue - 0.005);
                           void wallet.repay(repayAmtEffective, { full, settle: settleForRepay(full) })
                             .then(() => { setRepayAmt(''); setRepayFull(false); setSelectedBorrowIds([]); });
                         }}

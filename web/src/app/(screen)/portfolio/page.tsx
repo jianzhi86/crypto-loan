@@ -15,6 +15,7 @@ import { useWallet } from '@/lib/WalletContext';
 import { usePrices } from '@/hooks/usePrices';
 import { useTransactionHistory, ICONS, LABELS, COLORS } from '@/hooks/useTransactionHistory';
 import { AlertIcon, BankIcon, ClipboardIcon, InboxIcon } from '@/components/Icons';
+import { supplyApr } from '@/lib/rates';
 
 interface BankTransfer {
   id: string;
@@ -99,6 +100,13 @@ export default function PortfolioPage() {
   const liqPrice  = colEth > 0 && borMYR > 0 ? borMYR / (colEth * (LIQ_THRES / 100)) : 0;
   const priceDrop = isLive && wallet.ethPriceMYR > 0 && liqPrice > 0
     ? ((wallet.ethPriceMYR - liqPrice) / wallet.ethPriceMYR) * 100 : 0;
+
+  // Supply earnings — deposited ETH earns a share of the borrow APR (moved here from
+  // the Deposit modal, which only ever showed it while that dialog happened to be open).
+  const ethSupplyApr = supplyApr(APR, 0.38);
+  const earnedSoFar   = wallet.pendingYieldMYR;
+  const hourlyEarn    = colEth > 0 ? colEth * (isLive ? wallet.ethPriceMYR : ethMYR) * (ethSupplyApr / 100) / 8760 : 0;
+  const hasClaim       = earnedSoFar > 0.000001;
 
   const LOAN_TERM    = 90;
   const startTime    = loan?.startTime ?? BigInt(0);
@@ -297,6 +305,40 @@ export default function PortfolioPage() {
                         </Typography>
                       </Box>
                     )}
+                  </Box>
+
+                  {/* Supply earnings on deposited ETH collateral */}
+                  <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'rgba(43,217,162,0.06)', border: '1px solid rgba(43,217,162,0.25)' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>
+                        Supply Earnings
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.25 }}>
+                        <Chip label={`${ethSupplyApr.toFixed(2)}% APR`} size="small"
+                          sx={{ bgcolor: 'rgba(43,217,162,0.15)', color: '#2BD9A2', fontWeight: 600, height: 20, fontSize: 11 }} />
+                        {/* APR restated per hour — same rate, just the unit borrowers
+                            actually feel while watching the "Earned so far" ticker. */}
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10 }}>
+                          {(ethSupplyApr / 8760).toFixed(6)}% APR / hr
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Earned so far</Typography>
+                        <Typography variant="h6" sx={{ color: '#2BD9A2', fontWeight: 700 }}>{rm(earnedSoFar, 4)}</Typography>
+                        <Typography variant="caption" color="text.secondary">≈ {rm(hourlyEarn, 4)} / hr on {colEth.toFixed(4)} ETH</Typography>
+                      </Box>
+                      {isLive && hasClaim && (
+                        <Button size="small" variant="contained" disableElevation
+                          onClick={() => wallet.claimSupplyInterest()}
+                          disabled={wallet.txStatus === 'pending'}
+                          sx={{ bgcolor: '#2BD9A2', color: '#0B1226', fontWeight: 700, fontSize: 12, px: 2,
+                                '&:hover': { bgcolor: '#22c98f' } }}>
+                          Claim MYR
+                        </Button>
+                      )}
+                    </Box>
                   </Box>
                 </Box>
               ) : (

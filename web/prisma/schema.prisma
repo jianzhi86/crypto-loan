@@ -112,6 +112,13 @@ model BorrowPosition {
   principal    String
   /// Borrow APR in basis points, read from currentAprBps() at borrow time.
   aprBps       Int
+  /// Installment plan length in months (1/3/6/12 — the same options the
+  /// Borrow tab's own Loan Term selector offers), captured at borrow time.
+  /// Drives the Repay tab's "this month's bill": remaining balance divided
+  /// by however many months of the plan are left. Defaults to 1 for rows
+  /// created before this field existed, matching their old single-cycle
+  /// "pay it this month" behavior.
+  termMonths   Int       @default(1)
   txHash       String    @unique
   borrowedAt   DateTime  @default(now())
   status       String    @default("OPEN") // OPEN | REPAID

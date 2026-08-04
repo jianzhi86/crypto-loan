@@ -181,6 +181,10 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @notice Repay MYR. Interest paid first, then principal.
     ///         Caller must approve this contract for at least `myrAmount`.
+    ///         Collateral is NOT auto-returned on a full repay — it stays
+    ///         deposited (loan.collateral untouched) so the same collateral
+    ///         can back a new borrow without redepositing. Withdraw it
+    ///         explicitly via withdrawCollateral() whenever you want it back.
     function repay(uint256 myrAmount) external whenNotPaused nonReentrant {
         Loan storage loan = loans[msg.sender];
         require(loan.principal > 0, "No active loan");
@@ -202,16 +206,6 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
             loan.principal     = 0;
             loan.startTime     = 0;
             loan.lastRepayTime = 0;
-            // Auto-return all collateral on full repay — no separate withdraw step
-            uint256 colBack = loan.collateral;
-            if (colBack > 0) {
-                loan.collateral          = 0;
-                totalCollateral         -= colBack;
-                supplyStart[msg.sender]  = 0;
-                (bool ok, ) = payable(msg.sender).call{value: colBack}("");
-                require(ok, "ETH return failed");
-                emit CollateralWithdrawn(msg.sender, colBack);
-            }
         } else {
             loan.principal    -= principalPaid;
             loan.lastRepayTime = block.timestamp;
@@ -230,10 +224,23 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
             require(loan.principal <= maxBorrow, "Would violate LTV");
         }
 
+        // A full withdrawal ends supply accrual (supplyStart resets below).
+        // accruedSupplyInterest() returns 0 once collateral is 0, so anything
+        // accrued but not yet claimed must be paid out NOW, before that
+        // happens — otherwise it's forfeited with no way to claim it after.
+        // Computed while loan.collateral still holds its pre-withdrawal
+        // value, same as claimSupplyInterest()'s own payout.
+        uint256 payout = remaining == 0 ? accruedSupplyInterest(msg.sender) : 0;
+
         loan.collateral  -= weiAmount;
         totalCollateral  -= weiAmount;
         if (loan.collateral == 0) {
             supplyStart[msg.sender] = 0;
+        }
+
+        if (payout > 0) {
+            myr.mint(msg.sender, payout);
+            emit SupplyInterestClaimed(msg.sender, payout);
         }
 
         (bool ok, ) = payable(msg.sender).call{value: weiAmount}("");

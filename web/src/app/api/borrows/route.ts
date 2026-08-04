@@ -11,24 +11,37 @@ export async function POST(req: NextRequest) {
   const guard = await requireUser();
   if (!guard.ok) return guard.response;
 
-  const { wallet, principal, aprBps, txHash } = await req.json();
+  const { wallet, principal, aprBps, txHash, termMonths } = await req.json();
   if (!wallet || !principal || !txHash || aprBps == null) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
   }
+  // Only the plan lengths the Borrow tab's own term selector offers — an
+  // unrecognized value falls back to 1 (pay-in-full-this-cycle) rather than
+  // trusting an arbitrary client-supplied divisor for the installment math.
+  const VALID_TERM_MONTHS = [1, 3, 6, 12];
+  const resolvedTermMonths = VALID_TERM_MONTHS.includes(Number(termMonths)) ? Number(termMonths) : 1;
 
   try {
     const row = await prisma.borrowPosition.upsert({
       where:  { txHash },
       update: {},
       create: {
-        wallet:    String(wallet).toLowerCase(),
-        principal: String(principal),
-        aprBps:    Math.round(Number(aprBps)),
+        wallet:      String(wallet).toLowerCase(),
+        principal:   String(principal),
+        aprBps:      Math.round(Number(aprBps)),
+        termMonths:  resolvedTermMonths,
         txHash,
       },
     });
     return NextResponse.json({ ok: true, id: row.id });
   } catch (err) {
+    // Same non-atomic-upsert race as /api/loan-tx: a concurrent duplicate call
+    // for the same txHash can lose to a unique-constraint error instead of the
+    // no-op an upsert implies. The row exists either way — success either way.
+    if ((err as { code?: string }).code === 'P2002') {
+      const existing = await prisma.borrowPosition.findUnique({ where: { txHash } });
+      if (existing) return NextResponse.json({ ok: true, id: existing.id });
+    }
     console.error('[POST /api/borrows]', err);
     return NextResponse.json({ error: 'DB error' }, { status: 500 });
   }
@@ -43,7 +56,7 @@ export async function GET(req: NextRequest) {
     const borrows = await prisma.borrowPosition.findMany({
       where:   { wallet: wallet.toLowerCase(), status: 'OPEN' },
       orderBy: { borrowedAt: 'asc' },
-      select:  { id: true, principal: true, aprBps: true, borrowedAt: true, txHash: true },
+      select:  { id: true, principal: true, aprBps: true, termMonths: true, borrowedAt: true, txHash: true },
     });
     return NextResponse.json({ borrows });
   } catch (err) {
