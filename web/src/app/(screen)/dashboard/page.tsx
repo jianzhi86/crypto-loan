@@ -27,7 +27,7 @@ import { useWallet, type LoanInfo } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 import { useSparklines } from '@/hooks/useSparklines';
 import Sparkline from '@/components/Sparkline';
-import { dynamicApr } from '@/lib/rates';
+import { dynamicApr, supplyApr } from '@/lib/rates';
 import AccountSetupBanner from '@/components/AccountSetupBanner';
 import { AlertIcon, BankIcon, CardIcon, CartIcon, CashIcon, CheckIcon, ChipGlyph, ClockIcon, CoinIcon, IdCardIcon, LiveDot, LockIcon, SolanaIcon, WalletIcon } from '@/components/Icons';
 
@@ -45,16 +45,18 @@ const C = {
   ts:     'rgba(255,255,255,0.65)',   // slate
 };
 
+// riskMul: borrow-rate multiplier relative to ETH (all assets move with the live ETH rate)
+// supplyRatio: fraction of the borrow spread passed to lenders (higher for illiquid assets)
 const ASSETS = [
-  { symbol: 'BTC',  name: 'Bitcoin',   color: '#F7931A', maxLTV: 70, borrowAPR: 5.2, supplyAPR: 2.1, liquidity: 'RM 11.2B', icon: '₿' },
-  { symbol: 'ETH',  name: 'Ethereum',  color: '#627EEA', maxLTV: 70, borrowAPR: 4.8, supplyAPR: 1.8, liquidity: 'RM 8.5B',  icon: 'Ξ' },
-  { symbol: 'SOL',  name: 'Solana',    color: '#9945FF', maxLTV: 65, borrowAPR: 6.5, supplyAPR: 3.2, liquidity: 'RM 1.9B',  icon: <SolanaIcon size={18} /> },
-  { symbol: 'BNB',  name: 'BNB Chain', color: '#F3BA2F', maxLTV: 65, borrowAPR: 5.8, supplyAPR: 2.4, liquidity: 'RM 3.1B',  icon: 'B' },
-  { symbol: 'XRP',  name: 'XRP',       color: '#00AAE4', maxLTV: 55, borrowAPR: 7.8, supplyAPR: 4.8, liquidity: 'RM 720M',  icon: 'X' },
-  { symbol: 'AVAX', name: 'Avalanche', color: '#E84142', maxLTV: 60, borrowAPR: 7.2, supplyAPR: 4.1, liquidity: 'RM 840M',  icon: 'A' },
-  { symbol: 'LINK', name: 'Chainlink', color: '#2A5ADA', maxLTV: 60, borrowAPR: 7.5, supplyAPR: 4.5, liquidity: 'RM 520M',  icon: 'L' },
-  { symbol: 'DOT',  name: 'Polkadot',  color: '#E6007A', maxLTV: 55, borrowAPR: 8.0, supplyAPR: 5.0, liquidity: 'RM 310M',  icon: 'D' },
-  { symbol: 'ADA',  name: 'Cardano',   color: '#0033AD', maxLTV: 50, borrowAPR: 8.5, supplyAPR: 5.5, liquidity: 'RM 280M',  icon: '₳' },
+  { symbol: 'BTC',  name: 'Bitcoin',   color: '#F7931A', maxLTV: 70, riskMul: 0.78, supplyRatio: 0.40, liquidity: 'RM 11.2B', icon: '₿' },
+  { symbol: 'ETH',  name: 'Ethereum',  color: '#627EEA', maxLTV: 70, riskMul: 1.00, supplyRatio: 0.38, liquidity: 'RM 8.5B',  icon: 'Ξ' },
+  { symbol: 'SOL',  name: 'Solana',    color: '#9945FF', maxLTV: 65, riskMul: 0.96, supplyRatio: 0.49, liquidity: 'RM 1.9B',  icon: <SolanaIcon size={18} /> },
+  { symbol: 'BNB',  name: 'BNB Chain', color: '#F3BA2F', maxLTV: 65, riskMul: 0.88, supplyRatio: 0.41, liquidity: 'RM 3.1B',  icon: 'B' },
+  { symbol: 'XRP',  name: 'XRP',       color: '#00AAE4', maxLTV: 55, riskMul: 1.13, supplyRatio: 0.62, liquidity: 'RM 720M',  icon: 'X' },
+  { symbol: 'AVAX', name: 'Avalanche', color: '#E84142', maxLTV: 60, riskMul: 1.16, supplyRatio: 0.57, liquidity: 'RM 840M',  icon: 'A' },
+  { symbol: 'LINK', name: 'Chainlink', color: '#2A5ADA', maxLTV: 60, riskMul: 1.12, supplyRatio: 0.60, liquidity: 'RM 520M',  icon: 'L' },
+  { symbol: 'DOT',  name: 'Polkadot',  color: '#E6007A', maxLTV: 55, riskMul: 1.27, supplyRatio: 0.63, liquidity: 'RM 310M',  icon: 'D' },
+  { symbol: 'ADA',  name: 'Cardano',   color: '#0033AD', maxLTV: 50, riskMul: 1.30, supplyRatio: 0.65, liquidity: 'RM 280M',  icon: '₳' },
 ];
 
 const LOAN_TERMS = [
@@ -219,6 +221,9 @@ function Dashboard() {
   const [transferError,    setTransferError]     = useState('');
   const [kycDialogOpen,    setKycDialogOpen]     = useState(false);
   const kycDialogShown = useRef(false);
+  // Countdown to the next earn-APR refresh (WalletContext polls every 60 s).
+  // Resets to 60 whenever borrowAprBps changes (= the poll fired).
+  const [earnCountdown, setEarnCountdown] = useState(60);
   // Automatic price-sync keeper: whenever the on-chain price drifts from the
   // live market, re-sync it on a timer (at most once per cooldown window) so
   // the user never has to click the button themselves.
@@ -249,6 +254,13 @@ function Dashboard() {
     const t = setTimeout(wallet.clearTx, 3000);
     return () => clearTimeout(t);
   }, [wallet.txStatus, wallet.clearTx]);
+
+  // Earn-APR countdown: tick down every second, reset when the on-chain rate refreshes.
+  useEffect(() => {
+    const id = setInterval(() => setEarnCountdown(c => c <= 1 ? 60 : c - 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => { setEarnCountdown(60); }, [wallet.borrowAprBps]);
 
   // Live payoff quote for the Repay tab. The countdown is DERIVED from
   // wallet.lastRefreshAt — the timestamp every refresh source stamps — rather
@@ -304,12 +316,11 @@ function Dashboard() {
   const liveAprPct = wallet.borrowAprBps / 100;
   const calcApr    = calcAsset.symbol === 'ETH' && wallet.isConnected && wallet.isDeployed
     ? liveAprPct
-    : dynamicApr(calcAsset.borrowAPR, prices[SYMBOL_TO_ID[calcAsset.symbol]]?.change24h ?? 0);
+    : dynamicApr(liveAprPct, calcAsset.riskMul, prices[SYMBOL_TO_ID[calcAsset.symbol]]?.change24h ?? 0);
 
   const calcInterest   = (borrowable * calcApr / 100) * (loanTermDays / 365);
   const calcMonthly    = (borrowable * calcApr / 100) / 12;
   const calcTotal      = borrowable + calcInterest;
-  const originationFee = borrowable * 0.001;
 
   const colAmtNum       = parseFloat(collAmt || '0');
   const targetPrice     = assetPrice * holdMultiplier;
@@ -363,9 +374,13 @@ function Dashboard() {
   const mktEthPrice   = prices.ethereum.myr;
   const colEth        = wallet.loanInfo ? Number(ethers.formatEther(wallet.loanInfo.collateral)) : 0;
   const liveColMktMYR = isLive ? colEth * mktEthPrice : null;
-  const mktNetPos     = liveColMktMYR !== null && liveBorMYR !== null ? liveColMktMYR - liveBorMYR : null;
-  const mktHF         = (liveColMktMYR !== null && liveBorMYR !== null && liveBorMYR > 0)
-    ? (liveColMktMYR * 0.8) / liveBorMYR : null;
+  // Include accrued interest in total debt so HF, net position and liq price
+  // reflect the real obligation, not just the starting principal.
+  const chainAccruedInt = wallet.loanInfo ? Number(wallet.loanInfo.accruedInterest) / 1e6 : 0;
+  const totalDebtMYR    = liveBorMYR !== null ? liveBorMYR + chainAccruedInt : null;
+  const mktNetPos     = liveColMktMYR !== null && totalDebtMYR !== null ? liveColMktMYR - totalDebtMYR : null;
+  const mktHF         = (liveColMktMYR !== null && totalDebtMYR !== null && totalDebtMYR > 0)
+    ? (liveColMktMYR * 0.8) / totalDebtMYR : null;
 
   const onChainPrice    = wallet.ethPriceMYR;
   const priceDiffPct    = onChainPrice > 0 ? Math.abs((mktEthPrice - onChainPrice) / onChainPrice) * 100 : 0;
@@ -418,7 +433,7 @@ function Dashboard() {
   const borrowMYR    = parseFloat(borrowAmt || '0');
   const panelMonthly = (borrowMYR * liveAprPct / 100) / 12;
   const panelInterest = (borrowMYR * liveAprPct / 100) * (loanTermDays / 365);
-  const panelTotal   = borrowMYR + panelInterest + (borrowMYR * 0.001);
+  const panelTotal   = borrowMYR + panelInterest;
   const borrowAvail  = isLive && wallet.loanInfo ? Number(wallet.loanInfo.available) / 1e6 : 0;
 
   // Runs after the user confirms the borrow summary dialog. Kept at component
@@ -573,8 +588,8 @@ function Dashboard() {
                   label="Outstanding Debt"
                   value={isLive && liveBorMYR !== null ? rm(liveBorMYR, 2) : 'RM 129,000'}
                   sub={isLive && wallet.loanInfo
-                    ? `+ RM ${(Number(wallet.loanInfo.accruedInterest) / 1e6).toFixed(4)} interest · ${wallet.myrBalance} MYR`
-                    : isLive ? `${wallet.myrBalance} MYR balance` : '55.2% utilisation'}
+                    ? `+ RM ${(Number(wallet.loanInfo.accruedInterest) / 1e6).toFixed(4)} interest · Wallet: ${wallet.myrBalance} MYR`
+                    : isLive ? `Wallet: ${wallet.myrBalance} MYR` : '55.2% utilisation'}
                   color={C.tp}
                 />
                 {isLive && !wallet.myrTokenAdded && (
@@ -624,7 +639,7 @@ function Dashboard() {
                 const hv = isLive ? fmtHF(hf) : hf.toFixed(2);
                 // Translate the ratio into something concrete: the ETH price
                 // at which liquidation starts, and how far away that is.
-                const debtNow  = liveBorMYR ?? 0;
+                const debtNow  = totalDebtMYR ?? 0;
                 const liqPrice = isLive && debtNow > 0 && colEth > 0 ? debtNow / (0.8 * colEth) : null;
                 const refPrice = mktEthPrice > 0 ? mktEthPrice : ethPriceMYR;
                 const dropPct  = liqPrice !== null && refPrice > 0 ? (1 - liqPrice / refPrice) * 100 : null;
@@ -760,6 +775,8 @@ function Dashboard() {
                       const p      = prices[SYMBOL_TO_ID[a.symbol]];
                       const change = p?.change24h ?? 0;
                       const sel    = calcAssetIdx === i;
+                      const bApr   = a.symbol === 'ETH' && isLive ? liveAprPct : dynamicApr(liveAprPct, a.riskMul, change);
+                      const sApr   = supplyApr(bApr, a.supplyRatio);
                       return (
                         <TableRow key={a.symbol}
                           onClick={() => { setCalcAssetIdx(i); setLtv(Math.min(ltv, a.maxLTV)); }}
@@ -806,13 +823,13 @@ function Dashboard() {
                           </TableCell>
                           <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
                             <Chip
-                              label={`${(a.symbol === 'ETH' && isLive ? liveAprPct : dynamicApr(a.borrowAPR, change)).toFixed(2)}%`}
+                              label={`${bApr.toFixed(2)}%`}
                               title="Variable rate — base rate plus a premium that moves with market conditions"
                               size="small"
                               sx={{ bgcolor: `${C.red}18`, color: C.red, border: `1px solid ${C.red}30`, fontSize: 11, fontWeight: 700, height: 22 }} />
                           </TableCell>
                           <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
-                            <Chip label={`${a.supplyAPR}%`} size="small"
+                            <Chip label={`${sApr.toFixed(2)}%`} size="small"
                               sx={{ bgcolor: `${C.teal}18`, color: C.teal, border: `1px solid ${C.teal}30`, fontSize: 11, fontWeight: 700, height: 22 }} />
                           </TableCell>
                           <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
@@ -831,6 +848,8 @@ function Dashboard() {
                   const p      = prices[SYMBOL_TO_ID[a.symbol]];
                   const change = p?.change24h ?? 0;
                   const sel    = calcAssetIdx === i;
+                  const bApr   = a.symbol === 'ETH' && isLive ? liveAprPct : dynamicApr(liveAprPct, a.riskMul, change);
+                  const sApr   = supplyApr(bApr, a.supplyRatio);
                   return (
                     <Box key={a.symbol}
                       onClick={() => { setCalcAssetIdx(i); setLtv(Math.min(ltv, a.maxLTV)); }}
@@ -878,8 +897,8 @@ function Dashboard() {
                       <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0, px: 1.75, pb: 1.5, pt: 0.5 }}>
                         {[
                           { label: 'Max LTV',    value: `${a.maxLTV}%`,       vc: C.teal },
-                          { label: 'Borrow APR', value: `${(a.symbol === 'ETH' && isLive ? liveAprPct : dynamicApr(a.borrowAPR, change)).toFixed(2)}%`, vc: C.red },
-                          { label: 'Supply APR', value: `${a.supplyAPR}%`,    vc: C.teal },
+                          { label: 'Borrow APR', value: `${bApr.toFixed(2)}%`, vc: C.red },
+                          { label: 'Supply APR', value: `${sApr.toFixed(2)}%`, vc: C.teal },
                         ].map(stat => (
                           <Box key={stat.label} sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
                             <Typography sx={{ fontSize: 9.5, fontWeight: 600, color: C.ts, textTransform: 'uppercase', letterSpacing: 0.4 }}>
@@ -1121,7 +1140,6 @@ function Dashboard() {
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, pt: 2, borderTop: `1px solid ${C.teal}15`, mb: 2.5 }}>
                   <Row label="Interest Rate"                        value={`${calcApr.toFixed(2)}% APR · variable`} />
                   <Row label={`Interest (${loanTermDays}d)`}        value={rm(calcInterest, 2)} vc={C.gold} />
-                  <Row label="Origination Fee (0.1%)"               value={rm(originationFee, 2)} />
                   <Row label="Monthly Payment"                      value={rm(calcMonthly, 2)} vc={C.blue} />
                   <Box sx={{ pt: 1, borderTop: `1px solid ${C.teal}15` }}>
                     <Row label="Total Repayment"                    value={rm(calcTotal, 2)} vc={C.teal} bold />
@@ -1698,7 +1716,39 @@ function Dashboard() {
                     );
                   })()}
 
-                  <Box sx={{ p: 1.5, bgcolor: `${C.teal}07`, border: `1px solid ${C.teal}20`, borderRadius: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+                  {/* Earn APR badge — derived from the live on-chain borrow rate, refreshes every 60 s */}
+                  {(() => {
+                    const ethSupplyApr = supplyApr(liveAprPct, 0.38);
+                    const depEth       = parseFloat(depositAmt || '0');
+                    const price        = isLive ? wallet.ethPriceMYR : ethPriceMYR;
+                    const hourlyEarn   = depEth > 0 ? depEth * price * (ethSupplyApr / 100) / 8760 : 0;
+                    return (
+                      <Box sx={{ p: 1.5, bgcolor: `${C.teal}07`, border: `1px solid ${C.teal}25`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.teal} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+                          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
+                        </svg>
+                        <Box sx={{ flex: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                            <Typography sx={{ fontSize: 12, color: C.teal, fontWeight: 700, lineHeight: 1 }}>
+                              Earn {ethSupplyApr.toFixed(2)}% Supply APR on deposited ETH
+                            </Typography>
+                            <LiveDot color={C.teal} />
+                            <Typography sx={{ fontSize: 9, color: C.ts, letterSpacing: 0.3 }}>{earnCountdown}s</Typography>
+                          </Box>
+                          {depEth > 0 && (
+                            <Typography sx={{ fontSize: 11, color: C.ts, mt: 0.5, lineHeight: 1 }}>
+                              Est. hourly earnings: <Box component="span" sx={{ color: C.teal, fontWeight: 600 }}>RM {hourlyEarn.toFixed(4)}</Box>
+                            </Typography>
+                          )}
+                          <Typography sx={{ fontSize: 10, color: C.ts, mt: 0.5, lineHeight: 1.4, opacity: 0.7 }}>
+                            Rate = {liveAprPct.toFixed(2)}% borrow APR × 38% — auto-updates with market
+                          </Typography>
+                        </Box>
+                      </Box>
+                    );
+                  })()}
+
+                  <Box sx={{ p: 1.5, bgcolor: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`, borderRadius: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.teal} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                       <rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>
                     </svg>
@@ -1813,21 +1863,49 @@ function Dashboard() {
                     )}
                   </Box>
 
-                  <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Typography variant="caption" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>After Withdrawal</Typography>
-                    <Row label="Current collateral"          value={`${colEth.toFixed(4)} ETH (${rm(colEth * price)})`} />
-                    <Row label="Withdraw"                    value={`−${(wAmt || 0).toFixed(4)} ETH`} vc={C.gold} />
-                    <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
-                      <Row label="Remaining collateral"       value={`${colAfter.toFixed(4)} ETH`} bold />
-                      <Row label="Value"                       value={rm(colAfter * price)} />
-                    </Box>
-                    {borMYR > 0 && (
-                      <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
-                        <Row label="Outstanding debt"          value={rm(borMYR, 2)} vc={C.gold} />
-                        <Row label="Min. collateral required"  value={`${minColEth.toFixed(4)} ETH`} />
+                  {(() => {
+                    const ethSupplyApr   = supplyApr(liveAprPct, 0.38);
+                    const hourlyNow      = colEth  * price * (ethSupplyApr / 100) / 8760;
+                    const hourlyAfter    = colAfter * price * (ethSupplyApr / 100) / 8760;
+                    return (
+                      <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Typography variant="caption" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>After Withdrawal</Typography>
+                        <Row label="Current collateral"          value={`${colEth.toFixed(4)} ETH (${rm(colEth * price)})`} />
+                        <Row label="Withdraw"                    value={`−${(wAmt || 0).toFixed(4)} ETH`} vc={C.gold} />
+                        <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
+                          <Row label="Remaining collateral"       value={`${colAfter.toFixed(4)} ETH`} bold />
+                          <Row label="Value"                       value={rm(colAfter * price)} />
+                        </Box>
+                        {borMYR > 0 && (
+                          <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
+                            <Row label="Outstanding debt"          value={rm(borMYR, 2)} vc={C.gold} />
+                            <Row label="Min. collateral required"  value={`${minColEth.toFixed(4)} ETH`} />
+                          </Box>
+                        )}
+                        <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
+                          {/* Supply APR row with live indicator */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+                              <Typography variant="caption" sx={{ color: C.ts }}>
+                                Supply APR
+                              </Typography>
+                              <LiveDot color={C.teal} />
+                              <Typography sx={{ fontSize: 9, color: C.ts, letterSpacing: 0.3 }}>{earnCountdown}s</Typography>
+                            </Box>
+                            <Typography variant="caption" sx={{ color: C.teal, fontWeight: 700 }}>
+                              {ethSupplyApr.toFixed(2)}% · RM {hourlyNow.toFixed(4)} / hr
+                            </Typography>
+                          </Box>
+                          {wAmt > 0 && colAfter > 0 && (
+                            <Row label="After withdrawal" value={`RM ${hourlyAfter.toFixed(4)} / hr`} vc={hourlyAfter < hourlyNow ? C.gold : C.teal} />
+                          )}
+                          {wAmt > 0 && colAfter <= 0 && (
+                            <Row label="After withdrawal" value="No longer earning" vc={C.red} />
+                          )}
+                        </Box>
                       </Box>
-                    )}
-                  </Box>
+                    );
+                  })()}
 
                   {borMYR > 0 && (
                     <Box sx={{ p: 1.75, bgcolor: `${C.gold}08`, border: `1px solid ${C.gold}20`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
@@ -1965,7 +2043,6 @@ function Dashboard() {
                       <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
                         <Row label="Principal"                               value={borrowMYR > 0 ? rm(borrowMYR, 2) : '—'} />
                         <Row label={`Interest (${loanTermDays}d · ${liveAprPct.toFixed(2)}% var.)`}  value={borrowMYR > 0 ? rm(panelInterest, 2) : '—'} vc={C.gold} />
-                        <Row label="Origination Fee (0.10%)"                value={borrowMYR > 0 ? rm(borrowMYR * 0.001, 2) : '—'} />
                         <Row label="Monthly Payment (est.)"                 value={borrowMYR > 0 ? rm(panelMonthly, 2) : '—'} vc={C.blue} />
                         <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
                           <Row label="Total to Repay"                       value={borrowMYR > 0 ? rm(panelTotal, 2) : '—'} vc={C.teal} bold />
@@ -2478,7 +2555,6 @@ function Dashboard() {
             <Row label="Receive as" value={deliveryMethod === 'bank' ? 'Bank transfer (DuitNow)' : 'MYR tokens to wallet'} />
             <Row label="Interest rate" value={`${liveAprPct.toFixed(2)}% APR · variable`} />
             <Row label={`Est. interest (${loanTermDays}d)`} value={rm(panelInterest, 2)} vc={C.gold} />
-            <Row label="Origination fee (0.10%)" value={rm(borrowMYR * 0.001, 2)} />
             <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
               <Row label="Total to repay (est.)" value={rm(panelTotal, 2)} vc={C.teal} bold />
             </Box>

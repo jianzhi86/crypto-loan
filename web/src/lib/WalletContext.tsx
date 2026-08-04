@@ -681,16 +681,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       let units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
       if (opts?.full) {
         // Full payoff: ask the contract for a live payoff quote so stale UI
-        // interest doesn't leave residual debt. Falls back to the cached
-        // loanInfo if totalDue isn't in the deployed contract yet.
+        // interest doesn't leave residual debt. Falls back to the caller's
+        // UI estimate (myrAmt already includes animated interest) — never to
+        // s.loanInfo which is stale until refresh() completes.
         try {
           const due = await (c.loan.totalDue as (a: string) => Promise<bigint>)(s.address);
           units = due + due / BigInt(500) + BigInt(1_000_000); // +0.2% + RM 1 headroom
         } catch {
-          const principal = s.loanInfo?.borrowed      ?? units;
-          const interest  = s.loanInfo?.accruedInterest ?? BigInt(0);
-          const due = principal + interest;
-          units = due + due / BigInt(500) + BigInt(1_000_000);
+          // totalDue unavailable: trust the caller's amount (principal + animated interest)
+          units = units + units / BigInt(500) + BigInt(1_000_000);
         }
         // Pre-flight balance check: the contract caps what it takes to totalDue,
         // but if totalDue > balance the ERC20 transferFrom throws a custom error
@@ -742,6 +741,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           ],
           txHash: repayReceipt.hash,
         });
+      }
+      // Optimistically zero out the loan so the repay button disables immediately,
+      // before the async refresh() below propagates the on-chain state.
+      // Without this there is a brief window where principal > 0 (stale) but
+      // the MYR balance is already 0, which shows a false "short by RM X" error
+      // on a stray second click.
+      if (opts?.full) {
+        setS(p => ({
+          ...p,
+          loanInfo: p.loanInfo
+            ? { ...p.loanInfo, borrowed: BigInt(0), accruedInterest: BigInt(0) }
+            : p.loanInfo,
+        }));
       }
       await refresh(s.address);
     } catch (e) {

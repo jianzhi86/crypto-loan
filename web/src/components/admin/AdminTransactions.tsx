@@ -16,8 +16,6 @@ import Typography from '@mui/material/Typography';
 import Alert from '@mui/material/Alert';
 import CircularProgress from '@mui/material/CircularProgress';
 import Tooltip from '@mui/material/Tooltip';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 
 import { Badge, C, EmptyState, PageHeader, ReadOnlyNotice, cellSx, headSx, monoSx } from './ui';
 import { DownloadIcon } from '@/components/Icons';
@@ -45,7 +43,7 @@ const TRANSFER_TONE: Record<string, 'green' | 'amber' | 'red' | 'neutral'> = {
   COMPLETED: 'green', PROCESSING: 'amber', PENDING: 'amber', FAILED: 'red',
 };
 
-const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#111B38' } };
+const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#0D1628' } };
 
 export default function AdminTransactions() {
   const [source, setSource] = useState<'loan' | 'transfer'>('loan');
@@ -117,15 +115,14 @@ export default function AdminTransactions() {
   const hasFilters = !!(q || type || status || from || to);
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 } }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#080E1F', minHeight: '100vh' }}>
       <Box sx={{ maxWidth: 1440, mx: 'auto' }}>
         <PageHeader
           title="Transactions"
-          subtitle={`${total} record${total === 1 ? '' : 's'} in Supabase`}
+          subtitle={`${total} record${total === 1 ? '' : 's'} · Supabase mirror`}
           actions={
             <Button
               variant="outlined" size="small"
-              // Export honours the active filters, not just the visible page.
               href={`/api/admin/transactions?${query}&format=csv`}
               startIcon={<DownloadIcon size={16} />}
               sx={{ textTransform: 'none', borderRadius: 2 }}
@@ -135,14 +132,25 @@ export default function AdminTransactions() {
           }
         />
 
-        <ToggleButtonGroup
-          exclusive size="small" value={source}
-          onChange={(_, v) => v && pickSource(v)}
-          sx={{ mb: 2.5, '& .MuiToggleButton-root': { textTransform: 'none', px: 2.5, borderRadius: 2, fontSize: 13 } }}
-        >
-          <ToggleButton value="loan">On-chain loan activity</ToggleButton>
-          <ToggleButton value="transfer">Bank transfers (off-chain)</ToggleButton>
-        </ToggleButtonGroup>
+        {/* Source toggle — pill-style */}
+        <Box sx={{ display: 'flex', gap: 1, mb: 2.5 }}>
+          {([['loan', 'On-chain activity'], ['transfer', 'Bank transfers']] as const).map(([v, lbl]) => (
+            <Box
+              key={v} onClick={() => pickSource(v)}
+              sx={{
+                px: 2, py: 0.75, borderRadius: 2, cursor: 'pointer',
+                border: `1px solid ${source === v ? C.blue : C.border}`,
+                bgcolor: source === v ? `${C.blue}14` : 'transparent',
+                color: source === v ? C.blue : C.muted,
+                fontSize: 13, fontWeight: source === v ? 600 : 500,
+                transition: 'all .15s',
+                '&:hover': { borderColor: C.blue, color: C.blue },
+              }}
+            >
+              {lbl}
+            </Box>
+          ))}
+        </Box>
 
         {source === 'loan' ? (
           <ReadOnlyNotice>
@@ -159,7 +167,7 @@ export default function AdminTransactions() {
           </ReadOnlyNotice>
         )}
 
-        <Card sx={{ p: 2, mb: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
+        <Card sx={{ p: 2, mb: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628' }}>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1.2fr 1fr 1fr auto' }, gap: 1.5, alignItems: 'center' }}>
             <TextField
               size="small" sx={fieldSx} value={q} onChange={onFilter(setQ)}
@@ -189,7 +197,7 @@ export default function AdminTransactions() {
         {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{error}</Alert>}
 
         {loading && rows.length === 0 ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress size={28} /></Box>
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress size={28} /></Box>
         ) : rows.length === 0 ? (
           <EmptyState
             icon="search"
@@ -197,7 +205,7 @@ export default function AdminTransactions() {
             hint={hasFilters ? 'Try widening the date range or clearing the search.' : 'Records appear here once users transact.'}
           />
         ) : (
-          <Card sx={{ border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
+          <Card sx={{ border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628' }}>
             <TableContainer sx={{ overflowX: 'auto' }}>
               {rowsFrom === 'loan'
                 ? <LoanTable rows={rows as LoanTx[]} />
@@ -207,10 +215,19 @@ export default function AdminTransactions() {
         )}
 
         {pages > 1 && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2, mt: 3 }}>
-            <Button size="small" disabled={page <= 1} onClick={() => setPage(p => p - 1)} sx={{ textTransform: 'none' }}>← Previous</Button>
-            <Typography variant="body2" sx={{ color: C.slate }}>Page {page} of {pages}</Typography>
-            <Button size="small" disabled={page >= pages} onClick={() => setPage(p => p + 1)} sx={{ textTransform: 'none' }}>Next →</Button>
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mt: 3 }}>
+            <Button size="small" disabled={page <= 1} onClick={() => setPage(p => p - 1)} sx={{ textTransform: 'none', borderRadius: 2, px: 2 }}>← Prev</Button>
+            {Array.from({ length: Math.min(pages, 7) }, (_, i) => {
+              const p = pages <= 7 ? i + 1 : page <= 4 ? i + 1 : page >= pages - 3 ? pages - 6 + i : page - 3 + i;
+              return (
+                <Button key={p} size="small" onClick={() => setPage(p)}
+                  variant={page === p ? 'contained' : 'text'} disableElevation
+                  sx={{ textTransform: 'none', minWidth: 36, borderRadius: 2, fontSize: 12 }}>
+                  {p}
+                </Button>
+              );
+            })}
+            <Button size="small" disabled={page >= pages} onClick={() => setPage(p => p + 1)} sx={{ textTransform: 'none', borderRadius: 2, px: 2 }}>Next →</Button>
           </Box>
         )}
       </Box>
@@ -230,7 +247,7 @@ function LoanTable({ rows }: { rows: LoanTx[] }) {
       </TableHead>
       <TableBody>
         {rows.map((t, i) => (
-          <TableRow key={t.id} sx={{ bgcolor: i % 2 ? '#0F1A3D' : '#111B38', '&:hover': { bgcolor: '#0F1730' } }}>
+          <TableRow key={t.id} sx={{ bgcolor: i % 2 ? '#0A1220' : '#0D1628', '&:hover': { bgcolor: '#0F1730' } }}>
             <TableCell sx={cellSx}>
               <Badge label={TX_LABELS[t.type] ?? t.type} tone={TYPE_TONE[t.type] ?? 'neutral'} />
             </TableCell>
@@ -273,7 +290,7 @@ function TransferTable({ rows }: { rows: TransferTx[] }) {
       </TableHead>
       <TableBody>
         {rows.map((t, i) => (
-          <TableRow key={t.id} sx={{ bgcolor: i % 2 ? '#0F1A3D' : '#111B38', '&:hover': { bgcolor: '#0F1730' } }}>
+          <TableRow key={t.id} sx={{ bgcolor: i % 2 ? '#0A1220' : '#0D1628', '&:hover': { bgcolor: '#0F1730' } }}>
             <TableCell sx={monoSx}>{t.referenceNo}</TableCell>
             <TableCell sx={{ ...cellSx, color: C.ink, fontWeight: 600, fontSize: 13 }}>
               RM {t.amountMYR.toLocaleString('en-MY', { minimumFractionDigits: 2 })}

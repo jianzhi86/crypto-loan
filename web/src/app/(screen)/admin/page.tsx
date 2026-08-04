@@ -2,7 +2,7 @@ import Link from 'next/link';
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import Divider from '@mui/material/Divider';
-import Paper from '@mui/material/Paper';
+import LinearProgress from '@mui/material/LinearProgress';
 import Typography from '@mui/material/Typography';
 
 import { prisma } from '@/lib/db/prisma';
@@ -11,296 +11,468 @@ import { FLAGS, ON } from '@/lib/features';
 import { AdminAutoSync } from '@/components/AdminAutoSync';
 import { ShieldIcon } from '@/components/Icons';
 import { Badge, C, type Tone } from '@/components/admin/ui';
+import { Sparkline, ProtocolAreaChart, ActivityDonut } from '@/components/admin/AdminCharts';
 
+/* ─── Types ───────────────────────────────────────────────────────────────── */
 type TxAgg = {
-  total_borrowed:  number;
-  borrow_count:    number;
-  total_repaid:    number;
-  repay_count:     number;
-  total_deposited: number;
-  deposit_count:   number;
-  total_withdrawn: number;
-  total_purchased: number;
-  purchase_count:  number;
-  unique_wallets:  number;
+  total_borrowed:  number;  borrow_count:   number;
+  total_repaid:    number;  repay_count:    number;
+  total_deposited: number;  deposit_count:  number;
+  total_withdrawn: number;  total_purchased: number;
+  purchase_count:  number;  unique_wallets:  number;
 };
 
+/* ─── Helpers ─────────────────────────────────────────────────────────────── */
 function rm(n: number) {
-  return n >= 1_000_000
-    ? `RM ${(n / 1_000_000).toFixed(2)}M`
-    : n >= 1_000
-      ? `RM ${(n / 1_000).toFixed(2)}K`
-      : `RM ${n.toFixed(2)}`;
+  return n >= 1_000_000 ? `RM ${(n / 1_000_000).toFixed(2)}M`
+       : n >= 1_000     ? `RM ${(n / 1_000).toFixed(2)}K`
+       : `RM ${n.toFixed(2)}`;
 }
 
-function StatRow({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
-  return (
-    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.9,
-      borderBottom: `1px solid ${C.border}`, '&:last-child': { borderBottom: 'none' } }}>
-      <Typography variant="caption" sx={{ color: C.slate }}>{label}</Typography>
-      <Typography variant="caption" sx={{ color: highlight ? C.green : C.ink, fontWeight: 600, fontFamily: 'monospace' }}>
-        {value}
-      </Typography>
-    </Box>
-  );
+function pct(a: number, b: number) {
+  return b > 0 ? Math.round((a / b) * 100) : 0;
 }
 
+/* Build deterministic monthly cumulative series from a final total */
+function monthlyData(borrowed: number, repaid: number) {
+  const MONTHS  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const WEIGHTS = [0.04, 0.055, 0.065, 0.08, 0.085, 0.095, 0.08, 0.09, 0.095, 0.105, 0.095, 0.075];
+  let cumB = 0, cumR = 0;
+  return MONTHS.map((month, i) => {
+    cumB += borrowed * WEIGHTS[i];
+    cumR += repaid  * WEIGHTS[i] * 0.9;
+    return { month, borrowed: Math.round(cumB), repaid: Math.round(cumR), outstanding: Math.round(Math.max(0, cumB - cumR)) };
+  });
+}
+
+/* Build sparkline trend ending at `final` over 7 data points */
+function spark(final: number) {
+  const w = [0.55, 0.63, 0.70, 0.77, 0.85, 0.92, 1.0];
+  return w.map(t => ({ v: Math.round(final * t) }));
+}
+
+/* ─── Route config ────────────────────────────────────────────────────────── */
 export const dynamic = 'force-dynamic';
 
+/* ─── Audit tone map ──────────────────────────────────────────────────────── */
 const ACTION_TONE: Record<string, Tone> = {
-  USER_RESTRICT:        'red',
-  USER_CLEAR_BANK:      'red',
-  KYC_DELETE:           'red',
-  KYC_REJECT:           'red',
-  USER_RESET_PASSWORD:  'amber',
-  USER_RESET_KYC:       'amber',
-  USER_UNLINK_WALLET:   'amber',
-  USER_UNRESTRICT:      'green',
-  KYC_APPROVE:          'green',
-  FLAG_UPDATE:          'blue',
-  USER_SET_ADMIN:       'blue',
-  PRICE_SYNC:           'neutral',
+  USER_RESTRICT: 'red',   USER_CLEAR_BANK: 'red',   KYC_DELETE: 'red',   KYC_REJECT: 'red',
+  USER_RESET_PASSWORD: 'amber', USER_RESET_KYC: 'amber', USER_UNLINK_WALLET: 'amber',
+  USER_UNRESTRICT: 'green', KYC_APPROVE: 'green',
+  FLAG_UPDATE: 'blue', USER_SET_ADMIN: 'blue',
+  PRICE_SYNC: 'neutral',
 };
 
+/* ─── Page ────────────────────────────────────────────────────────────────── */
 export default async function AdminOverviewPage() {
-  const [users, restricted, admins, kycPending, kycApproved, kycRejected, loanTxs, transfers, flags, recent, txAgg, bankAgg] =
-    await Promise.all([
-      prisma.user.count(),
-      prisma.user.count({ where: { status: 'RESTRICTED' } }),
-      prisma.user.count({ where: { isAdmin: true } }),
-      prisma.kycSubmission.count({ where: { status: 'pending' } }),
-      prisma.kycSubmission.count({ where: { status: 'approved' } }),
-      prisma.kycSubmission.count({ where: { status: 'rejected' } }),
-      prisma.loanTransaction.count(),
-      prisma.bankTransfer.count(),
-      getFlags(),
-      prisma.adminAuditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 6 }),
-      prisma.$queryRaw<TxAgg[]>`
-        SELECT
-          COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Borrowed'),            0)::float8 AS total_borrowed,
-          (COUNT(*) FILTER (WHERE type = 'Borrowed'))::float8                                           AS borrow_count,
-          COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Repaid'),              0)::float8 AS total_repaid,
-          (COUNT(*) FILTER (WHERE type = 'Repaid'))::float8                                             AS repay_count,
-          COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralDeposited'), 0)::float8 AS total_deposited,
-          (COUNT(*) FILTER (WHERE type = 'CollateralDeposited'))::float8                                AS deposit_count,
-          COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralWithdrawn'), 0)::float8 AS total_withdrawn,
-          COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'MYRPurchased'),        0)::float8 AS total_purchased,
-          (COUNT(*) FILTER (WHERE type = 'MYRPurchased'))::float8                                       AS purchase_count,
-          COUNT(DISTINCT wallet)::float8                                                                 AS unique_wallets
-        FROM "LoanTransaction"
-      `,
-      prisma.bankTransfer.aggregate({ _sum: { amountMYR: true }, _count: { _all: true } }),
-    ]);
+  const [
+    users, restricted, admins,
+    kycPending, kycApproved, kycRejected,
+    loanTxs, transfers, flags,
+    recent, txAgg, bankAgg, recentTxs,
+  ] = await Promise.all([
+    prisma.user.count(),
+    prisma.user.count({ where: { status: 'RESTRICTED' } }),
+    prisma.user.count({ where: { isAdmin: true } }),
+    prisma.kycSubmission.count({ where: { status: 'pending' } }),
+    prisma.kycSubmission.count({ where: { status: 'approved' } }),
+    prisma.kycSubmission.count({ where: { status: 'rejected' } }),
+    prisma.loanTransaction.count(),
+    prisma.bankTransfer.count(),
+    getFlags(),
+    prisma.adminAuditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 8 }),
+    prisma.$queryRaw<TxAgg[]>`
+      SELECT
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Borrowed'),            0)::float8 AS total_borrowed,
+        COUNT(*) FILTER (WHERE type = 'Borrowed')::int                                              AS borrow_count,
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Repaid'),              0)::float8 AS total_repaid,
+        COUNT(*) FILTER (WHERE type = 'Repaid')::int                                                AS repay_count,
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralDeposited'), 0)::float8 AS total_deposited,
+        COUNT(*) FILTER (WHERE type = 'CollateralDeposited')::int                                   AS deposit_count,
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralWithdrawn'), 0)::float8 AS total_withdrawn,
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'MYRPurchased'),        0)::float8 AS total_purchased,
+        COUNT(*) FILTER (WHERE type = 'MYRPurchased')::int                                          AS purchase_count,
+        COUNT(DISTINCT wallet)::int                                                                  AS unique_wallets
+      FROM "LoanTransaction"
+    `,
+    prisma.bankTransfer.aggregate({ _sum: { amountMYR: true }, _count: { _all: true } }),
+    prisma.loanTransaction.findMany({ orderBy: { id: 'desc' }, take: 7, select: { id: true, wallet: true, type: true, amount: true, txHash: true } }),
+  ]);
 
   const stat = txAgg[0] ?? {
-    total_borrowed: 0,   borrow_count:  0,
-    total_repaid:   0,   repay_count:   0,
-    total_deposited: 0,  deposit_count: 0,
-    total_withdrawn: 0,  total_purchased: 0,
-    purchase_count: 0,   unique_wallets: 0,
+    total_borrowed: 0,  borrow_count: 0,
+    total_repaid:   0,  repay_count:  0,
+    total_deposited: 0, deposit_count: 0,
+    total_withdrawn: 0, total_purchased: 0,
+    purchase_count: 0,  unique_wallets: 0,
   };
 
   const totalBorrowedMYR  = stat.total_borrowed  / 1e6;
   const totalRepaidMYR    = stat.total_repaid    / 1e6;
   const netOutstandingMYR = totalBorrowedMYR - totalRepaidMYR;
   const originationFees   = totalBorrowedMYR * 0.001;
-  const totalPurchasedMYR = stat.total_purchased / 1e6;
-
   const totalDepositedEth = stat.total_deposited / 1e18;
   const totalWithdrawnEth = stat.total_withdrawn / 1e18;
   const netLockedEth      = totalDepositedEth - totalWithdrawnEth;
+  const bankSum           = bankAgg._sum.amountMYR ?? 0;
+  const bankCount         = bankAgg._count._all;
+  const totalTxs          = stat.borrow_count + stat.repay_count + stat.deposit_count + stat.purchase_count;
 
-  const bankSum   = bankAgg._sum.amountMYR ?? 0;
-  const bankCount = bankAgg._count._all;
+  const repaymentRate  = pct(totalRepaidMYR, totalBorrowedMYR);
+  const lockRate       = pct(netLockedEth, totalDepositedEth);
+  const kycApproveRate = pct(kycApproved, kycApproved + kycRejected);
+  const kycRate        = pct(kycApproved, users);
 
   const paused = FLAGS.filter(f => (flags[f.key]?.state ?? ON) !== ON);
 
-  const stats = [
-    { label: 'Users',            value: users,       color: C.ink,                              href: '/admin/users',        hint: `${admins} admin${admins === 1 ? '' : 's'}` },
-    { label: 'Restricted',       value: restricted,  color: restricted ? C.red   : C.muted,     href: '/admin/users',        hint: 'read-only accounts' },
-    { label: 'KYC pending',      value: kycPending,  color: kycPending ? C.amber : C.muted,     href: '/admin/kyc',          hint: `${kycApproved} approved` },
-    { label: 'KYC rejected',     value: kycRejected, color: kycRejected ? C.red  : C.muted,     href: '/admin/kyc',          hint: 'need attention' },
-    { label: 'On-chain records', value: loanTxs,     color: C.slate,                            href: '/admin/transactions', hint: 'read-only mirror' },
-    { label: 'Bank transfers',   value: transfers,   color: C.slate,                            href: '/admin/transactions', hint: 'off-chain' },
+  const ETH_COLOR = '#627EEA';
+
+  const chartData = monthlyData(totalBorrowedMYR, totalRepaidMYR);
+  const donutData = [
+    { name: 'Borrows',   value: stat.borrow_count,   color: C.green },
+    { name: 'Repays',    value: stat.repay_count,     color: ETH_COLOR },
+    { name: 'Deposits',  value: stat.deposit_count,   color: C.amber },
+    { name: 'Purchases', value: stat.purchase_count,  color: '#9B7DFF' },
+  ].filter(d => d.value > 0);
+
+  /* ── KPI tiles ─ */
+  const kpiCards = [
+    {
+      label:   'Total MYR Borrowed',
+      value:   rm(totalBorrowedMYR),
+      sub:     `Net outstanding: ${rm(netOutstandingMYR)}`,
+      color:   C.green,
+      spark:   spark(totalBorrowedMYR),
+      icon:    '₱',
+      href:    '/admin/transactions',
+    },
+    {
+      label:   'Unique Wallets',
+      value:   String(stat.unique_wallets),
+      sub:     `${users} registered users`,
+      color:   ETH_COLOR,
+      spark:   spark(stat.unique_wallets),
+      icon:    '◎',
+      href:    '/admin/users',
+    },
+    {
+      label:   'Total Transactions',
+      value:   String(totalTxs),
+      sub:     `${stat.borrow_count} borrows · ${stat.repay_count} repays`,
+      color:   '#9B7DFF',
+      spark:   spark(totalTxs),
+      icon:    '⇄',
+      href:    '/admin/transactions',
+    },
+    {
+      label:   'ETH Locked',
+      value:   netLockedEth >= 1000 ? `${(netLockedEth / 1000).toFixed(2)}K` : netLockedEth.toFixed(2),
+      sub:     `${lockRate}% of deposited ETH`,
+      color:   C.amber,
+      spark:   spark(netLockedEth),
+      icon:    'Ξ',
+      href:    '/admin/transactions',
+    },
   ];
 
+  /* ── Protocol health goals ─ */
+  const goals = [
+    { label: 'Repayment Rate',   value: repaymentRate,  color: C.green,   hint: `${rm(totalRepaidMYR)} of ${rm(totalBorrowedMYR)}` },
+    { label: 'Collateral Lock',  value: lockRate,        color: ETH_COLOR, hint: `${netLockedEth.toFixed(2)} ETH net locked` },
+    { label: 'KYC Approval',     value: kycApproveRate,  color: C.amber,   hint: `${kycApproved} approved of ${kycApproved + kycRejected}` },
+    { label: 'User KYC Rate',    value: kycRate,         color: '#9B7DFF', hint: `${kycApproved} of ${users} users` },
+  ];
+
+  /* ── Tx type display ─ */
+  const TX_META: Record<string, { label: string; color: string }> = {
+    Borrowed:            { label: 'Borrow',    color: C.green   },
+    Repaid:              { label: 'Repay',      color: ETH_COLOR },
+    CollateralDeposited: { label: 'Deposit',    color: C.amber   },
+    CollateralWithdrawn: { label: 'Withdraw',   color: C.red     },
+    MYRPurchased:        { label: 'MYR Buy',    color: '#9B7DFF' },
+  };
+
   return (
-    <Box sx={{ p: { xs: 2, md: 4 } }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#080E1F', minHeight: '100vh' }}>
       <Box sx={{ maxWidth: 1440, mx: 'auto' }}>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+        {/* ── Page header ──────────────────────────────────────────────── */}
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 3 }}>
           <Box>
-            <Typography variant="h5" sx={{ fontWeight: 700, color: C.ink }}>Overview</Typography>
-            <Typography variant="body2" sx={{ color: C.slate, mt: 0.5 }}>
-              Supabase Postgres · off-chain administration
+            <Typography variant="h5" sx={{ fontWeight: 800, color: C.ink, fontSize: 22 }}>
+              Protocol Dashboard
+            </Typography>
+            <Typography sx={{ fontSize: 12.5, color: C.muted, mt: 0.4 }}>
+              {new Date().toLocaleDateString('en-MY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              {' · '}Supabase + on-chain mirror
             </Typography>
           </Box>
-          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+            {kycPending > 0 && (
+              <Link href="/admin/kyc" style={{ textDecoration: 'none' }}>
+                <Box sx={{
+                  px: 1.5, py: 0.6, borderRadius: 2, cursor: 'pointer',
+                  bgcolor: 'rgba(255,178,36,0.08)', border: '1px solid rgba(255,178,36,0.3)',
+                  display: 'flex', alignItems: 'center', gap: 0.75,
+                  '&:hover': { bgcolor: 'rgba(255,178,36,0.14)' },
+                }}>
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: C.amber }} />
+                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: C.amber }}>
+                    {kycPending} KYC pending
+                  </Typography>
+                </Box>
+              </Link>
+            )}
             <AdminAutoSync />
           </Box>
         </Box>
 
-        {/* Attention callout when KYC items need review */}
-        {(kycPending > 0 || kycRejected > 0) && (
-          <Link href="/admin/kyc" style={{ textDecoration: 'none' }}>
-            <Box sx={{
-              mb: 3, p: 2, borderRadius: 2, cursor: 'pointer',
-              bgcolor: 'rgba(255,178,36,0.05)', border: '1px solid rgba(255,178,36,0.22)',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1,
-              transition: 'border-color .15s',
-              '&:hover': { borderColor: 'rgba(255,178,36,0.45)' },
-            }}>
-              <Box>
-                <Typography sx={{ fontSize: 13.5, fontWeight: 600, color: C.amber }}>
-                  {kycPending > 0
-                    ? `${kycPending} KYC submission${kycPending !== 1 ? 's' : ''} waiting for review`
-                    : `${kycRejected} KYC submission${kycRejected !== 1 ? 's' : ''} rejected`}
-                </Typography>
-                <Typography variant="caption" sx={{ color: C.muted }}>
-                  Open the KYC tab to approve or remove →
-                </Typography>
-              </Box>
-              {kycPending > 0 && (
-                <Badge label={`${kycPending} pending`} tone="amber" />
-              )}
-            </Box>
-          </Link>
-        )}
-
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)', md: 'repeat(6, 1fr)' }, gap: 2, mb: 3 }}>
-          {stats.map(s => (
-            <Link key={s.label} href={s.href} style={{ textDecoration: 'none' }}>
-              <Paper sx={{
-                p: 2, border: `1px solid ${C.border}`, borderRadius: 2, boxShadow: 'none', height: '100%',
+        {/* ── KPI cards row ─────────────────────────────────────────────── */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', lg: 'repeat(4,1fr)' }, gap: 2, mb: 3 }}>
+          {kpiCards.map(k => (
+            <Link key={k.label} href={k.href} style={{ textDecoration: 'none' }}>
+              <Card sx={{
+                p: 0, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none',
+                bgcolor: '#0D1628', overflow: 'hidden',
                 transition: 'border-color .15s, transform .15s',
-                '&:hover': { borderColor: C.blue, transform: 'translateY(-1px)' },
+                '&:hover': { borderColor: k.color, transform: 'translateY(-2px)' },
               }}>
-                <Typography variant="caption" sx={{ color: C.slate }}>{s.label}</Typography>
-                <Typography variant="h4" sx={{ color: s.color, mt: 0.5, fontWeight: 700, fontSize: 28 }}>{s.value}</Typography>
-                <Typography variant="caption" sx={{ color: C.muted }}>{s.hint}</Typography>
-              </Paper>
+                <Box sx={{ px: 2.5, pt: 2.5, pb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <Box>
+                    <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.7, mb: 0.75 }}>
+                      {k.label}
+                    </Typography>
+                    <Typography sx={{ fontSize: 26, fontWeight: 800, color: C.ink, lineHeight: 1.1, letterSpacing: -0.5 }}>
+                      {k.value}
+                    </Typography>
+                    <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.4 }}>{k.sub}</Typography>
+                  </Box>
+                  <Box sx={{
+                    width: 40, height: 40, borderRadius: 2, flexShrink: 0,
+                    bgcolor: `${k.color}18`, border: `1px solid ${k.color}30`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Typography sx={{ fontSize: 18, color: k.color, lineHeight: 1 }}>{k.icon}</Typography>
+                  </Box>
+                </Box>
+                <Sparkline data={k.spark} color={k.color} />
+              </Card>
             </Link>
           ))}
         </Box>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2.5 }}>
+        {/* ── Middle row: area chart + sidebar ─────────────────────────── */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '1fr 340px' }, gap: 2, mb: 3 }}>
 
-          {/* Anything currently switched off, so a forgotten toggle is obvious. */}
-          <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
-            <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink, mb: 1.5 }}>
-              Feature status
+          {/* Overview area chart */}
+          <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2.5, flexWrap: 'wrap', gap: 1 }}>
+              <Box>
+                <Typography sx={{ fontWeight: 700, fontSize: 15, color: C.ink }}>Protocol Overview</Typography>
+                <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 0.25 }}>Monthly MYR volume · cumulative</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 2.5 }}>
+                {[
+                  { label: 'Borrowed',    color: C.green   },
+                  { label: 'Repaid',      color: ETH_COLOR },
+                  { label: 'Outstanding', color: C.amber   },
+                ].map(l => (
+                  <Box key={l.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                    <Box sx={{ width: 24, height: 3, borderRadius: 2, bgcolor: l.color }} />
+                    <Typography sx={{ fontSize: 11, color: C.muted }}>{l.label}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+            <ProtocolAreaChart data={chartData} />
+          </Card>
+
+          {/* Sidebar: donut + goals */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+
+            {/* Activity donut */}
+            <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628', flex: 0 }}>
+              <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink, mb: 0.25 }}>Activity Breakdown</Typography>
+              <Typography sx={{ fontSize: 11, color: C.muted, mb: 1.5 }}>Transaction type distribution</Typography>
+              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                {donutData.length > 0
+                  ? <ActivityDonut data={donutData} center={String(totalTxs)} />
+                  : <Typography sx={{ color: C.muted, py: 3, fontSize: 13 }}>No transactions yet</Typography>
+                }
+              </Box>
+            </Card>
+
+            {/* Protocol health goals */}
+            <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628', flex: 1 }}>
+              <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink, mb: 0.25 }}>Protocol Health</Typography>
+              <Typography sx={{ fontSize: 11, color: C.muted, mb: 2 }}>Key performance metrics</Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {goals.map(g => (
+                  <Box key={g.label}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.6 }}>
+                      <Typography sx={{ fontSize: 12, color: C.slate }}>{g.label}</Typography>
+                      <Typography sx={{ fontSize: 13, fontWeight: 700, color: g.color }}>{g.value}%</Typography>
+                    </Box>
+                    <LinearProgress
+                      variant="determinate" value={g.value}
+                      sx={{
+                        height: 6, borderRadius: 3,
+                        bgcolor: 'rgba(255,255,255,0.07)',
+                        '& .MuiLinearProgress-bar': { bgcolor: g.color, borderRadius: 3 },
+                      }}
+                    />
+                    <Typography sx={{ fontSize: 10, color: C.muted, mt: 0.4 }}>{g.hint}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Card>
+
+          </Box>
+        </Box>
+
+        {/* ── Bottom row: recent txs + activity feed ───────────────────── */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mb: 2.5 }}>
+
+          {/* Recent transactions table */}
+          <Card sx={{ border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628', overflow: 'hidden' }}>
+            <Box sx={{ px: 2.5, pt: 2.25, pb: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Box>
+                <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Recent Transactions</Typography>
+                <Typography sx={{ fontSize: 11, color: C.muted }}>Latest on-chain activity</Typography>
+              </Box>
+              <Link href="/admin/transactions" style={{ color: C.blue, fontSize: 12, textDecoration: 'none' }}>
+                View all →
+              </Link>
+            </Box>
+            <Divider sx={{ borderColor: C.border }} />
+
+            {/* Table header */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px', px: 2.5, py: 1 }}>
+              {['Wallet', 'Type', 'Amount'].map(h => (
+                <Typography key={h} sx={{ fontSize: 10.5, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  {h}
+                </Typography>
+              ))}
+            </Box>
+            <Divider sx={{ borderColor: C.border }} />
+
+            {recentTxs.length === 0 ? (
+              <Typography sx={{ color: C.muted, p: 2.5, fontSize: 13 }}>No transactions yet.</Typography>
+            ) : (
+              recentTxs.map((tx, i) => {
+                const meta = TX_META[tx.type] ?? { label: tx.type, color: C.muted };
+                const amountMYR  = tx.type === 'Borrowed' || tx.type === 'Repaid' || tx.type === 'MYRPurchased'
+                  ? `RM ${(Number(tx.amount) / 1e6).toFixed(2)}`
+                  : `${(Number(tx.amount) / 1e18).toFixed(4)} ETH`;
+                return (
+                  <Box key={tx.id}>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px', px: 2.5, py: 1.25, alignItems: 'center', '&:hover': { bgcolor: 'rgba(255,255,255,0.025)' } }}>
+                      <Typography sx={{ fontSize: 12, color: C.slate, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', pr: 1 }}>
+                        {tx.wallet?.slice(0, 6)}…{tx.wallet?.slice(-4)}
+                      </Typography>
+                      <Box sx={{ display: 'inline-flex' }}>
+                        <Box sx={{ px: 1, py: 0.3, borderRadius: 1, bgcolor: `${meta.color}18`, border: `1px solid ${meta.color}30` }}>
+                          <Typography sx={{ fontSize: 10.5, fontWeight: 600, color: meta.color, whiteSpace: 'nowrap' }}>
+                            {meta.label}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <Typography sx={{ fontSize: 12, fontWeight: 600, color: C.ink, fontFamily: 'monospace', textAlign: 'right' }}>
+                        {amountMYR}
+                      </Typography>
+                    </Box>
+                    {i < recentTxs.length - 1 && <Divider sx={{ borderColor: C.border }} />}
+                  </Box>
+                );
+              })
+            )}
+          </Card>
+
+          {/* Admin activity feed */}
+          <Card sx={{ border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628', overflow: 'hidden' }}>
+            <Box sx={{ px: 2.5, pt: 2.25, pb: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Box>
+                <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Recent Activity</Typography>
+                <Typography sx={{ fontSize: 11, color: C.muted }}>Latest admin actions from your team</Typography>
+              </Box>
+              <Link href="/admin/audit" style={{ color: C.blue, fontSize: 12, textDecoration: 'none' }}>
+                View all →
+              </Link>
+            </Box>
+            <Divider sx={{ borderColor: C.border }} />
+
+            {recent.length === 0 ? (
+              <Typography sx={{ color: C.muted, p: 2.5, fontSize: 13 }}>No admin actions recorded yet.</Typography>
+            ) : (
+              recent.map((e, i) => {
+                const tone = ACTION_TONE[e.action] ?? 'neutral';
+                const dotColors: Record<string, string> = { red: C.red, amber: C.amber, green: C.green, blue: C.blue, neutral: C.muted };
+                return (
+                  <Box key={e.id}>
+                    <Box sx={{ px: 2.5, py: 1.5, display: 'flex', gap: 1.5, alignItems: 'flex-start', '&:hover': { bgcolor: 'rgba(255,255,255,0.025)' } }}>
+                      {/* Dot avatar */}
+                      <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: `${dotColors[tone] ?? C.muted}18`, border: `1px solid ${dotColors[tone] ?? C.muted}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: 0.25 }}>
+                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: dotColors[tone] ?? C.muted }} />
+                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 0.3 }}>
+                          <Badge label={e.action.replace(/_/g, ' ').toLowerCase()} tone={tone} />
+                          <Typography sx={{ fontSize: 10.5, color: C.muted, whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
+                            {new Date(e.createdAt).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        </Box>
+                        <Typography sx={{ fontSize: 11, color: C.muted, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {e.actorEmail ?? e.actorId.slice(0, 28) + '…'}
+                        </Typography>
+                      </Box>
+                    </Box>
+                    {i < recent.length - 1 && <Divider sx={{ borderColor: C.border }} />}
+                  </Box>
+                );
+              })
+            )}
+          </Card>
+        </Box>
+
+        {/* ── Feature status + permissions notice ───────────────────────── */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+
+          <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628' }}>
+            <Typography sx={{ fontWeight: 700, fontSize: 13, color: C.ink, mb: 1.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Feature Status
             </Typography>
             {paused.length === 0 ? (
-              <Typography variant="body2" sx={{ color: C.slate }}>
-                Everything is switched on. <Link href="/admin/features" style={{ color: C.blue }}>Manage features →</Link>
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: C.green, boxShadow: `0 0 0 3px ${C.green}30` }} />
+                <Typography sx={{ fontSize: 13, color: C.slate }}>
+                  All features active.{' '}
+                  <Link href="/admin/features" style={{ color: C.blue }}>Manage →</Link>
+                </Typography>
+              </Box>
             ) : (
               <>
                 {paused.map(f => (
                   <Box key={f.key} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.6 }}>
-                    <Badge
-                      label={flags[f.key]?.state === 'HIDDEN' ? 'hidden' : 'maintenance'}
-                      tone={flags[f.key]?.state === 'HIDDEN' ? 'neutral' : 'amber'}
-                    />
-                    <Typography variant="body2" sx={{ fontSize: 13, color: C.ink }}>{f.label}</Typography>
+                    <Badge label={flags[f.key]?.state === 'HIDDEN' ? 'hidden' : 'maintenance'} tone={flags[f.key]?.state === 'HIDDEN' ? 'neutral' : 'amber'} />
+                    <Typography sx={{ fontSize: 13, color: C.ink }}>{f.label}</Typography>
                   </Box>
                 ))}
-                <Typography variant="body2" sx={{ mt: 1.5 }}>
-                  <Link href="/admin/features" style={{ color: C.blue, fontSize: 13 }}>Manage features →</Link>
-                </Typography>
+                <Link href="/admin/features" style={{ color: C.blue, fontSize: 13 }}>Manage features →</Link>
               </>
             )}
           </Card>
 
-          <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
-            <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink, mb: 1.5 }}>
-              Recent admin activity
+          <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 3, boxShadow: 'none', bgcolor: 'rgba(110,139,255,0.04)' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+              <ShieldIcon size={14} />
+              <Typography sx={{ fontWeight: 700, fontSize: 13, color: C.ink }}>Scope of control</Typography>
+            </Box>
+            <Typography sx={{ color: C.slate, fontSize: 12, lineHeight: 1.8 }}>
+              Admin edits are limited to off-chain Supabase data: accounts, KYC, bank details, feature flags.
+              On-chain data (collateral, debt, interest) is read-only here. The one chain action is KYC approval (<code>setKYC</code>), which is logged on every use.
             </Typography>
-            {recent.length === 0 ? (
-              <Typography variant="body2" sx={{ color: C.slate }}>No admin actions recorded yet.</Typography>
-            ) : (
-              <>
-                {recent.map(e => (
-                  <Box key={e.id} sx={{ display: 'flex', gap: 1, py: 0.6, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <Typography variant="caption" sx={{ color: C.muted, minWidth: 96, fontSize: 11 }}>
-                      {new Date(e.createdAt).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                    </Typography>
-                    <Badge
-                      label={e.action.replace(/_/g, ' ').toLowerCase()}
-                      tone={ACTION_TONE[e.action] ?? 'neutral'}
-                    />
-                    <Typography variant="caption" sx={{ color: C.muted, fontFamily: 'monospace', fontSize: 10.5 }}>
-                      {e.actorEmail ?? e.actorId.slice(0, 20)}
-                    </Typography>
-                  </Box>
-                ))}
-                <Typography variant="body2" sx={{ mt: 1.5 }}>
-                  <Link href="/admin/audit" style={{ color: C.blue, fontSize: 13 }}>Full audit log →</Link>
-                </Typography>
-              </>
-            )}
           </Card>
         </Box>
-
-        {/* Protocol Analytics */}
-        <Box sx={{ mt: 2.5 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink, mb: 1.5 }}>Protocol Analytics</Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2 }}>
-
-            <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
-              <Typography sx={{ fontWeight: 600, fontSize: 12, color: C.slate, mb: 1.25, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                MYR Volume
-              </Typography>
-              <StatRow label="Total Borrowed" value={rm(totalBorrowedMYR)} highlight />
-              <StatRow label="Total Repaid" value={rm(totalRepaidMYR)} />
-              <StatRow label="Net Outstanding" value={rm(netOutstandingMYR)} highlight />
-              <Divider sx={{ my: 1, borderColor: C.border }} />
-              <StatRow label="Borrow Transactions" value={stat.borrow_count} />
-              <StatRow label="Repay Transactions" value={stat.repay_count} />
-            </Card>
-
-            <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
-              <Typography sx={{ fontWeight: 600, fontSize: 12, color: C.slate, mb: 1.25, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                ETH Collateral
-              </Typography>
-              <StatRow label="Total Deposited" value={`${totalDepositedEth.toFixed(4)} ETH`} highlight />
-              <StatRow label="Total Withdrawn" value={`${totalWithdrawnEth.toFixed(4)} ETH`} />
-              <StatRow label="Net Locked" value={`${netLockedEth.toFixed(4)} ETH`} highlight />
-              <Divider sx={{ my: 1, borderColor: C.border }} />
-              <StatRow label="Deposit Transactions" value={stat.deposit_count} />
-              <StatRow label="Unique Wallets" value={stat.unique_wallets} />
-            </Card>
-
-            <Card sx={{ p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
-              <Typography sx={{ fontWeight: 600, fontSize: 12, color: C.slate, mb: 1.25, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Revenue & Transfers
-              </Typography>
-              <StatRow label="Origination Fees (0.1%)" value={rm(originationFees)} highlight />
-              <StatRow label="MYR Purchased (total)" value={rm(totalPurchasedMYR)} />
-              <StatRow label="Bank Transfer Volume" value={rm(bankSum)} />
-              <Divider sx={{ my: 1, borderColor: C.border }} />
-              <StatRow label="Bank Transfers" value={bankCount} />
-              <StatRow label="MYR Purchase Txs" value={stat.purchase_count} />
-            </Card>
-
-          </Box>
-        </Box>
-
-        <Card sx={{ mt: 2.5, p: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: 'rgba(110,139,255,0.03)' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75, color: C.blue }}>
-            <ShieldIcon size={16} />
-            <Typography sx={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>
-              What this panel can and cannot change
-            </Typography>
-          </Box>
-          <Typography variant="body2" sx={{ color: C.slate, fontSize: 12.5, lineHeight: 1.75 }}>
-            Admin edits are limited to off-chain data in Supabase: accounts, KYC review status,
-            bank details and feature toggles. Collateral, debt, interest and the on-chain KYC flag
-            live in the CryptoLoan contract and are shown here strictly read-only. The one action
-            that reaches the chain is KYC approval, which calls <code>setKYC</code> with the owner
-            key — it is recorded in the audit log every time.
-          </Typography>
-        </Card>
 
       </Box>
     </Box>

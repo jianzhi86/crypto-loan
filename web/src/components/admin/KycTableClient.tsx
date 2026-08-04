@@ -34,7 +34,7 @@ const STATUS_TONE: Record<string, 'green' | 'amber' | 'red'> = {
 const DOC_LABELS: Record<string, string> = {
   ic: 'MyKad / IC', passport: 'Passport', license: 'License',
 };
-const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#111B38' } };
+const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#0D1628' } };
 
 const COLS = [
   'Wallet', 'Full Name', 'Type', 'IC Number', 'DOB', 'Phone',
@@ -65,7 +65,7 @@ export default function KycTableClient({ submissions }: { submissions: KycRow[] 
 
   return (
     <>
-      <Card sx={{ p: 2, mb: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
+      <Card sx={{ p: 2, mb: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628' }}>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 1.5 }}>
           <TextField
             size="small" placeholder="Search name, IC number, email or wallet…"
@@ -88,7 +88,7 @@ export default function KycTableClient({ submissions }: { submissions: KycRow[] 
           hint={hasFilter ? 'Try clearing the search or status filter.' : 'Submissions appear here once users apply.'}
         />
       ) : (
-        <Card sx={{ border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', overflow: 'hidden' }}>
+        <Card sx={{ border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', overflow: 'hidden', bgcolor: '#0D1628' }}>
           <TableContainer data-lenis-prevent sx={{ overflowX: 'auto', maxWidth: '100%' }}>
             <Table size="small" sx={{ minWidth: 1100 }}>
               <TableHead>
@@ -109,7 +109,7 @@ export default function KycTableClient({ submissions }: { submissions: KycRow[] 
               <TableBody>
                 {filtered.map((s, i) => (
                   <TableRow key={s.id}
-                    sx={{ bgcolor: i % 2 === 0 ? '#111B38' : '#0F1A3D', '&:hover': { bgcolor: '#0F1730' } }}>
+                    sx={{ bgcolor: i % 2 === 0 ? '#0D1628' : '#0A1220', '&:hover': { bgcolor: '#0F1730' } }}>
                     <TableCell sx={monoSx}>
                       {s.wallet
                         ? `${s.wallet.slice(0, 8)}…${s.wallet.slice(-4)}`
@@ -134,7 +134,7 @@ export default function KycTableClient({ submissions }: { submissions: KycRow[] 
                     <TableCell sx={{
                       ...cellSx,
                       position: 'sticky', right: 0, zIndex: 1,
-                      bgcolor: i % 2 === 0 ? '#111B38' : '#0F1A3D',
+                      bgcolor: i % 2 === 0 ? '#0D1628' : '#0A1220',
                       borderColor: C.border,
                       boxShadow: '-4px 0 8px -4px rgba(0,0,0,0.2)',
                     }}>

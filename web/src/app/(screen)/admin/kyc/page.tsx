@@ -29,7 +29,7 @@ export default async function AdminKycPage() {
   }));
 
   return (
-    <Box sx={{ color: 'text.primary', p: { xs: 2, md: 4 } }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#080E1F', minHeight: '100vh' }}>
       <AdminAutoRefresh />
       <Box sx={{ maxWidth: 1440, mx: 'auto' }}>
 
@@ -39,11 +39,7 @@ export default async function AdminKycPage() {
           actions={
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
               {pending > 0 && (
-                <Badge
-                  label={`${pending} Pending`}
-                  tone="amber"
-                  title="Submissions waiting for review"
-                />
+                <Badge label={`${pending} Pending`} tone="amber" title="Submissions waiting for review" />
               )}
               <AdminAutoSync />
             </Box>
@@ -51,16 +47,25 @@ export default async function AdminKycPage() {
         />
 
         {submissions.length > 0 && (
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, gap: 2, mb: 3 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, gap: 1.5, mb: 3 }}>
             {[
-              { label: 'Total',    value: submissions.length, color: C.slate },
-              { label: 'Pending',  value: pending,  color: pending  ? C.amber : C.muted },
-              { label: 'Approved', value: approved, color: approved ? C.green : C.muted },
-              { label: 'Rejected', value: rejected, color: rejected ? C.red   : C.muted },
+              { label: 'Total Submissions', value: submissions.length, color: C.ink,  accent: C.border },
+              { label: 'Pending Review',    value: pending,  color: pending  ? C.amber : C.muted, accent: pending  ? C.amber : C.border },
+              { label: 'Approved',          value: approved, color: approved ? C.green : C.muted, accent: approved ? C.green : C.border },
+              { label: 'Rejected',          value: rejected, color: rejected ? C.red   : C.muted, accent: rejected ? C.red   : C.border },
             ].map(s => (
-              <Paper key={s.label} sx={{ p: 2, bgcolor: '#111B38', border: `1px solid ${C.border}`, borderRadius: 2, boxShadow: 'none' }}>
-                <Typography variant="caption" sx={{ color: C.slate }}>{s.label}</Typography>
-                <Typography variant="h4" sx={{ color: s.color, mt: 0.5, fontWeight: 700, fontSize: 28 }}>{s.value}</Typography>
+              <Paper key={s.label} sx={{
+                p: 2.25, bgcolor: '#0D1628',
+                border: `1px solid ${C.border}`,
+                borderLeft: `3px solid ${s.accent}`,
+                borderRadius: 2, boxShadow: 'none',
+              }}>
+                <Typography sx={{ fontSize: 10.5, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.75 }}>
+                  {s.label}
+                </Typography>
+                <Typography sx={{ color: s.color, fontWeight: 800, fontSize: 30, lineHeight: 1.1, letterSpacing: -0.5 }}>
+                  {s.value}
+                </Typography>
               </Paper>
             ))}
           </Box>

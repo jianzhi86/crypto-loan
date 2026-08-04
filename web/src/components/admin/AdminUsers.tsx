@@ -50,7 +50,7 @@ const KYC_TONE: Record<string, 'green' | 'amber' | 'red'> = {
   approved: 'green', pending: 'amber', rejected: 'red',
 };
 
-const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#111B38' } };
+const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13.5, bgcolor: '#0D1628' } };
 
 export default function AdminUsers() {
   const [users, setUsers]     = useState<AdminUser[]>([]);
@@ -104,7 +104,7 @@ export default function AdminUsers() {
     (e: { target: { value: string } }) => { set(e.target.value); setPage(1); };
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 } }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#080E1F', minHeight: '100vh' }}>
       <Box sx={{ maxWidth: 1440, mx: 'auto' }}>
         <PageHeader
           title="Users"
@@ -125,7 +125,7 @@ export default function AdminUsers() {
         )}
 
         {/* Filters */}
-        <Card sx={{ p: 2, mb: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
+        <Card sx={{ p: 2, mb: 2.5, border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628' }}>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr 1fr 1fr' }, gap: 1.5 }}>
             <TextField
               size="small" placeholder="Search name, email, wallet or user ID…"
@@ -164,7 +164,7 @@ export default function AdminUsers() {
         ) : users.length === 0 ? (
           <EmptyState icon="search" title="No users match these filters" hint="Try clearing the search or filters." />
         ) : (
-          <Card sx={{ border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none' }}>
+          <Card sx={{ border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628' }}>
             <TableContainer sx={{ overflowX: 'auto' }}>
               <Table size="small" sx={{ minWidth: 1080 }}>
                 <TableHead>
@@ -189,14 +189,19 @@ export default function AdminUsers() {
         )}
 
         {pages > 1 && !kyc && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2, mt: 3 }}>
-            <Button size="small" disabled={page <= 1} onClick={() => setPage(p => p - 1)} sx={{ textTransform: 'none' }}>
-              ← Previous
-            </Button>
-            <Typography variant="body2" sx={{ color: C.slate }}>Page {page} of {pages}</Typography>
-            <Button size="small" disabled={page >= pages} onClick={() => setPage(p => p + 1)} sx={{ textTransform: 'none' }}>
-              Next →
-            </Button>
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mt: 3 }}>
+            <Button size="small" disabled={page <= 1} onClick={() => setPage(p => p - 1)} sx={{ textTransform: 'none', borderRadius: 2, px: 2 }}>← Prev</Button>
+            {Array.from({ length: Math.min(pages, 7) }, (_, i) => {
+              const p = pages <= 7 ? i + 1 : page <= 4 ? i + 1 : page >= pages - 3 ? pages - 6 + i : page - 3 + i;
+              return (
+                <Button key={p} size="small" onClick={() => setPage(p)}
+                  variant={page === p ? 'contained' : 'text'} disableElevation
+                  sx={{ textTransform: 'none', minWidth: 36, borderRadius: 2, fontSize: 12 }}>
+                  {p}
+                </Button>
+              );
+            })}
+            <Button size="small" disabled={page >= pages} onClick={() => setPage(p => p + 1)} sx={{ textTransform: 'none', borderRadius: 2, px: 2 }}>Next →</Button>
           </Box>
         )}
 
@@ -292,7 +297,7 @@ function UserRow({ user, striped, onEdit, onDone }: {
 
   return (
     <>
-      <TableRow sx={{ bgcolor: striped ? '#0F1A3D' : '#111B38', '&:hover': { bgcolor: '#0F1730' }, opacity: busy ? 0.55 : 1 }}>
+      <TableRow sx={{ bgcolor: striped ? '#0A1220' : '#0D1628', '&:hover': { bgcolor: '#0F1730' }, opacity: busy ? 0.55 : 1 }}>
         <TableCell sx={{ ...cellSx, color: C.ink, fontWeight: 500, fontSize: 13 }}>
           {user.name || <span style={{ color: C.muted }}>—</span>}
         </TableCell>
@@ -453,7 +458,7 @@ function EditUserDialog({ user, onClose, onSaved }: {
           />
 
           {/* Read-only context: these are either on-chain or belong elsewhere. */}
-          <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#0B1226', border: `1px solid ${C.border}` }}>
+          <Box sx={{ p: 2, borderRadius: 2, bgcolor: '#080E1F', border: `1px solid ${C.border}` }}>
             <Typography variant="caption" sx={{ color: C.slate, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', fontSize: 10.5 }}>
               Not editable here
             </Typography>

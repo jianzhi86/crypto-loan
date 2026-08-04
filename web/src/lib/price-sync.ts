@@ -9,7 +9,27 @@ const MAX_STEP  = 0.20; // matches MAX_PRICE_CHANGE in contract
 const ABI = [
   'function setEthPrice(uint256 _price) external',
   'function ethPrice() view returns (uint256)',
+  'function setBaseRate(uint256 rateBps) external',
+  'function baseRateBps() view returns (uint256)',
 ];
+
+/**
+ * Derive a market-driven base rate (in BPS) from the ETH 24h price change.
+ *
+ * Rising ETH price signals bullish sentiment and higher borrowing demand,
+ * pushing rates up. Falling price lowers demand. Formula:
+ *   base = 300 bps + clamp(change%, -10, +15) * 20 bps/percent
+ *
+ * Examples:
+ *   ETH -10% or more →  100 bps (1.0%)
+ *   ETH flat (0%)    →  300 bps (3.0%)
+ *   ETH +5%          →  400 bps (4.0%)
+ *   ETH +15%         →  600 bps (6.0%)  ← cap
+ */
+function marketBaseRateBps(change24h: number): number {
+  const clamped = Math.max(-10, Math.min(15, change24h));
+  return Math.round(300 + clamped * 20);
+}
 
 export type SyncResult =
   | { ok: true; newPrice: number; steps: number; path: number[]; message?: string }
@@ -35,15 +55,16 @@ export async function syncEthPriceToMarket(): Promise<SyncResult> {
   }
 
   try {
-    // ── 1. Fetch live price ────────────────────────────────────────────
+    // ── 1. Fetch live price + 24h change ──────────────────────────────
     const cgRes = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=myr',
+      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=myr&include_24hr_change=true',
       { cache: 'no-store' },
     );
     if (!cgRes.ok) throw new Error(`CoinGecko returned ${cgRes.status} — try again shortly`);
-    const cgData = await cgRes.json() as { ethereum?: { myr?: number } };
+    const cgData = await cgRes.json() as { ethereum?: { myr?: number; myr_24h_change?: number } };
     const target = Math.round(cgData.ethereum?.myr ?? 0);
     if (!target || target <= 0) throw new Error('CoinGecko returned an invalid price');
+    const change24h = cgData.ethereum?.myr_24h_change ?? 0;
 
     // ── 2. Connect to Hardhat ──────────────────────────────────────────
     const provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -70,13 +91,10 @@ export async function syncEthPriceToMarket(): Promise<SyncResult> {
     // Each step moves 19% to stay comfortably inside the 20% contract guard.
     const path: number[] = [];
     let nonceRetries = 0;
+    let converged = false;
     for (let guard = 0; guard < 40; guard++) {
       const current = Number(await (contract.ethPrice as () => Promise<bigint>)());
-      if (current === target) {
-        return path.length === 0
-          ? { ok: true, newPrice: target, steps: 0, path, message: 'Already in sync' }
-          : { ok: true, newPrice: target, steps: path.length, path };
-      }
+      if (current === target) { converged = true; break; }
       const diff = Math.abs(target - current) / current;
       const next = diff <= MAX_STEP
         ? target                                // final step can hit target exactly
@@ -105,7 +123,26 @@ export async function syncEthPriceToMarket(): Promise<SyncResult> {
         throw e;
       }
     }
-    throw new Error('Sync did not converge — is another process fighting over the price?');
+    if (!converged) throw new Error('Sync did not converge — is another process fighting over the price?');
+
+    // ── 4. Update market-driven base rate ─────────────────────────────
+    // Runs after every price convergence so the borrow APR tracks real market
+    // conditions automatically. Best-effort — failure must not abort a
+    // successful price sync.
+    try {
+      const newRate = BigInt(marketBaseRateBps(change24h));
+      const onChainRate = Number(await (contract.baseRateBps as () => Promise<bigint>)());
+      if (Number(newRate) !== onChainRate) {
+        const tx = await (contract.setBaseRate as (r: bigint) => Promise<ethers.TransactionResponse>)(newRate);
+        await tx.wait();
+      }
+    } catch {
+      console.warn('[price-sync] base rate update failed (non-fatal)');
+    }
+
+    return path.length === 0
+      ? { ok: true, newPrice: target, steps: 0, path, message: 'Already in sync' }
+      : { ok: true, newPrice: target, steps: path.length, path };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[price-sync]', msg);

@@ -3,7 +3,7 @@
 
 export const HARDHAT_CHAIN_ID = 31337;
 export const HARDHAT_RPC_URL  = "http://127.0.0.1:8545";
-export const ETH_PRICE_MYR    = 7640;
+export const ETH_PRICE_MYR    = 7646;
 
 export const CONTRACT_ADDRESSES = {
   CryptoLoan: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
@@ -58,6 +58,25 @@ export const CRYPTO_LOAN_ABI = [
     "inputs": [],
     "name": "ReentrancyGuardReentrantCall",
     "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "oldRateBps",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newRateBps",
+        "type": "uint256"
+      }
+    ],
+    "name": "BaseRateUpdated",
+    "type": "event"
   },
   {
     "anonymous": false,
@@ -370,19 +389,6 @@ export const CRYPTO_LOAN_ABI = [
   },
   {
     "inputs": [],
-    "name": "BASE_APR_BPS",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "LIQ_BONUS",
     "outputs": [
       {
@@ -397,6 +403,19 @@ export const CRYPTO_LOAN_ABI = [
   {
     "inputs": [],
     "name": "LIQ_THRESHOLD",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_BASE_RATE_BPS",
     "outputs": [
       {
         "internalType": "uint256",
@@ -533,6 +552,19 @@ export const CRYPTO_LOAN_ABI = [
       }
     ],
     "name": "availableToBorrow",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "baseRateBps",
     "outputs": [
       {
         "internalType": "uint256",
@@ -931,6 +963,19 @@ export const CRYPTO_LOAN_ABI = [
       }
     ],
     "name": "repay",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "rateBps",
+        "type": "uint256"
+      }
+    ],
+    "name": "setBaseRate",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

@@ -86,7 +86,7 @@ export default function AdminFeatures() {
   const offCount = flags.filter(f => f.state !== ON).length;
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 } }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#080E1F', minHeight: '100vh' }}>
       <Box sx={{ maxWidth: 1000, mx: 'auto' }}>
         <PageHeader
           title="Features"
@@ -116,7 +116,7 @@ export default function AdminFeatures() {
               }}>
                 {group}
               </Typography>
-              <Card sx={{ border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', overflow: 'hidden' }}>
+              <Card sx={{ border: `1px solid ${C.border}`, borderRadius: 3, boxShadow: 'none', overflow: 'hidden', bgcolor: '#0D1628' }}>
                 {flags.filter(f => f.group === group).map((f, i) => (
                   // Keying on the saved message remounts the row whenever the
                   // server value changes, which resets the draft field without
@@ -146,7 +146,7 @@ function FlagControl({ flag, divider, onSave }: {
     <Box sx={{
       p: 2.5,
       borderTop: divider ? `1px solid ${C.border}` : 'none',
-      bgcolor: flag.state === ON ? '#111B38' : 'rgba(255,178,36,0.03)',
+      bgcolor: flag.state === ON ? '#0D1628' : 'rgba(255,178,36,0.03)',
     }}>
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <Box sx={{ flex: 1, minWidth: 240 }}>
@@ -189,7 +189,7 @@ function FlagControl({ flag, divider, onSave }: {
             // pinned up. Left to float it sat across the input and struck
             // through its own text against the placeholder behind it.
             slotProps={{ inputLabel: { shrink: true } }}
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13, bgcolor: '#111B38' } }}
+            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: 13, bgcolor: '#080E1F' } }}
             helperText={dirty ? 'Unsaved' : 'Leave blank to use the default wording.'}
           />
           <Button

@@ -22,9 +22,10 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     // Variable borrow rate, bank-style: a base rate plus premiums that move
     // with market conditions. APR = BASE + utilization premium + volatility
     // premium — see currentAprBps().
-    uint256 public constant BASE_APR_BPS     = 300;  // 3.0% floor
+    uint256 public baseRateBps           = 300;  // owner-adjustable market rate (initial 3.0%)
     uint256 public constant UTIL_SLOPE_BPS   = 400;  // up to +4.0% as lending capacity fills
     uint256 public constant VOL_SLOPE_BPS    = 300;  // up to +3.0% on a max (20%) ETH/MYR move
+    uint256 public constant MAX_BASE_RATE_BPS = 1500; // hard cap: 15%
 
     // ── State ──────────────────────────────────────────────────────────────
     uint256 public ethPrice;       // MYR per ETH (whole number, e.g. 18000)
@@ -52,6 +53,7 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     event CollateralWithdrawn(address indexed user, uint256 amount);
     event Liquidated(address indexed user, address indexed liquidator, uint256 debtCovered, uint256 collateralSeized);
     event PriceUpdated(uint256 oldPrice, uint256 newPrice, address updatedBy);
+    event BaseRateUpdated(uint256 oldRateBps, uint256 newRateBps);
     event KYCSet(address indexed user, bool approved);
     event LiquidatorSet(address indexed liquidator, bool approved);
     event ProtocolFeesWithdrawn(address indexed to, uint256 amount);
@@ -103,6 +105,14 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         ethPrice      = _price;
         lastPriceTime = block.timestamp;
         emit PriceUpdated(old, _price, msg.sender);
+    }
+
+    /// @notice Adjust the market-driven base borrow rate (owner only, capped at 15%)
+    function setBaseRate(uint256 rateBps) external onlyOwner {
+        require(rateBps <= MAX_BASE_RATE_BPS, "Rate exceeds cap");
+        uint256 old = baseRateBps;
+        baseRateBps = rateBps;
+        emit BaseRateUpdated(old, rateBps);
     }
 
     function pause() external onlyOwner { _pause(); }
@@ -279,7 +289,7 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     ///         + volatility premium — rises with the size of the last ETH/MYR
     ///           price move (a turbulent market makes lending riskier).
     function currentAprBps() public view returns (uint256) {
-        uint256 apr = BASE_APR_BPS;
+        uint256 apr = baseRateBps;
 
         uint256 capacity = (totalCollateral * ethPrice * MAX_LTV * MYR_DECIMALS) / (PRECISION * 100);
         if (capacity > 0) {
