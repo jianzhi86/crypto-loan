@@ -146,13 +146,16 @@ export default function Sidebar() {
 
   const acl: AclContext = {
     // A connected wallet counts as authenticated for sidebar access.
-    isAuthenticated: viewer.isAuthenticated || !!user || wallet.isConnected,
+    // Wallet state is client-only — suppress it until after hydration so the
+    // server and client render the same initial HTML (avoids hydration mismatch
+    // where server sees kycApproved:false but client sees true after wallet connects).
+    isAuthenticated: viewer.isAuthenticated || !!user || (hydrated && wallet.isConnected),
     // The server's answer wins, and the client's can only add to it. An admin
     // whose /api/auth/me call fails or answers without the cookie still gets
     // their Administration link and an unrestricted nav — losing it was how an
     // admin ended up staring at a sidebar containing nothing but Explorer.
     isAdmin: viewer.isAdmin || !!user?.isAdmin,
-    kycApproved: !!wallet.kycApproved,
+    kycApproved: hydrated && !!wallet.kycApproved,
     flags,
   };
 

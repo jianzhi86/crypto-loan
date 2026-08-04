@@ -3,7 +3,7 @@
 
 export const HARDHAT_CHAIN_ID = 31337;
 export const HARDHAT_RPC_URL  = "http://127.0.0.1:8545";
-export const ETH_PRICE_MYR    = 7586;
+export const ETH_PRICE_MYR    = 7597;
 
 export const CONTRACT_ADDRESSES = {
   CryptoLoan: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
@@ -378,6 +378,25 @@ export const CRYPTO_LOAN_ABI = [
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "SupplyInterestClaimed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": false,
         "internalType": "address",
         "name": "account",
@@ -551,6 +570,25 @@ export const CRYPTO_LOAN_ABI = [
         "type": "address"
       }
     ],
+    "name": "accruedSupplyInterest",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
     "name": "availableToBorrow",
     "outputs": [
       {
@@ -599,6 +637,13 @@ export const CRYPTO_LOAN_ABI = [
     "name": "buyMYR",
     "outputs": [],
     "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "claimSupplyInterest",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1027,6 +1072,38 @@ export const CRYPTO_LOAN_ABI = [
     "name": "setLiquidator",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "supplyInterestRate",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "supplyStart",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {

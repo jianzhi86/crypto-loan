@@ -103,6 +103,10 @@ export interface WalletState {
   lastReceipt: TxReceipt | null;
   // Yield system (requires redeployed contract)
   borrowAprBps: number;
+  // Current dynamic rate = base + utilization slope + volatility premium.
+  // Use this (not borrowAprBps) for interest projections — it's what the
+  // contract's accruedInterest() actually charges.
+  currentAprBps: number;
   supplyAprBps: number;
   utilizationRate: number;
   pendingYieldMYR: number;
@@ -132,7 +136,7 @@ const INIT: WalletState = {
   txStatus: 'idle', txMessage: '',
   txStep: 1, txTotalSteps: 1,
   lastReceipt: null,
-  borrowAprBps: 300, supplyAprBps: 0, utilizationRate: 0, pendingYieldMYR: 0,
+  borrowAprBps: 300, currentAprBps: 300, supplyAprBps: 0, utilizationRate: 0, pendingYieldMYR: 0,
 };
 
 const HN_PARAMS = {
@@ -269,6 +273,7 @@ interface WalletCtx extends WalletState {
     settle?: { ids: string[]; interest?: Record<string, string> };
   }) => Promise<void>;
   withdrawCollateral: (eth: string) => Promise<void>;
+  claimSupplyInterest: () => Promise<void>;
   addTokenToWallet: () => Promise<void>;
   refresh: () => Promise<void>;
   clearTx: () => void;
@@ -383,19 +388,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const ethPriceMYR = Number(price as bigint);
       // Optional calls — only exist on the current contract version.
       // Promise.allSettled so a missing function never crashes the whole refresh.
-      const [aprLiveResult, protStatsResult] = await Promise.allSettled([
+      const [aprLiveResult, dynAprResult, protStatsResult, supplyIntResult] = await Promise.allSettled([
         Promise.resolve().then(() => c.loan.baseRateBps()),
+        Promise.resolve().then(() => c.loan.currentAprBps()),
         Promise.resolve().then(() => c.loan.getProtocolStats()),
+        Promise.resolve().then(() => c.loan.accruedSupplyInterest(address)),
       ]);
       const aprBps    = aprLiveResult.status   === 'fulfilled' ? aprLiveResult.value : BigInt(300);
+      const dynApr    = dynAprResult.status    === 'fulfilled' ? dynAprResult.value  : aprBps;
       const protStats = protStatsResult.status === 'fulfilled' ? protStatsResult.value : [BigInt(0), BigInt(0), BigInt(0), BigInt(0), BigInt(0)];
-      const borrowAprBps = Number(aprBps as bigint);
+      const borrowAprBps  = Number(aprBps as bigint);
+      const currentAprBps = Number(dynApr as bigint);
       const ps = protStats as [bigint, bigint, bigint, bigint, bigint];
       const totalBorrowedMYR   = Number(ps[0]) / 1e6;
       const totalCollateralMYR = (Number(ps[1]) / 1e18) * ethPriceMYR;
       const utilizationRate    = totalCollateralMYR > 0 ? Math.min(totalBorrowedMYR / totalCollateralMYR, 1) : 0;
-      const supplyAprBps       = Math.round(borrowAprBps * utilizationRate * 0.8);
-      const pendingYieldMYR    = 0;
+      const supplyAprBps       = Math.round(borrowAprBps * 38 / 100);
+      const pendingYieldMYR    = supplyIntResult.status === 'fulfilled' ? Number(supplyIntResult.value as bigint) / 1e6 : 0;
       // Remember this position so it survives a disconnect / reload.
       cachePosition(address, { info: loanInfo, ethBalance, myrBalance, ethPriceMYR });
       setS(p => ({
@@ -405,6 +414,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         loanInfo,
         ethPriceMYR,
         borrowAprBps,
+        currentAprBps,
         supplyAprBps,
         utilizationRate,
         pendingYieldMYR,
@@ -852,6 +862,35 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [getContracts, s.address, s.ethPriceMYR, refresh, guardTx]);
 
+  const claimSupplyInterest = useCallback(async () => {
+    if (!guardTx()) return;
+    const c = await getContracts(true);
+    if (!c || !s.address) return;
+    setTx('pending', 'Claiming supply interest…');
+    try {
+      const tx = await c.loan.claimSupplyInterest();
+      const receipt = await tx.wait();
+      const claimedMYR6 = Math.round(s.pendingYieldMYR * 1e6);
+      setTx('success', 'Supply interest claimed');
+      if (receipt && s.address) {
+        saveTxToDB(s.address, 'SupplyInterestClaimed', String(claimedMYR6), receipt);
+        setReceipt({
+          action: 'buy',
+          title: 'Supply Interest Claimed',
+          amountLabel: `RM ${s.pendingYieldMYR.toFixed(4)} MYR`,
+          lines: [
+            { label: 'Sent to wallet', value: `${s.address.slice(0, 6)}…${s.address.slice(-4)}` },
+          ],
+          txHash: receipt.hash,
+        });
+      }
+      await refresh(s.address);
+    } catch (e) {
+      const reason = revertReason(e);
+      setTx('error', reason ? `Claim failed: ${reason}` : 'Claim failed');
+    }
+  }, [getContracts, s.address, s.pendingYieldMYR, refresh, guardTx]);
+
   // Prompt MetaMask to import the MockMYR token so the borrowed balance is
   // visible in the wallet (ERC-20s don't show up automatically).
   const addTokenToWallet = useCallback(async () => {
@@ -1064,7 +1103,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value: WalletCtx = {
     ...s,
     connect, disconnect, tryAutoConnect, switchToHardhat,
-    depositCollateral, borrow, buyMYR, transferMYR, repay, withdrawCollateral,
+    depositCollateral, borrow, buyMYR, transferMYR, repay, withdrawCollateral, claimSupplyInterest,
     addTokenToWallet,
     refresh: () => s.address ? refresh(s.address) : Promise.resolve(),
     clearTx: () => setS(p => ({ ...p, txStatus: 'idle', txMessage: '' })),

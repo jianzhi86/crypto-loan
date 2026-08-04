@@ -17,11 +17,12 @@ import { Sparkline, ProtocolAreaChart, ActivityDonut } from '@/components/admin/
 
 /* ─── Types ───────────────────────────────────────────────────────────────── */
 type TxAgg = {
-  total_borrowed:  number;  borrow_count:   number;
-  total_repaid:    number;  repay_count:    number;
-  total_deposited: number;  deposit_count:  number;
-  total_withdrawn: number;  total_purchased: number;
-  purchase_count:  number;  unique_wallets:  number;
+  total_borrowed:       number;  borrow_count:   number;
+  total_repaid:         number;  repay_count:    number;
+  total_deposited:      number;  deposit_count:  number;
+  total_withdrawn:      number;  total_purchased: number;
+  purchase_count:       number;  unique_wallets:  number;
+  total_supply_claimed: number;  claim_count:    number;
 };
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
@@ -85,16 +86,18 @@ export default async function AdminOverviewPage() {
     prisma.adminAuditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 8 }),
     prisma.$queryRaw<TxAgg[]>`
       SELECT
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Borrowed'),            0)::float8 AS total_borrowed,
-        COUNT(*) FILTER (WHERE type = 'Borrowed')::int                                              AS borrow_count,
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Repaid'),              0)::float8 AS total_repaid,
-        COUNT(*) FILTER (WHERE type = 'Repaid')::int                                                AS repay_count,
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralDeposited'), 0)::float8 AS total_deposited,
-        COUNT(*) FILTER (WHERE type = 'CollateralDeposited')::int                                   AS deposit_count,
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralWithdrawn'), 0)::float8 AS total_withdrawn,
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'MYRPurchased'),        0)::float8 AS total_purchased,
-        COUNT(*) FILTER (WHERE type = 'MYRPurchased')::int                                          AS purchase_count,
-        COUNT(DISTINCT wallet)::int                                                                  AS unique_wallets
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Borrowed'),                0)::float8 AS total_borrowed,
+        COUNT(*) FILTER (WHERE type = 'Borrowed')::int                                                   AS borrow_count,
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Repaid'),                  0)::float8 AS total_repaid,
+        COUNT(*) FILTER (WHERE type = 'Repaid')::int                                                     AS repay_count,
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralDeposited'),     0)::float8 AS total_deposited,
+        COUNT(*) FILTER (WHERE type = 'CollateralDeposited')::int                                        AS deposit_count,
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralWithdrawn'),     0)::float8 AS total_withdrawn,
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'MYRPurchased'),            0)::float8 AS total_purchased,
+        COUNT(*) FILTER (WHERE type = 'MYRPurchased')::int                                               AS purchase_count,
+        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'SupplyInterestClaimed'),   0)::float8 AS total_supply_claimed,
+        COUNT(*) FILTER (WHERE type = 'SupplyInterestClaimed')::int                                      AS claim_count,
+        COUNT(DISTINCT wallet)::int                                                                       AS unique_wallets
       FROM "LoanTransaction"
     `,
     prisma.bankTransfer.aggregate({ _sum: { amountMYR: true }, _count: { _all: true } }),
@@ -103,23 +106,25 @@ export default async function AdminOverviewPage() {
   ]);
 
   const stat = txAgg[0] ?? {
-    total_borrowed: 0,  borrow_count: 0,
-    total_repaid:   0,  repay_count:  0,
-    total_deposited: 0, deposit_count: 0,
-    total_withdrawn: 0, total_purchased: 0,
-    purchase_count: 0,  unique_wallets: 0,
+    total_borrowed: 0,        borrow_count: 0,
+    total_repaid:   0,        repay_count:  0,
+    total_deposited: 0,       deposit_count: 0,
+    total_withdrawn: 0,       total_purchased: 0,
+    purchase_count: 0,        unique_wallets: 0,
+    total_supply_claimed: 0,  claim_count: 0,
   };
 
-  const totalBorrowedMYR  = stat.total_borrowed  / 1e6;
-  const totalRepaidMYR    = stat.total_repaid    / 1e6;
-  const netOutstandingMYR = totalBorrowedMYR - totalRepaidMYR;
-  const originationFees   = totalBorrowedMYR * 0.001;
-  const totalDepositedEth = stat.total_deposited / 1e18;
-  const totalWithdrawnEth = stat.total_withdrawn / 1e18;
-  const netLockedEth      = totalDepositedEth - totalWithdrawnEth;
-  const bankSum           = bankAgg._sum.amountMYR ?? 0;
-  const bankCount         = bankAgg._count._all;
-  const totalTxs          = stat.borrow_count + stat.repay_count + stat.deposit_count + stat.purchase_count;
+  const totalBorrowedMYR     = stat.total_borrowed  / 1e6;
+  const totalRepaidMYR       = stat.total_repaid    / 1e6;
+  const netOutstandingMYR    = totalBorrowedMYR - totalRepaidMYR;
+  const originationFees      = totalBorrowedMYR * 0.001;
+  const totalDepositedEth    = stat.total_deposited / 1e18;
+  const totalWithdrawnEth    = stat.total_withdrawn / 1e18;
+  const netLockedEth         = totalDepositedEth - totalWithdrawnEth;
+  const bankSum              = bankAgg._sum.amountMYR ?? 0;
+  const bankCount            = bankAgg._count._all;
+  const totalTxs             = stat.borrow_count + stat.repay_count + stat.deposit_count + stat.purchase_count + stat.claim_count;
+  const totalSupplyClaimedMYR = stat.total_supply_claimed / 1e6;
 
   const repaymentRate  = pct(totalRepaidMYR, totalBorrowedMYR);
   const lockRate       = pct(netLockedEth, totalDepositedEth);
@@ -132,16 +137,25 @@ export default async function AdminOverviewPage() {
   const ethSupplyApr = liveAprPct ? supplyApr(liveAprPct, 0.38) : null;
   const btcBorrowApr = liveAprPct ? dynamicApr(liveAprPct, 0.78, 0) : null;
 
+  // Supply interest projections from on-chain state
+  const supplyRatePct       = chain ? chain.supplyRateBps / 100 : null;
+  const collatValueMYR      = chain ? chain.totalCollateralETH * chain.ethPriceMYR : 0;
+  const dailySupplyPayout   = supplyRatePct != null ? collatValueMYR * (supplyRatePct / 100) / 365 : null;
+  const monthlySupplyPayout = dailySupplyPayout != null ? dailySupplyPayout * 30 : null;
+  const yearlySupplyPayout  = dailySupplyPayout != null ? dailySupplyPayout * 365 : null;
+  const earnRatioPct        = liveAprPct && ethSupplyApr ? Math.round((ethSupplyApr / liveAprPct) * 100) : 38;
+
   const paused = FLAGS.filter(f => (flags[f.key]?.state ?? ON) !== ON);
 
   const ETH_COLOR = '#627EEA';
 
   const chartData = monthlyData(totalBorrowedMYR, totalRepaidMYR);
   const donutData = [
-    { name: 'Borrows',   value: stat.borrow_count,   color: C.green },
-    { name: 'Repays',    value: stat.repay_count,     color: ETH_COLOR },
-    { name: 'Deposits',  value: stat.deposit_count,   color: C.amber },
-    { name: 'Purchases', value: stat.purchase_count,  color: '#9B7DFF' },
+    { name: 'Borrows',     value: stat.borrow_count,   color: C.green   },
+    { name: 'Repays',      value: stat.repay_count,     color: ETH_COLOR },
+    { name: 'Deposits',    value: stat.deposit_count,   color: C.amber   },
+    { name: 'Earn Claims', value: stat.claim_count,     color: '#2BD9A2' },
+    { name: 'Purchases',   value: stat.purchase_count,  color: '#9B7DFF' },
   ].filter(d => d.value > 0);
 
   /* ── KPI tiles ─ */
@@ -194,11 +208,12 @@ export default async function AdminOverviewPage() {
 
   /* ── Tx type display ─ */
   const TX_META: Record<string, { label: string; color: string }> = {
-    Borrowed:            { label: 'Borrow',    color: C.green   },
-    Repaid:              { label: 'Repay',      color: ETH_COLOR },
-    CollateralDeposited: { label: 'Deposit',    color: C.amber   },
-    CollateralWithdrawn: { label: 'Withdraw',   color: C.red     },
-    MYRPurchased:        { label: 'MYR Buy',    color: '#9B7DFF' },
+    Borrowed:               { label: 'Borrow',     color: C.green   },
+    Repaid:                 { label: 'Repay',       color: ETH_COLOR },
+    CollateralDeposited:    { label: 'Deposit',     color: C.amber   },
+    CollateralWithdrawn:    { label: 'Withdraw',    color: C.red     },
+    MYRPurchased:           { label: 'MYR Buy',     color: '#9B7DFF' },
+    SupplyInterestClaimed:  { label: 'Earn Claim',  color: '#2BD9A2' },
   };
 
   return (
@@ -326,6 +341,97 @@ export default async function AdminOverviewPage() {
               </Typography>
             </Box>
           )}
+        </Card>
+
+        {/* ── Supply Interest (Earn APR) section ───────────────────────── */}
+        <Card sx={{ mb: 3, border: `1px solid ${C.border}`, borderLeft: `3px solid #2BD9A2`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628', overflow: 'hidden' }}>
+          <Box sx={{ px: 2.5, pt: 2, pb: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ color: '#2BD9A2' }}><BoltIcon size={15} /></Box>
+              <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Supply Interest (Earn APR)</Typography>
+              <Box sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: 'rgba(43,217,162,0.12)', border: '1px solid rgba(43,217,162,0.3)' }}>
+                <Typography sx={{ fontSize: 10, fontWeight: 700, color: '#2BD9A2' }}>
+                  {supplyRatePct != null ? `${supplyRatePct.toFixed(2)}% APR` : '—'} · paid to depositors
+                </Typography>
+              </Box>
+            </Box>
+            <Typography sx={{ fontSize: 11, color: C.muted }}>
+              Rate = {baseAprPct != null ? `${baseAprPct.toFixed(2)}%` : '—'} borrow APR × 38% · auto-follows market hourly
+            </Typography>
+          </Box>
+
+          <Divider sx={{ borderColor: C.border }} />
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', sm: 'repeat(3,1fr)', md: 'repeat(6,1fr)' } }}>
+            {[
+              {
+                label: 'Current Earn APR',
+                value: supplyRatePct != null ? `${supplyRatePct.toFixed(2)}%` : '—',
+                sub:   liveAprPct != null ? `${earnRatioPct}% of ${liveAprPct.toFixed(2)}% borrow` : 'node offline',
+                color: '#2BD9A2',
+              },
+              {
+                label: 'Daily Payout (proj.)',
+                value: dailySupplyPayout != null ? rm(dailySupplyPayout) : '—',
+                sub:   collatValueMYR > 0 ? `on ${rm(collatValueMYR)} collateral` : 'no collateral',
+                color: C.ink,
+              },
+              {
+                label: 'Monthly Payout (proj.)',
+                value: monthlySupplyPayout != null ? rm(monthlySupplyPayout) : '—',
+                sub:   'estimated 30-day cost',
+                color: C.ink,
+              },
+              {
+                label: 'Yearly Payout (proj.)',
+                value: yearlySupplyPayout != null ? rm(yearlySupplyPayout) : '—',
+                sub:   'estimated annual cost',
+                color: C.amber,
+              },
+              {
+                label: 'Total Paid Out',
+                value: rm(totalSupplyClaimedMYR),
+                sub:   `${stat.claim_count} claim${stat.claim_count === 1 ? '' : 's'}`,
+                color: '#2BD9A2',
+              },
+              {
+                label: 'Protocol Fees (pool)',
+                value: chain ? rm(chain.protocolFeesMYR) : '—',
+                sub:   'borrow interest collected',
+                color: C.amber,
+              },
+            ].map((s, i) => (
+              <Box key={s.label} sx={{
+                px: 2.5, py: 1.75,
+                borderLeft: i > 0 ? `1px solid ${C.border}` : 'none',
+                borderTop: { xs: i > 1 ? `1px solid ${C.border}` : 'none', sm: i > 2 ? `1px solid ${C.border}` : 'none', md: 'none' },
+              }}>
+                <Typography sx={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.5 }}>{s.label}</Typography>
+                <Typography sx={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1.1, letterSpacing: -0.3 }}>{s.value}</Typography>
+                <Typography sx={{ fontSize: 10.5, color: C.muted, mt: 0.25 }}>{s.sub}</Typography>
+              </Box>
+            ))}
+          </Box>
+
+          {/* Earn / borrow ratio bar */}
+          <Box sx={{ px: 2.5, py: 1.75, borderTop: `1px solid ${C.border}` }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
+              <Typography sx={{ fontSize: 11, color: C.muted }}>
+                Earn / Borrow spread — {earnRatioPct}% of borrow revenue allocated to supply rewards
+              </Typography>
+              <Typography sx={{ fontSize: 11, fontWeight: 700, color: '#2BD9A2' }}>
+                {supplyRatePct != null ? `${supplyRatePct.toFixed(2)}%` : '—'} earn  ·  {liveAprPct != null ? `${(liveAprPct - (supplyRatePct ?? 0)).toFixed(2)}%` : '—'} protocol margin
+              </Typography>
+            </Box>
+            <Box sx={{ height: 8, borderRadius: 999, bgcolor: 'rgba(255,255,255,0.06)', overflow: 'hidden', display: 'flex' }}>
+              <Box sx={{ width: `${earnRatioPct}%`, bgcolor: '#2BD9A2', borderRadius: '999px 0 0 999px', transition: 'width .4s' }} />
+              <Box sx={{ flex: 1, bgcolor: C.amber, borderRadius: '0 999px 999px 0' }} />
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+              <Typography sx={{ fontSize: 10, color: '#2BD9A2' }}>Supply reward ({earnRatioPct}%)</Typography>
+              <Typography sx={{ fontSize: 10, color: C.amber }}>Protocol margin ({100 - earnRatioPct}%)</Typography>
+            </Box>
+          </Box>
         </Card>
 
         {/* ── Middle row: area chart + sidebar ─────────────────────────── */}

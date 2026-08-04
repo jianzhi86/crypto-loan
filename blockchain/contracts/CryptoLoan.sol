@@ -38,6 +38,7 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     mapping(address => bool)   public kycApproved;
     mapping(address => Loan)   public loans;
     mapping(address => bool)   public liquidators; // whitelisted liquidators
+    mapping(address => uint256) public supplyStart; // timestamp supply accrual started per depositor
 
     struct Loan {
         uint256 collateral;   // wei
@@ -59,6 +60,7 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     event ProtocolFeesWithdrawn(address indexed to, uint256 amount);
     event EmergencyWithdraw(address indexed to, uint256 amount);
     event MYRPurchased(address indexed buyer, uint256 ethSpent, uint256 myrReceived);
+    event SupplyInterestClaimed(address indexed user, uint256 amount);
 
     // ── Constructor ────────────────────────────────────────────────────────
     constructor(uint256 _ethPrice) Ownable(msg.sender) {
@@ -150,6 +152,9 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
 
     function depositCollateral() external payable whenNotPaused nonReentrant {
         require(msg.value > 0, "Send ETH");
+        if (supplyStart[msg.sender] == 0) {
+            supplyStart[msg.sender] = block.timestamp;
+        }
         loans[msg.sender].collateral += msg.value;
         totalCollateral              += msg.value;
         emit CollateralDeposited(msg.sender, msg.value);
@@ -217,6 +222,9 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
 
         loan.collateral  -= weiAmount;
         totalCollateral  -= weiAmount;
+        if (loan.collateral == 0) {
+            supplyStart[msg.sender] = 0;
+        }
 
         (bool ok, ) = payable(msg.sender).call{value: weiAmount}("");
         require(ok, "ETH transfer failed");
@@ -282,31 +290,14 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
 
     // ── Views ───────────────────────────────────────────────────────────────
 
-    /// @notice The live borrow APR in basis points. Bank-style variable rate:
-    ///         BASE_APR_BPS floor
-    ///         + utilization premium — rises as outstanding debt fills the
-    ///           protocol's lending capacity (MAX_LTV of all collateral value)
-    ///         + volatility premium — rises with the size of the last ETH/MYR
-    ///           price move (a turbulent market makes lending riskier).
+    /// @notice The live borrow APR in basis points.
+    ///         Returns the admin-controlled base rate (updated hourly to track
+    ///         the market). Utilization and volatility slopes (UTIL_SLOPE_BPS,
+    ///         VOL_SLOPE_BPS) are defined as constants but intentionally not
+    ///         applied here — they made the effective rate diverge from what the
+    ///         UI quotes borrowers, causing confusing repay discrepancies.
     function currentAprBps() public view returns (uint256) {
-        uint256 apr = baseRateBps;
-
-        uint256 capacity = (totalCollateral * ethPrice * MAX_LTV * MYR_DECIMALS) / (PRECISION * 100);
-        if (capacity > 0) {
-            uint256 utilBps = totalBorrowed >= capacity
-                ? 10_000
-                : (totalBorrowed * 10_000) / capacity;
-            apr += (UTIL_SLOPE_BPS * utilBps) / 10_000;
-        }
-
-        if (prevEthPrice > 0) {
-            uint256 diff = ethPrice > prevEthPrice ? ethPrice - prevEthPrice : prevEthPrice - ethPrice;
-            uint256 movePct = (diff * 100) / prevEthPrice;
-            if (movePct > MAX_PRICE_CHANGE) movePct = MAX_PRICE_CHANGE;
-            apr += (VOL_SLOPE_BPS * movePct) / MAX_PRICE_CHANGE;
-        }
-
-        return apr;
+        return baseRateBps;
     }
 
     /// @dev Interest accrues at the CURRENT rate over the whole elapsed period
@@ -368,6 +359,29 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
             currentLTV(user),
             hfVal < MIN_HEALTH && loan.principal > 0
         );
+    }
+
+    /// @notice Supply APR in bps — 38% of the borrow rate passed to depositors.
+    function supplyInterestRate() public view returns (uint256) {
+        return (baseRateBps * 38) / 100;
+    }
+
+    /// @notice MYR interest accrued (6 decimals) since the user first deposited.
+    function accruedSupplyInterest(address user) public view returns (uint256) {
+        Loan storage loan = loans[user];
+        if (loan.collateral == 0 || supplyStart[user] == 0) return 0;
+        uint256 elapsed = block.timestamp - supplyStart[user];
+        uint256 colMYR  = (loan.collateral * ethPrice * MYR_DECIMALS) / PRECISION;
+        return (colMYR * supplyInterestRate() * elapsed) / (10_000 * 365 days);
+    }
+
+    /// @notice Claim accumulated supply interest as MYR tokens.
+    function claimSupplyInterest() external whenNotPaused nonReentrant {
+        uint256 interest = accruedSupplyInterest(msg.sender);
+        require(interest > 0, "Nothing to claim");
+        supplyStart[msg.sender] = block.timestamp;
+        myr.mint(msg.sender, interest);
+        emit SupplyInterestClaimed(msg.sender, interest);
     }
 
     function getProtocolStats()

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -375,7 +375,8 @@ function Dashboard() {
     if (!isLive || !wallet.loanInfo) return null;
     const chainPrincipal = Number(wallet.loanInfo.borrowed) / 1e6;
     if (chainPrincipal <= 0) return { rows: [] as LedgerRow[], totalInt: 0, totalPrincipal: 0 };
-    // Pinned to the refresh stamp: interest advances only when the quote does.
+    // Pinned to the 60s refresh stamp so interest advances each time the
+    // wallet re-reads the chain, not on every render.
     const now = wallet.lastRefreshAt || Date.now();
     const YEAR_MS = 31_536_000_000;
     const rows: LedgerRow[] = borrowRows.map(r => {
@@ -405,13 +406,22 @@ function Dashboard() {
     return { rows, totalInt: rows.reduce((s, r) => s + r.interest, 0), totalPrincipal: chainPrincipal };
   })();
   const ledgerInt     = ledger?.totalInt ?? 0;
+  // On-chain accrued interest — authoritative for repay amounts. Uses currentAprBps()
+  // (base + util slope + vol premium), not the locked base rate per borrow.
+  const chainAccruedInt = wallet.loanInfo ? Number(wallet.loanInfo.accruedInterest) / 1e6 : 0;
+  // On Hardhat, block.timestamp only advances when a TX mines a block, so
+  // chainAccruedInt is frozen between transactions. ledgerInt uses wall-clock
+  // time (wallet.lastRefreshAt) and advances correctly every 60s refresh.
+  // Use ledgerInt for display; chainAccruedInt is kept for reference only.
+  const liveChainInt = ledgerInt > 0 ? ledgerInt : chainAccruedInt;
   const selectedRows  = ledger ? ledger.rows.filter(r => selectedBorrowIds.includes(r.id)) : [];
   const allSelected   = !!ledger && ledger.rows.length > 0 && selectedRows.length === ledger.rows.length;
   const selectedTotal = selectedRows.reduce((s, r) => s + r.principalMYR + r.interest, 0);
-  // What the Repay panel is actually paying: FULL pins to the live total due,
-  // a tranche selection sums the chosen borrows, otherwise the typed amount.
-  const repayAmtEffective = ledger && repayFull
-    ? (ledger.totalPrincipal + ledgerInt).toFixed(2)
+  // What the Repay panel is actually paying: FULL (or all-selected) pins to the
+  // on-chain total due (principal + contract's accruedInterest). A partial tranche
+  // selection sums chosen borrows at locked rates. Otherwise the typed amount.
+  const repayAmtEffective = ledger && (repayFull || allSelected)
+    ? (ledger.totalPrincipal + liveChainInt).toFixed(2)
     : selectedRows.length > 0
       ? selectedTotal.toFixed(2)
       : repayAmt;
@@ -438,9 +448,6 @@ function Dashboard() {
   const mktEthPrice   = prices.ethereum.myr;
   const colEth        = wallet.loanInfo ? Number(ethers.formatEther(wallet.loanInfo.collateral)) : 0;
   const liveColMktMYR = isLive ? colEth * mktEthPrice : null;
-  // Include accrued interest in total debt so HF, net position and liq price
-  // reflect the real obligation, not just the starting principal.
-  const chainAccruedInt = wallet.loanInfo ? Number(wallet.loanInfo.accruedInterest) / 1e6 : 0;
   const totalDebtMYR    = liveBorMYR !== null ? liveBorMYR + chainAccruedInt : null;
   const mktNetPos     = liveColMktMYR !== null && totalDebtMYR !== null ? liveColMktMYR - totalDebtMYR : null;
   const mktHF         = (liveColMktMYR !== null && totalDebtMYR !== null && totalDebtMYR > 0)
@@ -914,8 +921,10 @@ function Dashboard() {
                               sx={{ bgcolor: `${C.red}18`, color: C.red, border: `1px solid ${C.red}30`, fontSize: 11, fontWeight: 700, height: 22 }} />
                           </TableCell>
                           <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
-                            <Chip label={`${sApr.toFixed(2)}%`} size="small"
-                              sx={{ bgcolor: `${C.teal}18`, color: C.teal, border: `1px solid ${C.teal}30`, fontSize: 11, fontWeight: 700, height: 22 }} />
+                            <Chip label={`${sApr.toFixed(2)}% Earn`} size="small"
+                              onClick={e => { e.stopPropagation(); switchTab('deposit'); }}
+                              sx={{ bgcolor: `${C.teal}18`, color: C.teal, border: `1px solid ${C.teal}30`, fontSize: 11, fontWeight: 700, height: 22, cursor: 'pointer',
+                                '&:hover': { bgcolor: `${C.teal}30` } }} />
                           </TableCell>
                           <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
                             <Typography variant="caption" sx={{ color: C.ts }}>{a.liquidity}</Typography>
@@ -981,13 +990,14 @@ function Dashboard() {
                       {/* Row 2 — stats grid */}
                       <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0, px: 1.75, pb: 1.5, pt: 0.5 }}>
                         {[
-                          { label: 'Max LTV',    value: `${a.maxLTV}%`,       vc: C.teal },
-                          { label: 'Borrow APR', value: `${bApr.toFixed(2)}%`, vc: C.red },
-                          { label: 'Supply APR', value: `${sApr.toFixed(2)}%`, vc: C.teal },
+                          { label: 'Max LTV',    value: `${a.maxLTV}%`,        vc: C.teal,  click: false },
+                          { label: 'Borrow APR', value: `${bApr.toFixed(2)}%`, vc: C.red,   click: false },
+                          { label: 'Supply APR', value: `${sApr.toFixed(2)}%`, vc: C.teal,  click: true  },
                         ].map(stat => (
-                          <Box key={stat.label} sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                          <Box key={stat.label} onClick={stat.click ? () => switchTab('deposit') : undefined}
+                            sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, cursor: stat.click ? 'pointer' : 'default' }}>
                             <Typography sx={{ fontSize: 9.5, fontWeight: 600, color: C.ts, textTransform: 'uppercase', letterSpacing: 0.4 }}>
-                              {stat.label}
+                              {stat.label}{stat.click ? ' ↗' : ''}
                             </Typography>
                             <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: stat.vc }}>
                               {stat.value}
@@ -1651,23 +1661,26 @@ function Dashboard() {
 
               {/* Position summary strip — only when wallet connected and has a position */}
               {isLive && wallet.isConnected && wallet.loanInfo && (Number(wallet.loanInfo.collateral) > 0 || Number(wallet.loanInfo.borrowed) > 0) && (() => {
-                const colEthPos  = parseFloat(ethers.formatEther(wallet.loanInfo!.collateral));
-                const borMYRPos  = Number(wallet.loanInfo!.borrowed) / 1e6;
-                const hfPos      = wallet.loanInfo!.healthFactor;
-                const hfColor    = hfPos < 1.2 ? C.red : hfPos < 1.5 ? C.gold : C.teal;
-                const hfLabel    = hfPos < 1.2 ? 'At Risk' : hfPos < 1.5 ? 'Moderate' : 'Healthy';
-                const hfBarPct   = Math.min((isFinite(hfPos) ? hfPos : 3) / 3 * 100, 100);
+                const colEthPos    = parseFloat(ethers.formatEther(wallet.loanInfo!.collateral));
+                const borMYRPos    = Number(wallet.loanInfo!.borrowed) / 1e6;
+                const hfPos        = wallet.loanInfo!.healthFactor;
+                const hfColor      = hfPos < 1.2 ? C.red : hfPos < 1.5 ? C.gold : C.teal;
+                const hfLabel      = hfPos < 1.2 ? 'At Risk' : hfPos < 1.5 ? 'Moderate' : 'Healthy';
+                const hfBarPct     = Math.min((isFinite(hfPos) ? hfPos : 3) / 3 * 100, 100);
+                const earnedMYR    = wallet.pendingYieldMYR;
+                const stripSupApr  = supplyApr(liveAprPct, 0.38);
                 return (
                   <Box sx={{ mb: 2, borderRadius: 2, overflow: 'hidden', border: `1px solid ${C.border}`, bgcolor: '#111B38' }}>
                     <Box sx={{ display: 'flex' }}>
                       {[
-                        { label: 'Collateral', value: `${colEthPos.toFixed(3)} ETH`, color: C.tp, sub: `≈ ${rm(colEthPos * wallet.ethPriceMYR)}` },
+                        { label: 'Collateral', value: `${colEthPos.toFixed(3)} ETH`, color: C.tp,   sub: `≈ ${rm(colEthPos * wallet.ethPriceMYR)}` },
                         { label: 'Borrowed',   value: borMYRPos > 0 ? `RM ${borMYRPos.toFixed(2)}` : '—', color: borMYRPos > 0 ? C.gold : C.ts, sub: borMYRPos > 0 ? `${liveAprPct.toFixed(2)}% APR (var.)` : 'No debt' },
+                        { label: 'Earning',    value: `RM ${earnedMYR.toFixed(4)}`, color: C.teal, sub: `${stripSupApr.toFixed(2)}% Supply APR` },
                         { label: 'Health',     value: borMYRPos > 0 ? fmtHF(hfPos) : '—', color: hfColor, sub: borMYRPos > 0 ? hfLabel : '—' },
                       ].map((item, i) => (
                         <Box key={item.label} sx={{
                           flex: 1, px: 1.5, py: 1.25,
-                          borderRight: i < 2 ? `1px solid ${C.border}` : 'none',
+                          borderRight: i < 3 ? `1px solid ${C.border}` : 'none',
                           textAlign: 'center',
                         }}>
                           <Typography sx={{ fontSize: 10, color: C.ts, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', mb: 0.25 }}>
@@ -1801,12 +1814,36 @@ function Dashboard() {
                     );
                   })()}
 
+                  {/* Fee breakdown — gas only, no protocol fee on deposit */}
+                  {(() => {
+                    const depEth = parseFloat(depositAmt || '0');
+                    const price  = isLive ? wallet.ethPriceMYR : ethPriceMYR;
+                    const gasEth = 0.010;
+                    return depEth > 0 ? (
+                      <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                        <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75, mb: 0.25 }}>
+                          Transaction Fees
+                        </Typography>
+                        <Row label="Protocol deposit fee"  value="None (0%)" vc={C.teal} />
+                        <Row label="Est. network gas"      value={`~${gasEth.toFixed(3)} ETH (≈ ${rm(gasEth * price)})`} />
+                        <Box sx={{ pt: 0.75, borderTop: `1px solid ${C.border}` }}>
+                          <Row label="Collateral credited" value={`${depEth.toFixed(4)} ETH — 100% of your deposit`} vc={C.teal} bold />
+                        </Box>
+                        <Typography variant="caption" sx={{ color: C.ts, fontSize: 10, lineHeight: 1.5 }}>
+                          Gas is paid to the Ethereum network, not the protocol. Your wallet ETH balance will drop by the deposit amount + gas.
+                        </Typography>
+                      </Box>
+                    ) : null;
+                  })()}
+
                   {/* Earn APR badge — derived from the live on-chain borrow rate, refreshes every 60 s */}
                   {(() => {
                     const ethSupplyApr = supplyApr(liveAprPct, 0.38);
                     const depEth       = parseFloat(depositAmt || '0');
                     const price        = isLive ? wallet.ethPriceMYR : ethPriceMYR;
                     const hourlyEarn   = depEth > 0 ? depEth * price * (ethSupplyApr / 100) / 8760 : 0;
+                    const earnedSoFar  = wallet.pendingYieldMYR;
+                    const hasClaim     = earnedSoFar > 0.000001;
                     return (
                       <Box sx={{ p: 1.5, bgcolor: `${C.teal}07`, border: `1px solid ${C.teal}25`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.teal} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
@@ -1824,6 +1861,21 @@ function Dashboard() {
                             <Typography sx={{ fontSize: 11, color: C.ts, mt: 0.5, lineHeight: 1 }}>
                               Est. hourly earnings: <Box component="span" sx={{ color: C.teal, fontWeight: 600 }}>RM {hourlyEarn.toFixed(4)}</Box>
                             </Typography>
+                          )}
+                          {isLive && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.75 }}>
+                              <Typography sx={{ fontSize: 11, color: C.ts, lineHeight: 1 }}>
+                                Earned so far: <Box component="span" sx={{ color: C.teal, fontWeight: 700 }}>RM {earnedSoFar.toFixed(4)}</Box>
+                              </Typography>
+                              {hasClaim && (
+                                <Button size="small" variant="contained" disableElevation
+                                  onClick={() => wallet.claimSupplyInterest()}
+                                  disabled={wallet.txStatus === 'pending'}
+                                  sx={{ fontSize: 10, px: 1.25, py: 0.4, minWidth: 0, borderRadius: 1.5, bgcolor: C.teal, color: '#0B1226', fontWeight: 700, '&:hover': { bgcolor: '#22c98f' } }}>
+                                  Claim MYR
+                                </Button>
+                              )}
+                            </Box>
                           )}
                           <Typography sx={{ fontSize: 10, color: C.ts, mt: 0.5, lineHeight: 1.4, opacity: 0.7 }}>
                             Rate = {liveAprPct.toFixed(2)}% borrow APR × 38% — auto-updates with market
@@ -1952,6 +2004,8 @@ function Dashboard() {
                     const ethSupplyApr   = supplyApr(liveAprPct, 0.38);
                     const hourlyNow      = colEth  * price * (ethSupplyApr / 100) / 8760;
                     const hourlyAfter    = colAfter * price * (ethSupplyApr / 100) / 8760;
+                    const gasEth         = 0.010;
+                    const receiveEth     = wAmt > 0 ? Math.max(0, wAmt - gasEth) : 0;
                     return (
                       <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
                         <Typography variant="caption" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>After Withdrawal</Typography>
@@ -1961,6 +2015,19 @@ function Dashboard() {
                           <Row label="Remaining collateral"       value={`${colAfter.toFixed(4)} ETH`} bold />
                           <Row label="Value"                       value={rm(colAfter * price)} />
                         </Box>
+                        {wAmt > 0 && (
+                          <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
+                            <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75, display: 'block', mb: 0.75 }}>
+                              Transaction Fees
+                            </Typography>
+                            <Row label="Protocol withdrawal fee"  value="None (0%)" vc={C.teal} />
+                            <Row label="Est. network gas"          value={`~${gasEth.toFixed(3)} ETH (≈ ${rm(gasEth * price)})`} />
+                            <Box sx={{ pt: 0.75, borderTop: `1px solid ${C.border}` }}>
+                              <Row label="You receive (wallet)"    value={`≈ ${receiveEth.toFixed(4)} ETH`} vc={C.teal} bold />
+                              <Row label=""                         value={`≈ ${rm(receiveEth * price)} after gas`} vc={C.ts} />
+                            </Box>
+                          </Box>
+                        )}
                         {borMYR > 0 && (
                           <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
                             <Row label="Outstanding debt"          value={rm(borMYR, 2)} vc={C.gold} />
@@ -2237,19 +2304,82 @@ function Dashboard() {
                 </Box>
               )}
 
-              {/* REPAY — no KYC gate; repay() on-chain has no onlyKYC modifier */}
-              {activeTab === 'repay' && (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {/* REPAY — GrabPay-style: top up MYR wallet → repay */}
+              {activeTab === 'repay' && (() => {
+                const principal    = isLive && wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0;
+                const myrBal       = parseFloat(wallet.myrBalance || '0');
+                // Weighted-average APR from the locked rates of each borrow row.
+                // If borrow 1 = RM 100k at 3.00% and borrow 2 = RM 26.5M at 3.20%,
+                // the effective rate reflects each borrow's actual locked rate.
+                // Falls back to the current market rate if no ledger rows exist.
+                const lockedAprPct = ledger && ledger.totalPrincipal > 0
+                  ? ledger.rows.reduce((s, r) => s + r.principalMYR * (r.aprBps / 100), 0) / ledger.totalPrincipal
+                  : liveAprPct;
+                // liveChainInt is computed at component scope so repayAmtEffective
+                // (outside this IIFE) and the display below both use the same ticking value.
+                const due          = principal + liveChainInt;
+                const perDay       = principal > 0 ? principal * (lockedAprPct / 100) / 365 : 0;
+                const repayAmtNum  = parseFloat(repayAmtEffective || '0');
+                const shortage     = repayAmtNum > 0 ? Math.max(0, repayAmtNum - myrBal) : 0;
+                const perMin       = principal * (lockedAprPct / 100) / 525_600;
+                const topUpAmt     = shortage > 0 ? Math.ceil((shortage + Math.max(perMin * 5, 1)) * 100) / 100 : 0;
+                const hasDue       = principal > 0;
+                const isPending    = wallet.txStatus === 'pending';
+                const insuffBal    = shortage > 0;
+                const canSubmit    = isLive && repayAmtNum > 0 && !isPending && !insuffBal && hasDue;
+                const canAutoRepay = repayFull && shortage > 0 && isLive && !!wallet.loanInfo && hasDue && !isPending;
+                const qc           = wallet.isRefreshing ? C.blue : quoteIn > 30 ? C.teal : quoteIn > 10 ? C.gold : C.red;
+
+                const doAutoTopUp = async () => {
+                  const repayTotal = (principal + liveChainInt).toFixed(2);
+                  const bought = await wallet.buyMYR(topUpAmt.toFixed(2));
+                  if (!bought) return;
+                  await walletRepayRef.current(repayTotal, { full: true, settle: settleForRepay(true) });
+                };
+
+                return (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+
+                  {/* ── Loan rate card ── */}
+                  {hasDue && (
+                    <Box sx={{ p: 2, bgcolor: `${C.gold}08`, border: `1px solid ${C.gold}25`, borderRadius: 2.5 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.25 }}>
+                        <Typography sx={{ fontSize: 11, color: C.gold, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Active Loan
+                        </Typography>
+                        <Chip label={`${lockedAprPct.toFixed(2)}% APR`} size="small"
+                          sx={{ bgcolor: `${C.gold}18`, color: C.gold, border: `1px solid ${C.gold}45`, fontSize: 11, fontWeight: 700, height: 22 }} />
+                      </Box>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1 }}>
+                        {[
+                          { label: 'Outstanding',   val: `RM ${principal.toFixed(2)}`,        color: C.tp   },
+                          { label: 'Interest due',  val: `RM ${liveChainInt.toFixed(4)}`,   color: C.gold },
+                          { label: 'Daily cost',    val: `RM ${perDay.toFixed(4)}`,          color: C.ts   },
+                        ].map(s => (
+                          <Box key={s.label}>
+                            <Typography sx={{ fontSize: 9.5, color: C.ts, mb: 0.25, textTransform: 'uppercase', letterSpacing: 0.4 }}>{s.label}</Typography>
+                            <Typography sx={{ fontSize: 13.5, fontWeight: 700, color: s.color }}>{s.val}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                      <Box sx={{ mt: 1.25, pt: 1, borderTop: `1px solid ${C.gold}20`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <LiveDot color={qc} />
+                          <Typography sx={{ fontSize: 10.5, color: C.ts }}>
+                            {wallet.isRefreshing ? 'Updating…' : `Quote refreshes in ${quoteIn}s`}
+                          </Typography>
+                        </Box>
+                        <Typography sx={{ fontSize: 10.5, color: C.ts }}>+RM {perMin < 0.01 ? perMin.toFixed(4) : perMin.toFixed(3)}/min</Typography>
+                      </Box>
+                    </Box>
+                  )}
+
+                  {/* ── Repay amount ── */}
                   <Box>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
                         Repay Amount (MYR)
                       </Typography>
-                      {isLive && (
-                        <Typography variant="caption" sx={{ color: C.ts }}>
-                          Balance: <Box component="span" sx={{ color: C.tp, fontWeight: 600 }}>RM {wallet.myrBalance}</Box>
-                        </Typography>
-                      )}
                     </Box>
                     <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Typography variant="body2" sx={{ color: C.teal, fontWeight: 800, fontSize: 17 }}>RM</Typography>
@@ -2258,66 +2388,34 @@ function Dashboard() {
                         placeholder="0.00"
                         sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
                     </Box>
-                    {isLive && wallet.loanInfo && (() => {
-                      const principal = Number(wallet.loanInfo!.borrowed) / 1e6;
-                      const due       = principal + ledgerInt;
-                      return (
-                        <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
-                          {[25, 50, 75].map(pct => (
-                            <Box key={pct} onClick={() => { setRepayAmt((due * pct / 100).toFixed(2)); setRepayFull(false); setSelectedBorrowIds([]); }}
-                              sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: C.inner, borderRadius: 1.5,
-                                cursor: 'pointer', border: `1px solid ${C.border}`,
-                                '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
-                              <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.ts }}>{pct}%</Typography>
-                            </Box>
-                          ))}
-                          <Box onClick={() => { setRepayAmt(''); setRepayFull(true); setSelectedBorrowIds(ledger ? ledger.rows.map(r => r.id) : []); }}
-                            sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: repayFull ? `${C.teal}25` : `${C.teal}10`, borderRadius: 1.5,
-                              cursor: 'pointer', border: `1px solid ${repayFull ? C.teal : C.teal + '30'}`,
-                              '&:hover': { bgcolor: `${C.teal}18` } }}>
-                            <Typography sx={{ fontSize: 11, fontWeight: 700, color: C.teal }}>FULL</Typography>
+                    {isLive && wallet.loanInfo && hasDue && (
+                      <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
+                        {[25, 50, 75].map(pct => (
+                          <Box key={pct} onClick={() => { setRepayAmt((due * pct / 100).toFixed(2)); setRepayFull(false); setSelectedBorrowIds([]); }}
+                            sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: C.inner, borderRadius: 1.5,
+                              cursor: 'pointer', border: `1px solid ${C.border}`,
+                              '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
+                            <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.ts }}>{pct}%</Typography>
                           </Box>
+                        ))}
+                        <Box onClick={() => { setRepayAmt(''); setRepayFull(true); setSelectedBorrowIds(ledger ? ledger.rows.map(r => r.id) : []); }}
+                          sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: repayFull ? `${C.teal}25` : `${C.teal}10`, borderRadius: 1.5,
+                            cursor: 'pointer', border: `1px solid ${repayFull ? C.teal : C.teal + '30'}`,
+                            '&:hover': { bgcolor: `${C.teal}18` } }}>
+                          <Typography sx={{ fontSize: 11, fontWeight: 700, color: C.teal }}>FULL</Typography>
                         </Box>
-                      );
-                    })()}
+                      </Box>
+                    )}
                   </Box>
 
-                  {/* Live quote indicator — the payoff figure ages by the second,
-                      so show exactly how fresh it is and when it renews. */}
-                  {isLive && wallet.loanInfo && Number(wallet.loanInfo.borrowed) > 0 && (() => {
-                    const qc = wallet.isRefreshing ? C.blue : quoteIn > 30 ? C.teal : quoteIn > 10 ? C.gold : C.red;
-                    // Weighted by each borrow's own locked rate, not one blended APR.
-                    const perMin = ledger && ledger.rows.length > 0
-                      ? ledger.rows.reduce((s, r) => s + r.principalMYR * (r.aprBps / 10_000), 0) / 525_600
-                      : (Number(wallet.loanInfo!.borrowed) / 1e6) * (liveAprPct / 100) / 525_600;
-                    return (
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 0.5, flexWrap: 'wrap', gap: 0.5 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                          <LiveDot color={qc} />
-                          <Typography variant="caption" sx={{ color: qc, fontWeight: 600 }}>
-                            {wallet.isRefreshing ? 'Updating quote…' : `Live quote — refreshes in ${quoteIn}s`}
-                          </Typography>
-                        </Box>
-                        <Typography variant="caption" sx={{ color: C.ts }}>
-                          Interest grows ≈ RM {perMin < 0.01 ? perMin.toFixed(4) : perMin.toFixed(2)}/min
-                        </Typography>
-                      </Box>
-                    );
-                  })()}
-
-                  {/* Itemized borrows — one row per borrow with the APR locked at
-                      borrow time. Interest derives from the recorded timestamp, so
-                      it keeps growing across close/reopen. Tick rows to settle
-                      specific borrows; FULL selects everything. */}
+                  {/* Itemized borrows */}
                   {isLive && ledger && ledger.rows.length > 0 && (
                     <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                         <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
                           Your Borrows ({ledger.rows.length})
                         </Typography>
-                        <Typography variant="caption" sx={{ color: C.ts, fontSize: 10 }}>
-                          tick to choose which to settle
-                        </Typography>
+                        <Typography variant="caption" sx={{ color: C.ts, fontSize: 10 }}>tick to choose</Typography>
                       </Box>
                       {ledger.rows.map(r => {
                         const sel = selectedBorrowIds.includes(r.id);
@@ -2329,11 +2427,7 @@ function Dashboard() {
                             <Box sx={{ width: 16, height: 16, borderRadius: 0.75, flexShrink: 0,
                               border: `1.5px solid ${sel ? C.teal : C.ts}`, bgcolor: sel ? C.teal : 'transparent',
                               display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {sel && (
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#060D1F" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="20 6 9 17 4 12" />
-                                </svg>
-                              )}
+                              {sel && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#060D1F" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>}
                             </Box>
                             <Box sx={{ flex: 1, minWidth: 0 }}>
                               <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: C.tp }}>
@@ -2343,12 +2437,8 @@ function Dashboard() {
                               <Typography sx={{ fontSize: 10.5, color: C.ts }}>{r.label}</Typography>
                             </Box>
                             <Box sx={{ textAlign: 'right' }}>
-                              <Typography sx={{ fontSize: 11, color: C.gold }}>
-                                +RM {r.interest < 0.01 ? r.interest.toFixed(4) : r.interest.toFixed(2)} interest
-                              </Typography>
-                              <Typography sx={{ fontSize: 10.5, color: C.ts }}>
-                                RM {(r.principalMYR + r.interest).toFixed(2)} to settle
-                              </Typography>
+                              <Typography sx={{ fontSize: 11, color: C.gold }}>+RM {r.interest < 0.01 ? r.interest.toFixed(4) : r.interest.toFixed(2)} int.</Typography>
+                              <Typography sx={{ fontSize: 10.5, color: C.ts }}>RM {(r.principalMYR + r.interest).toFixed(2)} to settle</Typography>
                             </Box>
                           </Box>
                         );
@@ -2356,40 +2446,129 @@ function Dashboard() {
                     </Box>
                   )}
 
-                  <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {(() => {
-                      const principal = isLive && wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0;
-                      const liveInt   = ledgerInt;
-                      return (
-                        <>
-                          <Row label="Outstanding Principal"
-                            value={isLive && wallet.loanInfo ? `RM ${principal.toFixed(2)}` : '—'} />
-                          <Row label="Accrued Interest"
-                            value={isLive && wallet.loanInfo ? `RM ${liveInt.toFixed(4)}` : '—'} vc={C.gold} />
-                          <Row label="Total Due"
-                            value={isLive && wallet.loanInfo ? `RM ${(principal + liveInt).toFixed(2)}` : '—'} vc={C.teal} />
-                        </>
-                      );
-                    })()}
-                    <Row label="Repaying" value={repayAmtEffective ? `RM ${parseFloat(repayAmtEffective).toFixed(2)}` : '—'} vc={C.teal} />
-                    <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
-                      <Row label="New Health Factor"
-                        value={(() => {
-                          if (!isLive || !wallet.loanInfo || !repayAmtEffective) return '—';
-                          const interest     = ledgerInt;
-                          const principal    = Number(wallet.loanInfo.borrowed) / 1e6;
-                          const paying       = parseFloat(repayAmtEffective);
-                          const principalPaid = Math.max(0, paying - interest);
-                          const rem          = Math.max(0, principal - principalPaid);
-                          if (repayFull || rem <= 0) return '∞ (no debt)';
-                          return fmtHF((wallet.loanInfo.collateralValueMYR * 0.8) / rem);
-                        })()} vc={C.teal} bold />
+                  {/* ── GrabPay-style MYR wallet → top up → repay ── */}
+                  <Box sx={{ borderRadius: 2.5, overflow: 'hidden', border: `1px solid ${insuffBal ? C.red + '40' : C.teal + '35'}` }}>
+
+                    {/* Wallet balance header */}
+                    <Box sx={{
+                      p: 2.25,
+                      background: insuffBal
+                        ? `linear-gradient(135deg, rgba(229,72,77,0.12) 0%, rgba(229,72,77,0.05) 100%)`
+                        : `linear-gradient(135deg, rgba(43,217,162,0.12) 0%, rgba(43,217,162,0.05) 100%)`,
+                      display: 'flex', alignItems: 'center', gap: 2,
+                    }}>
+                      <Box sx={{
+                        width: 46, height: 46, borderRadius: 2, flexShrink: 0,
+                        bgcolor: insuffBal ? `${C.red}18` : `${C.teal}18`,
+                        border: `1.5px solid ${insuffBal ? C.red + '35' : C.teal + '35'}`,
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Typography sx={{ fontSize: 9, fontWeight: 700, color: insuffBal ? C.red : C.teal, lineHeight: 1.1 }}>MYR</Typography>
+                        <Typography sx={{ fontSize: 16, fontWeight: 800, color: insuffBal ? C.red : C.teal, lineHeight: 1 }}>RM</Typography>
+                      </Box>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography sx={{ fontSize: 10.5, color: C.ts, mb: 0.25 }}>MYR Wallet Balance</Typography>
+                        <Typography sx={{ fontSize: 24, fontWeight: 800, lineHeight: 1.1, color: insuffBal ? C.red : C.teal }}>
+                          RM {myrBal.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </Box>
+                      {repayAmtNum > 0 && !insuffBal ? (
+                        <Chip label="✓ Ready" size="small"
+                          sx={{ bgcolor: `${C.teal}1A`, color: C.teal, border: `1px solid ${C.teal}45`, fontWeight: 700, fontSize: 11 }} />
+                      ) : insuffBal ? (
+                        <Chip label={`Short RM ${shortage.toFixed(2)}`} size="small"
+                          sx={{ bgcolor: `${C.red}15`, color: C.red, border: `1px solid ${C.red}40`, fontWeight: 700, fontSize: 11 }} />
+                      ) : null}
                     </Box>
-                    <Typography variant="caption" sx={{ color: C.ts, lineHeight: 1.5, fontSize: 10.5 }}>
-                      Health factor = (collateral value × 80%) ÷ debt. Below 1.0, a liquidator can repay part
-                      of your debt and take the matching ETH plus a 5% bonus — only enough to cover what they
-                      repaid, not all of your collateral. Higher is safer; above 99 we just show “99+”.
-                    </Typography>
+
+                    {/* Step 1 — Top up (only when balance is insufficient) */}
+                    {insuffBal && (
+                      <Box sx={{ p: 2.25, bgcolor: `${C.red}06`, borderTop: `1px solid ${C.red}20` }}>
+                        <Typography sx={{ fontSize: 12, color: C.tp, fontWeight: 700, mb: 0.5 }}>
+                          Step 1 — Top Up MYR
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1.75, lineHeight: 1.65 }}>
+                          You&apos;re <b style={{ color: C.red }}>RM {shortage.toFixed(2)}</b> short.
+                          {' '}Buy MYR with your ETH — then repay below.
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
+                          <Box sx={{ flex: 1, ...innerSx, display: 'flex', alignItems: 'center', gap: 1, py: '9px' }}>
+                            <Typography sx={{ fontSize: 13, color: C.ts, fontWeight: 600, flexShrink: 0 }}>RM</Typography>
+                            <InputBase
+                              type="number"
+                              value={buyAmt !== '' ? buyAmt : topUpAmt.toFixed(2)}
+                              onChange={e => setBuyAmt(e.target.value)}
+                              sx={{ flex: 1, color: C.tp, fontSize: 14, fontWeight: 600, '& input': { p: 0 } }}
+                            />
+                          </Box>
+                          <Button variant="contained" size="small" disabled={isPending}
+                            onClick={() => wallet.buyMYR(buyAmt !== '' ? buyAmt : topUpAmt.toFixed(2)).then(() => {})}
+                            sx={{ px: 2.5, py: 1.15, borderRadius: 2, fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap',
+                              background: `linear-gradient(135deg, ${C.blue}, #4458E8)` }}>
+                            Buy MYR →
+                          </Button>
+                        </Box>
+                        <Typography variant="caption" sx={{ color: C.ts }}>
+                          ≈ {wallet.ethPriceMYR > 0
+                            ? ((parseFloat(buyAmt !== '' ? buyAmt : topUpAmt.toFixed(2)) || topUpAmt) / wallet.ethPriceMYR).toFixed(5)
+                            : '…'} ETH · RM {wallet.ethPriceMYR?.toLocaleString()}/ETH
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {/* Step 2 — Repay confirm */}
+                    <Box sx={{ p: 2.25, bgcolor: 'rgba(0,0,0,0.15)', borderTop: `1px solid rgba(255,255,255,0.06)` }}>
+                      <Typography sx={{ fontSize: 12, color: C.tp, fontWeight: 700, mb: 1.25 }}>
+                        {insuffBal ? 'Step 2 — Repay Loan' : 'Confirm Repayment'}
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, mb: 1.5 }}>
+                        <Row label="Principal"   value={hasDue ? `RM ${principal.toFixed(2)}` : '—'} />
+                        <Row label="Interest"    value={hasDue ? `RM ${liveChainInt.toFixed(4)}` : '—'} vc={C.gold} />
+                        <Row label="You repay"   value={repayAmtNum > 0 ? `RM ${repayAmtNum.toFixed(2)}` : '—'} vc={C.teal} bold />
+                        {repayAmtNum > 0 && hasDue && wallet.loanInfo && (() => {
+                          const principalPaid = Math.max(0, repayAmtNum - liveChainInt);
+                          const rem = Math.max(0, principal - principalPaid);
+                          return repayFull || rem <= 0
+                            ? <Row key="hf" label="After repay" value="∞ (fully paid — collateral unlocked)" vc={C.teal} bold />
+                            : <Row key="hf" label="New health factor" value={fmtHF((wallet.loanInfo.collateralValueMYR * 0.8) / rem)} vc={C.teal} />;
+                        })()}
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
+                        {(canAutoRepay
+                          ? [{ n: '①', lbl: 'Exchange ETH' }, { n: '②', lbl: 'Approve MYR' }, { n: '③', lbl: 'Repay Loan' }]
+                          : [{ n: '①', lbl: 'Approve MYR'  }, { n: '②', lbl: 'Repay Loan'  }]
+                        ).map((s, i, arr) => (
+                          <Box key={s.n} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Box sx={{ px: 1.1, py: 0.4, bgcolor: `${C.teal}10`, border: `1px solid ${C.teal}30`, borderRadius: 1 }}>
+                              <Typography sx={{ fontSize: 10.5, color: C.teal, fontWeight: 700 }}>{s.n} {s.lbl}</Typography>
+                            </Box>
+                            {i < arr.length - 1 && <Typography sx={{ color: C.ts, fontSize: 11 }}>→</Typography>}
+                          </Box>
+                        ))}
+                      </Box>
+                      <Button
+                        fullWidth variant="contained"
+                        disabled={canAutoRepay ? false : !canSubmit}
+                        onClick={canAutoRepay ? doAutoTopUp : () => {
+                          const rawDue = wallet.loanInfo
+                            ? (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6 : 0;
+                          const full = repayFull || allSelected || (rawDue > 0 && repayAmtNum >= rawDue - 0.005);
+                          void wallet.repay(repayAmtEffective, { full, settle: settleForRepay(full) })
+                            .then(() => { setRepayAmt(''); setRepayFull(false); setSelectedBorrowIds([]); });
+                        }}
+                        sx={{ py: 1.65, fontSize: 14, fontWeight: 700, borderRadius: 2.5,
+                          background: (canSubmit || canAutoRepay) ? `linear-gradient(135deg, ${C.teal}, #0B8B5E)` : undefined }}>
+                        {isPending
+                          ? 'Waiting for confirmation…'
+                          : canAutoRepay
+                            ? `Top Up RM ${topUpAmt.toFixed(2)} + Repay`
+                            : insuffBal
+                              ? 'Insufficient MYR — Top Up First'
+                              : repayFull
+                                ? 'Repay Loan in Full'
+                                : 'Repay Loan'}
+                      </Button>
+                    </Box>
                   </Box>
 
                   {repayFull && (
@@ -2402,124 +2581,9 @@ function Dashboard() {
                     </Box>
                   )}
 
-                  {/* Balance check, 3-step flow hint, info box and main button all share one IIFE */}
-                  {(() => {
-                    const myrBal      = parseFloat(wallet.myrBalance || '0');
-                    const principal   = isLive && wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0;
-                    const chainInt    = isLive && wallet.loanInfo ? Number(wallet.loanInfo.accruedInterest) / 1e6 : 0;
-                    const chainDue    = principal + chainInt;
-
-                    const repayAmtNum   = parseFloat(repayAmtEffective || '0');
-                    // For full repay: use the max of the ledger-derived amount and chainDue.
-                    // chainDue can be stale (interest = 0 right after a fresh borrow) while
-                    // repayAmtEffective already includes the ledger interest — the max
-                    // catches interest accrued between the last refresh and now.
-                    const needed        = repayFull ? Math.max(repayAmtNum, chainDue) : repayAmtNum;
-                    // 5-min APR buffer covers interest accrued across 3 MetaMask pops.
-                    const perMin      = principal * (liveAprPct / 100) / 525_600;
-                    const shortage    = Math.max(0, needed - myrBal);
-                    const topUp       = shortage > 0 ? Math.ceil((shortage + Math.max(perMin * 5, 1)) * 100) / 100 : 0;
-
-                    const insufficientBal = isLive && !!wallet.loanInfo && needed > 0 && needed > myrBal;
-                    const isPending       = wallet.txStatus === 'pending';
-                    const canSubmit       = isLive && repayAmtNum > 0 && !isPending && !insufficientBal && principal > 0;
-                    // Full-repay with shortage → main button becomes "Auto top-up + Repay"
-                    const canAutoRepay    = repayFull && shortage > 0 && isLive && !!wallet.loanInfo && principal > 0 && !isPending;
-
-                    const doAutoTopUp = async () => {
-                      const repayTotal = (principal + ledgerInt).toFixed(2);
-                      const bought = await wallet.buyMYR(topUp.toFixed(2));
-                      if (!bought) return;
-                      // walletRepayRef always points to the latest wallet.repay closure
-                      await walletRepayRef.current(repayTotal, { full: true, settle: settleForRepay(true) });
-                    };
-
-                    return (
-                      <>
-                        {/* 3-step insufficient-balance card */}
-                        {shortage > 0 && (
-                          <Box sx={{ p: 2, bgcolor: `${C.red}08`, border: `1px solid ${C.red}30`, borderRadius: 2 }}>
-                            <Typography variant="caption" sx={{ color: C.red, fontWeight: 700, display: 'block', mb: 0.5 }}>
-                              Insufficient MYR balance
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1.5, lineHeight: 1.6 }}>
-                              You&apos;re short by <b style={{ color: C.red }}>RM {shortage.toFixed(2)}</b>.
-                              {' '}Your ETH will be exchanged for <b style={{ color: C.tp }}>RM {topUp.toFixed(2)}</b> MYR, then the loan repays automatically.
-                            </Typography>
-                            {/* 3-step flow chips */}
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5, flexWrap: 'wrap' }}>
-                              {([
-                                { label: '① Exchange ETH', sub: `→ RM ${topUp.toFixed(2)} MYR` },
-                                { label: '② Approve MYR',  sub: 'MetaMask confirm'              },
-                                { label: '③ Repay Loan',   sub: 'Collateral unlocked'           },
-                              ] as { label: string; sub: string }[]).map((step, i) => (
-                                <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                                  <Box sx={{ bgcolor: `${C.teal}15`, border: `1px solid ${C.teal}35`, borderRadius: 1.5, px: 1.25, py: 0.6, textAlign: 'center', minWidth: 88 }}>
-                                    <Typography sx={{ color: C.teal, fontWeight: 700, fontSize: 11, lineHeight: 1.4 }}>
-                                      {step.label}
-                                    </Typography>
-                                    <Typography sx={{ color: C.ts, fontSize: 10, lineHeight: 1.3 }}>
-                                      {step.sub}
-                                    </Typography>
-                                  </Box>
-                                  {i < 2 && <Typography sx={{ color: C.ts, fontSize: 13, lineHeight: 1 }}>→</Typography>}
-                                </Box>
-                              ))}
-                            </Box>
-                            <Button
-                              size="small" variant="text"
-                              onClick={() => { setBuyAmt(topUp.toFixed(2)); setActiveTab('buy'); }}
-                              sx={{ fontSize: 12, borderRadius: 2, color: C.ts, p: 0, minWidth: 0 }}
-                            >
-                              Or buy manually in Buy MYR tab →
-                            </Button>
-                          </Box>
-                        )}
-
-                        {/* Confirmation count hint — updates for 2-step vs 3-step flow */}
-                        <Box sx={{ p: 1.75, bgcolor: `${C.blue}08`, border: `1px solid ${C.blue}20`, borderRadius: 2, display: 'flex', gap: 1.25, alignItems: 'flex-start' }}>
-                          <Typography sx={{ fontSize: 14, flexShrink: 0 }}>ℹ</Typography>
-                          <Box>
-                            <Typography variant="caption" sx={{ color: C.ts, display: 'block', lineHeight: 1.6 }}>
-                              {shortage > 0
-                                ? <><b style={{ color: C.tp }}>3 MetaMask confirmations</b>: ① Exchange ETH → MYR, ② Approve MYR spend, ③ Repay loan.</>
-                                : <>Two MetaMask confirmations: <b style={{ color: C.tp }}>① Approve MYR spend</b>, then <b style={{ color: C.tp }}>② Repay loan</b>.</>
-                              }
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: C.ts, display: 'block', mt: 0.5, lineHeight: 1.6 }}>
-                              Full repayment unlocks your ETH collateral immediately.
-                            </Typography>
-                          </Box>
-                        </Box>
-
-                        {/* Main action button — transforms when auto top-up is needed */}
-                        <Button
-                          fullWidth variant="contained"
-                          disabled={canAutoRepay ? false : !canSubmit}
-                          onClick={canAutoRepay ? doAutoTopUp : () => {
-                            const rawDue = wallet.loanInfo
-                              ? (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6 : 0;
-                            const full = repayFull || allSelected || (rawDue > 0 && repayAmtNum >= rawDue - 0.005);
-                            void wallet.repay(repayAmtEffective, { full, settle: settleForRepay(full) })
-                              .then(() => { setRepayAmt(''); setRepayFull(false); setSelectedBorrowIds([]); });
-                          }}
-                          sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5, background: (canSubmit || canAutoRepay) ? `linear-gradient(135deg, ${C.teal}, #0B8B5E)` : undefined }}
-                        >
-                          {isPending
-                            ? 'Waiting for confirmation…'
-                            : canAutoRepay
-                              ? `Auto top-up RM ${topUp.toFixed(2)} + Repay`
-                              : insufficientBal
-                                ? 'Insufficient MYR Balance'
-                                : repayFull
-                                  ? 'Repay Loan in Full'
-                                  : 'Repay Loan'}
-                        </Button>
-                      </>
-                    );
-                  })()}
                 </Box>
-              )}
+                );
+              })()}
 
               {/* BUY MYR */}
               {activeTab === 'buy' && (() => {
