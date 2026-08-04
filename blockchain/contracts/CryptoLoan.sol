@@ -199,9 +199,19 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         totalBorrowed  -= principalPaid;
 
         if (principalPaid >= loan.principal) {
-            loan.principal    = 0;
-            loan.startTime    = 0;
+            loan.principal     = 0;
+            loan.startTime     = 0;
             loan.lastRepayTime = 0;
+            // Auto-return all collateral on full repay — no separate withdraw step
+            uint256 colBack = loan.collateral;
+            if (colBack > 0) {
+                loan.collateral          = 0;
+                totalCollateral         -= colBack;
+                supplyStart[msg.sender]  = 0;
+                (bool ok, ) = payable(msg.sender).call{value: colBack}("");
+                require(ok, "ETH return failed");
+                emit CollateralWithdrawn(msg.sender, colBack);
+            }
         } else {
             loan.principal    -= principalPaid;
             loan.lastRepayTime = block.timestamp;

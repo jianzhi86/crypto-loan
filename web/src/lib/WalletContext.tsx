@@ -766,14 +766,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const repayReceipt: ethers.TransactionReceipt | null = await repayTx.wait();
       // The Repaid event carries what was actually charged — principal and
       // interest split — which can differ slightly from the requested amount.
-      let principalPaid = 0, interestPaid = 0;
+      let principalPaid = 0, interestPaid = 0, colReturnedEth = 0;
       try {
-        const parsed = (repayReceipt?.logs ?? [])
-          .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } })
-          .find(p => p?.name === 'Repaid');
-        if (parsed) {
-          principalPaid = Number(parsed.args[1] as bigint) / 1e6;
-          interestPaid  = Number(parsed.args[2] as bigint) / 1e6;
+        const parsedLogs = (repayReceipt?.logs ?? [])
+          .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } });
+        const repaidEvt = parsedLogs.find(p => p?.name === 'Repaid');
+        if (repaidEvt) {
+          principalPaid = Number(repaidEvt.args[1] as bigint) / 1e6;
+          interestPaid  = Number(repaidEvt.args[2] as bigint) / 1e6;
+        }
+        const colEvt = parsedLogs.find(p => p?.name === 'CollateralWithdrawn');
+        if (colEvt) {
+          colReturnedEth = Number(colEvt.args[1] as bigint) / 1e18;
         }
       } catch { /* event decode is best-effort */ }
       const totalPaid = principalPaid + interestPaid;
@@ -782,9 +786,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         saveTxToDB(s.address, 'Repaid',
           totalPaid > 0 ? BigInt(Math.round(principalPaid * 1e6)).toString() : units.toString(),
           repayReceipt);
+        if (colReturnedEth > 0) {
+          saveTxToDB(s.address, 'CollateralWithdrawn',
+            BigInt(Math.round(colReturnedEth * 1e18)).toString(),
+            repayReceipt);
+        }
       }
+      const colLabel = colReturnedEth > 0 ? ` + ${colReturnedEth.toFixed(4)} ETH returned` : '';
       setTx('success', opts?.full
-        ? `Loan fully repaid (RM ${paidLabel}) — collateral unlocked`
+        ? `Loan fully repaid (RM ${paidLabel})${colLabel}`
         : `Repaid RM ${paidLabel}`, 2, 2);
       if (repayReceipt) {
         setReceipt({
@@ -794,7 +804,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           lines: [
             { label: 'Principal repaid', value: `RM ${principalPaid.toFixed(2)}` },
             { label: 'Interest paid',    value: `RM ${interestPaid.toFixed(4)}` },
-            ...(opts?.full ? [{ label: 'Collateral', value: 'Unlocked — withdraw anytime' }] : []),
+            ...(opts?.full && colReturnedEth > 0
+              ? [{ label: 'Collateral returned', value: `${colReturnedEth.toFixed(4)} ETH` }]
+              : opts?.full
+              ? [{ label: 'Collateral', value: 'Returned to wallet' }]
+              : []),
           ],
           txHash: repayReceipt.hash,
         });
@@ -822,8 +836,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setS(p => ({
           ...p,
           loanInfo: p.loanInfo
-            ? { ...p.loanInfo, borrowed: BigInt(0), accruedInterest: BigInt(0) }
+            ? { ...p.loanInfo, borrowed: BigInt(0), accruedInterest: BigInt(0), collateral: BigInt(0) }
             : p.loanInfo,
+          pendingYieldMYR: 0,
         }));
       }
       await refresh(s.address);
