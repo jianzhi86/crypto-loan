@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ethers } from 'ethers';
 import Box from '@mui/material/Box';
@@ -331,40 +331,104 @@ function Dashboard() {
 
   const isLive = wallet.isConnected && wallet.isCorrectNetwork && wallet.isDeployed;
 
-  // Displayed accrued interest for the Repay panel — updates once per minute.
-  // Many contracts store an interest *checkpoint* that only changes when a
-  // transaction is mined (common on local test chains where no new blocks
-  // advance between reads). To avoid the number freezing, we add one perMin
-  // estimate each cycle when the chain returns the same value as before.
-  // If the chain returns a genuinely higher value (new transaction / real network)
-  // that wins and the estimate resets.
-  const [repayDisplayInt,  setRepayDisplayInt]  = useState(0);
-  const repayDisplayIntRef = useRef<number | null>(null);
-  const liveAprPctRef      = useRef(liveAprPct);
-  useEffect(() => { liveAprPctRef.current = liveAprPct; });
+  // ── Borrow tranche ledger ─────────────────────────────────────────────────
+  // One entry per borrow (from /api/borrows): principal plus the APR locked at
+  // borrow time. Interest is derived from the recorded timestamp — principal ×
+  // locked APR × elapsed time — so it keeps growing across dialog close/reopen
+  // and page reloads instead of resetting with an animation counter. Elapsed
+  // is measured up to wallet.lastRefreshAt (not the render instant), so the
+  // figures step once per quote cycle, exactly when the countdown wraps —
+  // never creeping between refreshes.
+  type LedgerRow = { id: string; principalMYR: number; aprBps: number; interest: number; label: string };
+  const LEGACY_ID = '__legacy__';
+  const [borrowRows, setBorrowRows] = useState<{ id: string; principal: string; aprBps: number; borrowedAt: string }[]>([]);
+  const [selectedBorrowIds, setSelectedBorrowIds] = useState<string[]>([]);
+  const fetchBorrows = useCallback(async () => {
+    if (!wallet.address) { setBorrowRows([]); return; }
+    try {
+      const r = await fetch(`/api/borrows?wallet=${wallet.address}`);
+      const d = await r.json() as { borrows?: { id: string; principal: string; aprBps: number; borrowedAt: string }[] };
+      if (Array.isArray(d.borrows)) setBorrowRows(d.borrows);
+    } catch { /* keep the last known list */ }
+  }, [wallet.address]);
+  // Load on tab open; re-sync after every completed refresh (covers
+  // post-borrow and post-repay, both of which trigger a refresh).
   useEffect(() => {
-    if (activeTab !== 'repay') { repayDisplayIntRef.current = null; setRepayDisplayInt(0); }
-  }, [activeTab]);
+    if (activeTab !== 'repay') { setSelectedBorrowIds([]); return; }
+    void fetchBorrows();
+  }, [activeTab, fetchBorrows]);
   useEffect(() => {
-    if (!isLive || !wallet.loanInfo || wallet.isRefreshing) return;
-    const chainInt  = Number(wallet.loanInfo.accruedInterest) / 1e6;
-    const principal = Number(wallet.loanInfo.borrowed) / 1e6;
-    // Loan fully repaid — wipe the estimate and clear the input.
-    if (principal === 0) {
-      repayDisplayIntRef.current = 0;
-      setRepayDisplayInt(0);
-      setRepayAmt('');
-      setRepayFull(false);
-      return;
-    }
-    const perMin = principal * (liveAprPctRef.current / 100) / 525_600;
-    const next = repayDisplayIntRef.current === null
-      ? chainInt
-      : Math.max(chainInt, repayDisplayIntRef.current + perMin);
-    repayDisplayIntRef.current = next;
-    setRepayDisplayInt(next);
+    if (activeTab !== 'repay' || wallet.isRefreshing) return;
+    void fetchBorrows();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet.isRefreshing, isLive]);
+  }, [wallet.isRefreshing]);
+  // Loan gone (fully repaid) — clear the repay inputs.
+  useEffect(() => {
+    if (!isLive || !wallet.loanInfo) return;
+    if (Number(wallet.loanInfo.borrowed) === 0 && (repayAmt || repayFull || selectedBorrowIds.length > 0)) {
+      setRepayAmt(''); setRepayFull(false); setSelectedBorrowIds([]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet.loanInfo, isLive]);
+
+  const ledger = (() => {
+    if (!isLive || !wallet.loanInfo) return null;
+    const chainPrincipal = Number(wallet.loanInfo.borrowed) / 1e6;
+    if (chainPrincipal <= 0) return { rows: [] as LedgerRow[], totalInt: 0, totalPrincipal: 0 };
+    // Pinned to the refresh stamp: interest advances only when the quote does.
+    const now = wallet.lastRefreshAt || Date.now();
+    const YEAR_MS = 31_536_000_000;
+    const rows: LedgerRow[] = borrowRows.map(r => {
+      const principalMYR = Number(r.principal) / 1e6;
+      const years = Math.max(0, now - new Date(r.borrowedAt).getTime()) / YEAR_MS;
+      return {
+        id: r.id, principalMYR, aprBps: r.aprBps,
+        interest: principalMYR * (r.aprBps / 10_000) * years,
+        label: new Date(r.borrowedAt).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+      };
+    });
+    // Debt that predates the itemized ledger (or rows lost to a DB miss):
+    // surface it as one synthetic tranche at the current APR, accruing since
+    // the contract's interest clock last reset. Never selectable for DB
+    // settlement — it has no row to flip — but repayable like any other.
+    const covered   = rows.reduce((sum, r) => sum + r.principalMYR, 0);
+    const remainder = chainPrincipal - covered;
+    if (remainder > 0.01) {
+      const sinceMs = Number(wallet.loanInfo.lastRepayTime || wallet.loanInfo.startTime) * 1000;
+      const years = sinceMs > 0 ? Math.max(0, now - sinceMs) / YEAR_MS : 0;
+      rows.unshift({
+        id: LEGACY_ID, principalMYR: remainder, aprBps: wallet.borrowAprBps,
+        interest: remainder * (wallet.borrowAprBps / 10_000) * years,
+        label: 'Earlier borrows (before itemized ledger)',
+      });
+    }
+    return { rows, totalInt: rows.reduce((s, r) => s + r.interest, 0), totalPrincipal: chainPrincipal };
+  })();
+  const ledgerInt     = ledger?.totalInt ?? 0;
+  const selectedRows  = ledger ? ledger.rows.filter(r => selectedBorrowIds.includes(r.id)) : [];
+  const allSelected   = !!ledger && ledger.rows.length > 0 && selectedRows.length === ledger.rows.length;
+  const selectedTotal = selectedRows.reduce((s, r) => s + r.principalMYR + r.interest, 0);
+  // What the Repay panel is actually paying: FULL pins to the live total due,
+  // a tranche selection sums the chosen borrows, otherwise the typed amount.
+  const repayAmtEffective = ledger && repayFull
+    ? (ledger.totalPrincipal + ledgerInt).toFixed(2)
+    : selectedRows.length > 0
+      ? selectedTotal.toFixed(2)
+      : repayAmt;
+  const toggleBorrow = (id: string) => {
+    setRepayFull(false); setRepayAmt('');
+    setSelectedBorrowIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  // Ledger tranches this payment settles (legacy pseudo-row excluded — it has
+  // no DB row). Full payoffs settle everything regardless of selection.
+  const settleForRepay = (full: boolean) => {
+    const rows = (full || allSelected) ? (ledger?.rows ?? []) : selectedRows;
+    const real = rows.filter(r => r.id !== LEGACY_ID);
+    return real.length > 0 ? {
+      ids: real.map(r => r.id),
+      interest: Object.fromEntries(real.map(r => [r.id, String(Math.round(r.interest * 1e6))])),
+    } : undefined;
+  };
 
   const liveColMYR  = wallet.loanInfo?.collateralValueMYR ?? null;
   const liveBorMYR  = wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : null;
@@ -429,6 +493,27 @@ function Dashboard() {
     return () => { clearTimeout(first); clearInterval(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLive, hasPriceMismatch]);
+
+  // Hourly market-rate keeper. /api/sync-price already re-derives the on-chain
+  // base borrow rate from ETH's 24h move after every convergence, but the
+  // dashboard only called it when the *price* drifted >3% — in a calm market
+  // the APR could sit frozen for days. Fire it on a 1-hour cadence too, gated
+  // through localStorage so reloads and multiple tabs share one schedule.
+  useEffect(() => {
+    if (!isLive) return;
+    const KEY = 'cryptolend:rate-sync-at';
+    const attempt = () => {
+      const last = Number(localStorage.getItem(KEY) || 0);
+      if (Date.now() - last < 3600_000) return;
+      localStorage.setItem(KEY, String(Date.now()));
+      fetch('/api/sync-price', { method: 'POST' })
+        .then(() => walletRefreshRef.current())
+        .catch(() => {});
+    };
+    attempt();
+    const id = setInterval(attempt, 5 * 60_000);
+    return () => clearInterval(id);
+  }, [isLive]);
 
   const borrowMYR    = parseFloat(borrowAmt || '0');
   const panelMonthly = (borrowMYR * liveAprPct / 100) / 12;
@@ -2168,25 +2253,25 @@ function Dashboard() {
                     </Box>
                     <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Typography variant="body2" sx={{ color: C.teal, fontWeight: 800, fontSize: 17 }}>RM</Typography>
-                      <InputBase type="number" value={repayAmt}
-                        onChange={e => { setRepayAmt(e.target.value); setRepayFull(false); }}
+                      <InputBase type="number" value={repayAmtEffective}
+                        onChange={e => { setRepayAmt(e.target.value); setRepayFull(false); setSelectedBorrowIds([]); }}
                         placeholder="0.00"
                         sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
                     </Box>
                     {isLive && wallet.loanInfo && (() => {
                       const principal = Number(wallet.loanInfo!.borrowed) / 1e6;
-                      const due       = principal + repayDisplayInt;
+                      const due       = principal + ledgerInt;
                       return (
                         <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
                           {[25, 50, 75].map(pct => (
-                            <Box key={pct} onClick={() => { setRepayAmt((due * pct / 100).toFixed(2)); setRepayFull(false); }}
+                            <Box key={pct} onClick={() => { setRepayAmt((due * pct / 100).toFixed(2)); setRepayFull(false); setSelectedBorrowIds([]); }}
                               sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: C.inner, borderRadius: 1.5,
                                 cursor: 'pointer', border: `1px solid ${C.border}`,
                                 '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
                               <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.ts }}>{pct}%</Typography>
                             </Box>
                           ))}
-                          <Box onClick={() => { setRepayAmt(due.toFixed(2)); setRepayFull(true); }}
+                          <Box onClick={() => { setRepayAmt(''); setRepayFull(true); setSelectedBorrowIds(ledger ? ledger.rows.map(r => r.id) : []); }}
                             sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: repayFull ? `${C.teal}25` : `${C.teal}10`, borderRadius: 1.5,
                               cursor: 'pointer', border: `1px solid ${repayFull ? C.teal : C.teal + '30'}`,
                               '&:hover': { bgcolor: `${C.teal}18` } }}>
@@ -2201,8 +2286,10 @@ function Dashboard() {
                       so show exactly how fresh it is and when it renews. */}
                   {isLive && wallet.loanInfo && Number(wallet.loanInfo.borrowed) > 0 && (() => {
                     const qc = wallet.isRefreshing ? C.blue : quoteIn > 30 ? C.teal : quoteIn > 10 ? C.gold : C.red;
-                    const principalMYR = Number(wallet.loanInfo!.borrowed) / 1e6;
-                    const perMin = principalMYR * (liveAprPct / 100) / 525_600; // APR spread over the year's minutes
+                    // Weighted by each borrow's own locked rate, not one blended APR.
+                    const perMin = ledger && ledger.rows.length > 0
+                      ? ledger.rows.reduce((s, r) => s + r.principalMYR * (r.aprBps / 10_000), 0) / 525_600
+                      : (Number(wallet.loanInfo!.borrowed) / 1e6) * (liveAprPct / 100) / 525_600;
                     return (
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 0.5, flexWrap: 'wrap', gap: 0.5 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
@@ -2218,10 +2305,61 @@ function Dashboard() {
                     );
                   })()}
 
+                  {/* Itemized borrows — one row per borrow with the APR locked at
+                      borrow time. Interest derives from the recorded timestamp, so
+                      it keeps growing across close/reopen. Tick rows to settle
+                      specific borrows; FULL selects everything. */}
+                  {isLive && ledger && ledger.rows.length > 0 && (
+                    <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                        <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
+                          Your Borrows ({ledger.rows.length})
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: C.ts, fontSize: 10 }}>
+                          tick to choose which to settle
+                        </Typography>
+                      </Box>
+                      {ledger.rows.map(r => {
+                        const sel = selectedBorrowIds.includes(r.id);
+                        return (
+                          <Box key={r.id} onClick={() => toggleBorrow(r.id)}
+                            sx={{ display: 'flex', alignItems: 'center', gap: 1.25, p: 1, borderRadius: 1.5, cursor: 'pointer',
+                              border: `1px solid ${sel ? C.teal : C.border}`, bgcolor: sel ? `${C.teal}0C` : 'transparent',
+                              '&:hover': { borderColor: C.teal } }}>
+                            <Box sx={{ width: 16, height: 16, borderRadius: 0.75, flexShrink: 0,
+                              border: `1.5px solid ${sel ? C.teal : C.ts}`, bgcolor: sel ? C.teal : 'transparent',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {sel && (
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#060D1F" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              )}
+                            </Box>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: C.tp }}>
+                                RM {r.principalMYR.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                <Box component="span" sx={{ color: C.ts, fontWeight: 500 }}> · {(r.aprBps / 100).toFixed(2)}% APR</Box>
+                              </Typography>
+                              <Typography sx={{ fontSize: 10.5, color: C.ts }}>{r.label}</Typography>
+                            </Box>
+                            <Box sx={{ textAlign: 'right' }}>
+                              <Typography sx={{ fontSize: 11, color: C.gold }}>
+                                +RM {r.interest < 0.01 ? r.interest.toFixed(4) : r.interest.toFixed(2)} interest
+                              </Typography>
+                              <Typography sx={{ fontSize: 10.5, color: C.ts }}>
+                                RM {(r.principalMYR + r.interest).toFixed(2)} to settle
+                              </Typography>
+                            </Box>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  )}
+
                   <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
                     {(() => {
                       const principal = isLive && wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0;
-                      const liveInt   = repayDisplayInt;
+                      const liveInt   = ledgerInt;
                       return (
                         <>
                           <Row label="Outstanding Principal"
@@ -2233,14 +2371,14 @@ function Dashboard() {
                         </>
                       );
                     })()}
-                    <Row label="Repaying" value={repayAmt ? `RM ${parseFloat(repayAmt).toFixed(2)}` : '—'} vc={C.teal} />
+                    <Row label="Repaying" value={repayAmtEffective ? `RM ${parseFloat(repayAmtEffective).toFixed(2)}` : '—'} vc={C.teal} />
                     <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
                       <Row label="New Health Factor"
                         value={(() => {
-                          if (!isLive || !wallet.loanInfo || !repayAmt) return '—';
-                          const interest     = Number(wallet.loanInfo.accruedInterest) / 1e6;
+                          if (!isLive || !wallet.loanInfo || !repayAmtEffective) return '—';
+                          const interest     = ledgerInt;
                           const principal    = Number(wallet.loanInfo.borrowed) / 1e6;
-                          const paying       = parseFloat(repayAmt);
+                          const paying       = parseFloat(repayAmtEffective);
                           const principalPaid = Math.max(0, paying - interest);
                           const rem          = Math.max(0, principal - principalPaid);
                           if (repayFull || rem <= 0) return '∞ (no debt)';
@@ -2271,11 +2409,11 @@ function Dashboard() {
                     const chainInt    = isLive && wallet.loanInfo ? Number(wallet.loanInfo.accruedInterest) / 1e6 : 0;
                     const chainDue    = principal + chainInt;
 
-                    const repayAmtNum   = parseFloat(repayAmt || '0');
-                    // For full repay: use the max of the live-animated repayAmt and chainDue.
+                    const repayAmtNum   = parseFloat(repayAmtEffective || '0');
+                    // For full repay: use the max of the ledger-derived amount and chainDue.
                     // chainDue can be stale (interest = 0 right after a fresh borrow) while
-                    // the repayAmt already includes the animated estimate — the max catches
-                    // the case where interest accrued between the last refresh and now.
+                    // repayAmtEffective already includes the ledger interest — the max
+                    // catches interest accrued between the last refresh and now.
                     const needed        = repayFull ? Math.max(repayAmtNum, chainDue) : repayAmtNum;
                     // 5-min APR buffer covers interest accrued across 3 MetaMask pops.
                     const perMin      = principal * (liveAprPct / 100) / 525_600;
@@ -2284,16 +2422,16 @@ function Dashboard() {
 
                     const insufficientBal = isLive && !!wallet.loanInfo && needed > 0 && needed > myrBal;
                     const isPending       = wallet.txStatus === 'pending';
-                    const canSubmit       = isLive && !!repayAmt && !isPending && !insufficientBal && principal > 0;
+                    const canSubmit       = isLive && repayAmtNum > 0 && !isPending && !insufficientBal && principal > 0;
                     // Full-repay with shortage → main button becomes "Auto top-up + Repay"
                     const canAutoRepay    = repayFull && shortage > 0 && isLive && !!wallet.loanInfo && principal > 0 && !isPending;
 
                     const doAutoTopUp = async () => {
-                      const repayTotal = (principal + repayDisplayInt).toFixed(2);
+                      const repayTotal = (principal + ledgerInt).toFixed(2);
                       const bought = await wallet.buyMYR(topUp.toFixed(2));
                       if (!bought) return;
                       // walletRepayRef always points to the latest wallet.repay closure
-                      await walletRepayRef.current(repayTotal, { full: true });
+                      await walletRepayRef.current(repayTotal, { full: true, settle: settleForRepay(true) });
                     };
 
                     return (
@@ -2361,8 +2499,9 @@ function Dashboard() {
                           onClick={canAutoRepay ? doAutoTopUp : () => {
                             const rawDue = wallet.loanInfo
                               ? (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6 : 0;
-                            const full = repayFull || (rawDue > 0 && repayAmtNum >= rawDue - 0.005);
-                            void wallet.repay(repayAmt, { full }).then(() => { setRepayAmt(''); setRepayFull(false); });
+                            const full = repayFull || allSelected || (rawDue > 0 && repayAmtNum >= rawDue - 0.005);
+                            void wallet.repay(repayAmtEffective, { full, settle: settleForRepay(full) })
+                              .then(() => { setRepayAmt(''); setRepayFull(false); setSelectedBorrowIds([]); });
                           }}
                           sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5, background: (canSubmit || canAutoRepay) ? `linear-gradient(135deg, ${C.teal}, #0B8B5E)` : undefined }}
                         >

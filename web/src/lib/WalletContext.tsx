@@ -47,6 +47,10 @@ export interface LoanInfo {
   collateralValueMYR: number;
   accruedInterest: bigint;
   startTime: bigint;
+  /// Unix seconds of the last repayment (or first borrow) — the moment the
+  /// contract's interest clock last reset. Baseline for ledger interest on
+  /// debt that predates the itemized borrow ledger.
+  lastRepayTime: bigint;
   ltv: number;
   isLiquidatable: boolean;
 }
@@ -163,6 +167,7 @@ function cachePosition(addr: string, p: Omit<CachedPosition, 'savedAt'>) {
         available:          p.info.available.toString(),
         accruedInterest:    p.info.accruedInterest.toString(),
         startTime:          p.info.startTime.toString(),
+        lastRepayTime:      p.info.lastRepayTime.toString(),
         healthFactor:       p.info.healthFactor === Infinity ? 'Infinity' : p.info.healthFactor,
         collateralValueMYR: p.info.collateralValueMYR,
         ltv:                p.info.ltv,
@@ -189,6 +194,8 @@ function readCachedPosition(addr: string): CachedPosition | null {
         available:          BigInt(d.info.available),
         accruedInterest:    BigInt(d.info.accruedInterest),
         startTime:          BigInt(d.info.startTime),
+        // Falls back to startTime for cache entries written before this field.
+        lastRepayTime:      BigInt(d.info.lastRepayTime ?? d.info.startTime ?? 0),
         healthFactor:       d.info.healthFactor === 'Infinity' ? Infinity : Number(d.info.healthFactor),
         collateralValueMYR: Number(d.info.collateralValueMYR),
         ltv:                Number(d.info.ltv),
@@ -230,6 +237,15 @@ function revertReason(err: unknown): string | null {
   };
   const raw = e?.reason || e?.info?.error?.message || e?.shortMessage || e?.data?.message;
   if (!raw) return null;
+  // A restarted Hardhat node resets every account's nonce to 0, but MetaMask
+  // keeps signing with its cached higher nonce — ethers surfaces that as
+  // "could not coalesce error" / "Nonce too high", which tells the user
+  // nothing. Point them at the actual fix.
+  const all = [e?.reason, e?.shortMessage, e?.info?.error?.message, e?.data?.message]
+    .filter(Boolean).join(' | ');
+  if (/nonce too high|could not coalesce/i.test(all)) {
+    return 'the local chain was restarted. In MetaMask: Settings → Advanced → "Clear activity tab data", then retry';
+  }
   // Strip ethers' "execution reverted: " / "...: reverted: " prefixes.
   const m = raw.match(/reverted(?: with reason string)?:?\s*"?([^"]+)"?/i);
   return (m?.[1] ?? raw).trim();
@@ -245,7 +261,13 @@ interface WalletCtx extends WalletState {
   borrow: (myr: string) => Promise<boolean>;
   buyMYR: (myr: string) => Promise<boolean>;
   transferMYR: (myr: string, to: string) => Promise<boolean>;
-  repay: (myr: string, opts?: { full?: boolean }) => Promise<void>;
+  repay: (myr: string, opts?: {
+    full?: boolean;
+    /** Ledger tranches this payment settles — marked REPAID in the DB once
+     *  the on-chain repay confirms. `interest` = per-tranche ledger interest
+     *  (MYR units, stringified) included in the payment. */
+    settle?: { ids: string[]; interest?: Record<string, string> };
+  }) => Promise<void>;
   withdrawCollateral: (eth: string) => Promise<void>;
   addTokenToWallet: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -352,6 +374,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         collateralValueMYR: Number(info[4] as bigint),
         accruedInterest:    info[5] as bigint,
         startTime:          loanRaw[2] as bigint,
+        lastRepayTime:      loanRaw[3] as bigint,
         ltv:                Number(info[6] as bigint),
         isLiquidatable:     info[7] as boolean,
       };
@@ -571,6 +594,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const tx = await c.loan.borrow(units);
       const receipt = await tx.wait();
       if (receipt) saveTxToDB(addr, 'Borrowed', units.toString(), receipt);
+      // The rate this borrow locks: baseRateBps — the market-driven rate the
+      // hourly keeper maintains and the SAME number the Borrow tab quotes.
+      // Deliberately NOT currentAprBps(): that adds a live utilization premium
+      // which jumps with every borrow, so three borrows in a minute would lock
+      // three different rates — nothing like the hourly market rate the user
+      // was shown. Re-read fresh from the contract (state can be a minute stale).
+      let aprBps = s.borrowAprBps;
+      try {
+        aprBps = Number(await (c.loan.baseRateBps as () => Promise<bigint>)());
+      } catch { /* pre-redeploy contract — keep the state value */ }
+      if (receipt) {
+        // Tranche ledger row — lets the Repay tab itemize borrows and settle
+        // them individually. Fire-and-forget like saveTxToDB — a miss only
+        // degrades itemization.
+        fetch('/api/borrows', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wallet: addr, principal: units.toString(), aprBps, txHash: receipt.hash }),
+        }).catch(() => {});
+      }
       setTx('success', `Borrowed RM ${myrAmt}`);
       if (receipt) {
         setReceipt({
@@ -578,7 +621,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           title: 'Loan Disbursed',
           amountLabel: `RM ${parseFloat(myrAmt).toFixed(2)}`,
           lines: [
-            { label: 'Interest rate', value: `${(s.borrowAprBps / 100).toFixed(2)}% APR (variable)` },
+            { label: 'Interest rate', value: `${(aprBps / 100).toFixed(2)}% APR (locked for this borrow)` },
             { label: 'Delivered as', value: 'MYR tokens to your wallet' },
             { label: 'Repay anytime', value: 'No penalties or lock-in' },
           ],
@@ -672,35 +715,39 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     } catch { setTx('error', 'Transfer failed'); return false; }
   }, [getContracts, s.address, refresh, guardTx]);
 
-  const repay = useCallback(async (myrAmt: string, opts?: { full?: boolean }) => {
+  const repay = useCallback(async (myrAmt: string, opts?: {
+    full?: boolean;
+    settle?: { ids: string[]; interest?: Record<string, string> };
+  }) => {
     if (!guardTx()) return;
     const c = await getContracts(true);
     if (!c || !s.address) return;
     setTx('pending', 'Approving MYR spend…', 1, 2);
     try {
       let units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
+      // What the contract will actually pull (before any headroom).
+      let due = units;
       if (opts?.full) {
         // Full payoff: ask the contract for a live payoff quote so stale UI
         // interest doesn't leave residual debt. Falls back to the caller's
         // UI estimate (myrAmt already includes animated interest) — never to
         // s.loanInfo which is stale until refresh() completes.
         try {
-          const due = await (c.loan.totalDue as (a: string) => Promise<bigint>)(s.address);
-          units = due + due / BigInt(500) + BigInt(1_000_000); // +0.2% + RM 1 headroom
-        } catch {
-          // totalDue unavailable: trust the caller's amount (principal + animated interest)
-          units = units + units / BigInt(500) + BigInt(1_000_000);
-        }
-        // Pre-flight balance check: the contract caps what it takes to totalDue,
-        // but if totalDue > balance the ERC20 transferFrom throws a custom error
-        // that surfaced as "Internal JSON-RPC error". Catch it here instead.
-        const myrBalUnits = BigInt(Math.floor(parseFloat(s.myrBalance || '0') * 1e6));
-        const due = units - units / BigInt(500) - BigInt(1_000_000); // strip the headroom back
-        if (due > myrBalUnits) {
-          const shortfall = Number(due - myrBalUnits) / 1e6;
-          setTx('error', `Insufficient MYR — short by RM ${shortfall.toFixed(2)}. Use Auto top-up or buy MYR first.`);
-          return;
-        }
+          due = await (c.loan.totalDue as (a: string) => Promise<bigint>)(s.address);
+        } catch { /* totalDue unavailable: trust the caller's amount */ }
+        units = due + due / BigInt(500) + BigInt(1_000_000); // +0.2% + RM 1 headroom
+      }
+      // Pre-flight balance check: the contract caps what it takes to totalDue,
+      // but if the wallet holds less than that the ERC20 transferFrom throws a
+      // custom error that surfaced as "Internal JSON-RPC error". Read the
+      // balance from the chain — the s.myrBalance state copy is a stale
+      // closure capture here (this callback's deps don't track it) and once
+      // reported a shortfall against a balance from a previous session.
+      const myrBalUnits = (await c.myr.balanceOf(s.address)) as bigint;
+      if (due > myrBalUnits) {
+        const shortfall = Number(due - myrBalUnits) / 1e6;
+        setTx('error', `Insufficient MYR — short by RM ${shortfall.toFixed(2)}. Use Auto top-up or buy MYR first.`);
+        return;
       }
       const approveTx = await c.myr.approve(CONTRACT_ADDRESSES.CryptoLoan, units);
       await approveTx.wait();
@@ -741,6 +788,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           ],
           txHash: repayReceipt.hash,
         });
+      }
+      // Flip the settled ledger tranches to REPAID now that the chain confirmed.
+      // Fire-and-forget: a miss leaves the tranche OPEN, which the user can
+      // simply settle again — never blocks the repay result.
+      if (repayReceipt && opts?.settle?.ids.length) {
+        fetch('/api/borrows/settle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ids: opts.settle.ids,
+            interest: opts.settle.interest ?? {},
+            repayTxHash: repayReceipt.hash,
+          }),
+        }).catch(() => {});
       }
       // Optimistically zero out the loan so the repay button disables immediately,
       // before the async refresh() below propagates the on-chain state.

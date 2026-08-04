@@ -98,6 +98,31 @@ model LoanTransaction {
   @@index([wallet])
 }
 
+/// One row per on-chain borrow — the tranche ledger for itemized repayment.
+/// The contract aggregates all of a wallet's borrows into a single position;
+/// these rows preserve each borrow's own timestamp and the APR captured at
+/// that moment, so the Repay tab can list every borrow separately and settle
+/// them one by one (principal + interest grown at the locked rate since
+/// borrowedAt). The chain stays authoritative for totals; this is the
+/// itemization layer on top.
+model BorrowPosition {
+  id           String    @id @default(cuid())
+  wallet       String
+  /// MYR units (1e6), stringified — bigint-safe.
+  principal    String
+  /// Borrow APR in basis points, read from currentAprBps() at borrow time.
+  aprBps       Int
+  txHash       String    @unique
+  borrowedAt   DateTime  @default(now())
+  status       String    @default("OPEN") // OPEN | REPAID
+  repaidAt     DateTime?
+  repayTxHash  String?
+  /// MYR units of ledger interest attributed to this tranche at settlement.
+  interestPaid String?
+
+  @@index([wallet, status])
+}
+
 model KycSubmission {
   id          Int      @id @default(autoincrement())
   /// KYC belongs to the *account*: one submission per user, and it survives
