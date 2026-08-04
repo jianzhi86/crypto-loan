@@ -660,7 +660,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             wallet: addr, principal: units.toString(), aprBps,
             termMonths: opts?.termMonths ?? 1, txHash: receipt.hash,
           }),
-        }).catch(() => {});
+        }).then(res => {
+          // A non-OK response silently loses the tranche's term/APR itemization
+          // (the debt itself is safe on-chain) — warn so it's diagnosable.
+          if (!res.ok) console.warn(`[borrow] ledger row not recorded (HTTP ${res.status}) for tx ${receipt.hash}`);
+        }).catch(err => console.warn('[borrow] ledger row not recorded:', err));
       }
       setTx('success', `Borrowed RM ${myrAmt}`);
       if (receipt) {
@@ -766,8 +770,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const repay = useCallback(async (myrAmt: string, opts?: {
     full?: boolean;
     // Rows this payment applies to, oldest-first — a partial payment pays
-    // down the oldest tranche(s) first (see /api/borrows/settle).
-    settle?: { ids: string[] };
+    // down the oldest tranche(s) first (see /api/borrows/settle). When
+    // `allocations` is given (installment payments), each row instead gets
+    // its own principal share, so one plan's monthly bill can't drain another.
+    settle?: { ids: string[]; allocations?: { id: string; principal: string }[] };
   }) => {
     if (!guardTx()) return;
     const c = await getContracts(true);
@@ -830,12 +836,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // Collateral is never auto-returned by repay() (see CryptoLoan.sol) —
       // it stays deposited so the same collateral can back a new borrow
       // without redepositing; withdraw it separately whenever you want it.
-      let principalPaid = 0, interestPaid = 0;
+      let principalPaid = 0, interestPaid = 0, evtDecoded = false;
       try {
         const repaidEvt = (repayReceipt?.logs ?? [])
           .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } })
           .find(p => p?.name === 'Repaid');
         if (repaidEvt) {
+          evtDecoded    = true;
           principalPaid = Number(repaidEvt.args[1] as bigint) / 1e6;
           interestPaid  = Number(repaidEvt.args[2] as bigint) / 1e6;
         }
@@ -874,18 +881,40 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // re-fetch usually won, showing the pre-repay ledger row until some
       // unrelated event happened to trigger another refetch.
       if (repayReceipt && opts?.settle?.ids.length) {
-        const paidUnits = principalPaid > 0
+        // The event's principal split is authoritative — an interest-only
+        // payment (principalPaid = 0) settles nothing. Only when the event
+        // couldn't be decoded at all do we fall back to the requested amount.
+        const paidUnits = evtDecoded
           ? BigInt(Math.round(principalPaid * 1e6))
           : units;
-        await fetch('/api/borrows/settle', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ids: opts.settle.ids,
-            principalPaid: paidUnits.toString(),
-            repayTxHash: repayReceipt.hash,
-          }),
-        }).catch(() => {});
+        // Scale per-plan allocations to the principal actually charged —
+        // interest is always paid first, so it differs slightly from the
+        // intent. Proportional split; the last plan absorbs rounding dust.
+        let allocations = opts.settle.allocations;
+        if (allocations && allocations.length > 0) {
+          const target = allocations.reduce((s, a) => s + BigInt(a.principal), BigInt(0));
+          if (target > BigInt(0) && target !== paidUnits) {
+            const last = allocations.length - 1;
+            let rem = paidUnits;
+            allocations = allocations.map((a, i) => {
+              const share = i === last ? rem : (BigInt(a.principal) * paidUnits) / target;
+              rem -= share;
+              return { id: a.id, principal: share.toString() };
+            });
+          }
+        }
+        if (paidUnits > BigInt(0)) {
+          await fetch('/api/borrows/settle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ids: opts.settle.ids,
+              principalPaid: paidUnits.toString(),
+              repayTxHash: repayReceipt.hash,
+              ...(allocations && allocations.length > 0 ? { allocations } : {}),
+            }),
+          }).catch(() => {});
+        }
       }
       // Optimistically zero out the loan so the repay button disables immediately,
       // before the async refresh() below propagates the on-chain state.

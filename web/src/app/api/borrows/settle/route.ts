@@ -9,23 +9,42 @@ import { requireUser } from '@/lib/authz';
 // debt first. `principalPaid` (MYR 1e6 units, from the chain's Repaid event —
 // the authoritative amount, not the requested one) is distributed across
 // those rows in order: a row whose principal is fully covered flips to
-// REPAID; a row only partially covered has its principal reduced and its
-// interest-accrual clock reset (mirrors the contract's own lastRepayTime
-// reset on a partial repay), staying OPEN. Only OPEN rows move, so retries
-// are safe, and each row's own current `principal` is read from the DB —
-// never trusted from the client — so a partial payment can't be gamed into
-// clearing more debt than it actually paid.
+// REPAID; a row only partially covered has its principal reduced, staying
+// OPEN. `borrowedAt` is never touched: it anchors the installment month
+// counter, and the interest clock is derived client-side from the chain's
+// own lastRepayTime (the contract charges all accrued interest on every
+// repay). Optional `allocations` caps how much principal lands on each row —
+// installment ("pay this month") payments use it so every selected plan pays
+// its own share instead of the whole amount draining the oldest plan. Only
+// OPEN rows move, so retries are safe, and each row's own current
+// `principal` is read from the DB — never trusted from the client — so a
+// partial payment can't be gamed into clearing more debt than it actually
+// paid.
 export async function POST(req: NextRequest) {
   const guard = await requireUser();
   if (!guard.ok) return guard.response;
 
-  const { ids, principalPaid, repayTxHash } = await req.json() as {
+  const { ids, principalPaid, repayTxHash, allocations } = await req.json() as {
     ids?: string[];
     principalPaid?: string;
     repayTxHash?: string | null;
+    allocations?: { id?: string; principal?: string }[];
   };
   if (!Array.isArray(ids) || ids.length === 0 || ids.some(id => typeof id !== 'string')) {
     return NextResponse.json({ error: 'ids required' }, { status: 400 });
+  }
+  let allocMap: Map<string, bigint> | null = null;
+  if (allocations !== undefined) {
+    try {
+      if (!Array.isArray(allocations) || allocations.length === 0
+        || allocations.some(a => !a || typeof a.id !== 'string' || typeof a.principal !== 'string')) {
+        throw new Error('shape');
+      }
+      allocMap = new Map(allocations.map(a => [a.id as string, BigInt(a.principal as string)]));
+      if (Array.from(allocMap.values()).some(v => v < BigInt(0))) throw new Error('negative');
+    } catch {
+      return NextResponse.json({ error: 'invalid allocations' }, { status: 400 });
+    }
   }
   let remaining: bigint;
   try {
@@ -52,7 +71,10 @@ export async function POST(req: NextRequest) {
       if (!row) continue; // already settled or unknown — skip, never trust the client's copy
       const rowPrincipal = BigInt(row.principal);
       if (rowPrincipal <= BigInt(0)) continue;
-      const pay = remaining < rowPrincipal ? remaining : rowPrincipal;
+      const cap = allocMap ? (allocMap.get(id) ?? BigInt(0)) : rowPrincipal;
+      let pay = remaining < rowPrincipal ? remaining : rowPrincipal;
+      if (cap < pay) pay = cap;
+      if (pay <= BigInt(0)) continue;
       remaining -= pay;
       if (pay >= rowPrincipal) {
         ops.push(prisma.borrowPosition.updateMany({
@@ -62,7 +84,7 @@ export async function POST(req: NextRequest) {
       } else {
         ops.push(prisma.borrowPosition.updateMany({
           where: { id, status: 'OPEN' },
-          data: { principal: (rowPrincipal - pay).toString(), borrowedAt: now },
+          data: { principal: (rowPrincipal - pay).toString() },
         }));
       }
     }

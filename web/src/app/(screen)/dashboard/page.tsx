@@ -207,6 +207,10 @@ function Dashboard() {
   // stops overwriting the input (the ticks stay as "which borrows to settle"),
   // so selecting never locks the field.
   const [repayAmtEdited,   setRepayAmtEdited]    = useState(false);
+  // True after "Pay This Month" — the amount follows the ticked plans' combined
+  // installment, and settlement splits per plan (each pays its own share)
+  // instead of the oldest-first default. Cleared by typing or any chip.
+  const [repayBillMode,    setRepayBillMode]     = useState(false);
   // Seconds until the payoff quote auto-refreshes from the chain. Interest
   // accrues continuously, so the position is re-read once a minute (driven by
   // WalletContext's keep-fresh poll; this value counts down to its next fire)
@@ -366,10 +370,17 @@ function Dashboard() {
       if (Array.isArray(d.borrows)) setBorrowRows(d.borrows);
     } catch { /* keep the last known list */ }
   }, [wallet.address]);
+  // True once the user has ticked/unticked a plan themselves — stops the
+  // single-plan auto-tick from fighting a deliberate untick. Reset on tab open.
+  const selTouchedRef = useRef(false);
   // Load on tab open; re-sync after every completed refresh (covers
   // post-borrow and post-repay, both of which trigger a refresh).
   useEffect(() => {
-    if (activeTab !== 'repay') { setSelectedBorrowIds([]); setRepayAmtEdited(false); return; }
+    if (activeTab !== 'repay') {
+      setSelectedBorrowIds([]); setRepayAmtEdited(false); setRepayBillMode(false);
+      selTouchedRef.current = false;
+      return;
+    }
     void fetchBorrows();
   }, [activeTab, fetchBorrows]);
   // The Step-1 top-up default tracks the live shortage; a manually typed
@@ -387,8 +398,8 @@ function Dashboard() {
   // Loan gone (fully repaid) — clear the repay inputs.
   useEffect(() => {
     if (!isLive || !wallet.loanInfo) return;
-    if (Number(wallet.loanInfo.borrowed) === 0 && (repayAmt || repayFull || selectedBorrowIds.length > 0)) {
-      setRepayAmt(''); setRepayFull(false); setSelectedBorrowIds([]); setRepayAmtEdited(false);
+    if (Number(wallet.loanInfo.borrowed) === 0 && (repayAmt || repayFull || repayBillMode || selectedBorrowIds.length > 0)) {
+      setRepayAmt(''); setRepayFull(false); setSelectedBorrowIds([]); setRepayAmtEdited(false); setRepayBillMode(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet.loanInfo, isLive]);
@@ -407,10 +418,16 @@ function Dashboard() {
       const remainingMonths = Math.max(1, termMonths - monthsElapsed);
       return { termMonths, monthsElapsed, remainingMonths, thisMonthDue: (principalMYR + interest) / remainingMonths };
     };
+    // Interest clock: the contract charges ALL accrued interest on every
+    // repay and resets lastRepayTime for the whole position, so each row's
+    // interest restarts from the last repay — not its original borrow date.
+    // borrowedAt stays untouched as the installment plan's month anchor
+    // (resetting it on settle used to freeze every plan at "Month 1" forever).
+    const lastRepayMs = Number(wallet.loanInfo.lastRepayTime || 0) * 1000;
     const rows: LedgerRow[] = borrowRows.map(r => {
       const principalMYR  = Number(r.principal) / 1e6;
       const borrowedAtMs  = new Date(r.borrowedAt).getTime();
-      const years         = Math.max(0, now - borrowedAtMs) / YEAR_MS;
+      const years         = Math.max(0, now - Math.max(borrowedAtMs, lastRepayMs)) / YEAR_MS;
       const interest       = principalMYR * (r.aprBps / 10_000) * years;
       return {
         id: r.id, principalMYR, aprBps: r.aprBps, interest,
@@ -450,33 +467,61 @@ function Dashboard() {
   const selectedRows  = ledger ? ledger.rows.filter(r => selectedBorrowIds.includes(r.id)) : [];
   const allSelected   = !!ledger && ledger.rows.length > 0 && selectedRows.length === ledger.rows.length;
   const selectedTotal = selectedRows.reduce((s, r) => s + r.principalMYR + r.interest, 0);
+  // This month's combined installment across the ticked plans only.
+  const selectedBill  = selectedRows.reduce((s, r) => s + r.thisMonthDue, 0);
   // What the Repay panel is actually paying: FULL (or all-selected) pins to the
-  // on-chain total due (principal + contract's accruedInterest). A partial tranche
+  // on-chain total due (principal + contract's accruedInterest). Bill mode
+  // follows the ticked plans' combined installment. A partial tranche
   // selection sums chosen borrows at locked rates. Otherwise the typed amount.
-  const repayAmtEffective = ledger && (repayFull || (allSelected && !repayAmtEdited))
+  const repayAmtEffective = ledger && (repayFull || (allSelected && !repayAmtEdited && !repayBillMode))
     ? (ledger.totalPrincipal + liveChainInt).toFixed(2)
     : selectedRows.length > 0 && !repayAmtEdited
-      ? selectedTotal.toFixed(2)
+      ? (repayBillMode ? selectedBill : selectedTotal).toFixed(2)
       : repayAmt;
   const toggleBorrow = (id: string) => {
     // Re-arm the auto-filled amount: ticking rows is a fresh choice, so the
     // input follows the selection again until the user types over it.
+    selTouchedRef.current = true;
     setRepayFull(false); setRepayAmt(''); setRepayAmtEdited(false);
     setSelectedBorrowIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
+  const toggleSelectAll = () => {
+    selTouchedRef.current = true;
+    setRepayFull(false); setRepayAmt(''); setRepayAmtEdited(false);
+    setSelectedBorrowIds(allSelected || !ledger ? [] : ledger.rows.map(r => r.id));
+  };
+  // Selection-first flow: with exactly one open plan there is nothing to
+  // choose, so pre-tick it. Never fights the user — a manual untick
+  // (selTouchedRef) stops the auto-tick until the tab is reopened.
+  useEffect(() => {
+    if (activeTab !== 'repay' || !ledger || selTouchedRef.current) return;
+    if (ledger.rows.length === 1 && selectedBorrowIds.length === 0) {
+      setSelectedBorrowIds([ledger.rows[0].id]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, borrowRows, wallet.loanInfo]);
   // Ledger tranches this payment applies to (legacy pseudo-row excluded — it
-  // has no DB row). Full payoffs, and an ALL-selected payment, apply to every
-  // row regardless. A SPECIFIC tick selection targets just those rows. But an
-  // unselected payment (nothing ticked, not full) must NOT settle nothing —
-  // that used to leave the ledger silently frozen at its pre-payment value
-  // forever, since nothing else ever re-applies a missed payment. Default it
-  // to every open row too, oldest first, exactly like /api/borrows/settle
-  // already distributes a payment when everything IS selected — an
-  // unselected payment is just that same default, not an opt-out.
+  // has no DB row). Full payoffs apply to every row regardless of ticks. A
+  // SPECIFIC tick selection targets just those rows. But an unselected
+  // payment (nothing ticked, not full) must NOT settle nothing — that used
+  // to leave the ledger silently frozen at its pre-payment value forever,
+  // since nothing else ever re-applies a missed payment. Default it to every
+  // open row, oldest first. In bill mode each plan additionally gets its own
+  // installment's principal as an allocation cap, so one plan's monthly bill
+  // can never drain another plan's balance.
   const settleForRepay = (full: boolean) => {
     const rows = (full || allSelected || selectedRows.length === 0) ? (ledger?.rows ?? []) : selectedRows;
     const real = rows.filter(r => r.id !== LEGACY_ID);
     if (real.length === 0) return undefined;
+    if (repayBillMode && !full) {
+      return {
+        ids: real.map(r => r.id),
+        allocations: real.map(r => ({
+          id: r.id,
+          principal: BigInt(Math.round((r.principalMYR / r.remainingMonths) * 1e6)).toString(),
+        })),
+      };
+    }
     return { ids: real.map(r => r.id) };
   };
 
@@ -2350,9 +2395,6 @@ function Dashboard() {
                 const lockedAprPct = ledger && ledger.totalPrincipal > 0
                   ? ledger.rows.reduce((s, r) => s + r.principalMYR * (r.aprBps / 100), 0) / ledger.totalPrincipal
                   : liveAprPct;
-                // liveChainInt is computed at component scope so repayAmtEffective
-                // (outside this IIFE) and the display below both use the same ticking value.
-                const due          = principal + liveChainInt;
                 const perDay       = principal > 0 ? principal * (lockedAprPct / 100) / 365 : 0;
                 const repayAmtNum  = parseFloat(repayAmtEffective || '0');
                 // What the CONTRACT will actually pull on a full settlement:
@@ -2436,115 +2478,21 @@ function Dashboard() {
                     </Box>
                   )}
 
-                  {/* ── This Month's Bill — Shopee-PayLater-style installment tracker.
-                      No term picker here: the term was already chosen on the Borrow tab
-                      when each tranche was taken out. This sums every open row's own
-                      thisMonthDue (its current remaining balance ÷ months left in ITS
-                      plan). Pay any amount, of any size — the balance shrinks, and next
-                      time this renders (immediately, since it's a live formula, not a
-                      cached quote) the bill is recalculated from the new smaller balance
-                      over the same remaining months, automatically smaller too. ── */}
-                  {hasDue && ledger && ledger.rows.length > 0 && (() => {
-                    const billDue = ledger.rows.reduce((s, r) => s + r.thisMonthDue, 0);
-                    const isThisBill = repayAmtEdited && !repayFull
-                      && Math.abs(repayAmtNum - billDue) < 0.005;
-                    // Single-row case: name the plan directly ("Month 2 of 3"). Mixed
-                    // terms across multiple rows have no one shared "month N of M" to
-                    // show, so just label it as the combined bill.
-                    const single = ledger.rows.length === 1 ? ledger.rows[0] : null;
-                    const planLabel = single
-                      ? `Month ${Math.min(single.monthsElapsed + 1, single.termMonths)} of ${single.termMonths}`
-                      : `${ledger.rows.length} active plans`;
-                    return (
-                      <Box sx={{ p: 2, borderRadius: 2.5, bgcolor: `${C.blue}0F`, border: `1px solid ${C.blue}35`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap' }}>
-                        <Box>
-                          <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: C.tp }}>This Month&apos;s Bill</Typography>
-                          <Typography sx={{ fontSize: 10.5, color: C.ts, mt: 0.25 }}>
-                            {planLabel} · remaining balance ÷ months left · variable rate, tracks the market
-                          </Typography>
-                          <Typography sx={{ fontSize: 17, fontWeight: 800, color: C.blue, mt: 0.5 }}>RM {billDue.toFixed(2)}</Typography>
-                        </Box>
-                        <Button variant="contained" disableElevation disabled={isPending}
-                          onClick={() => {
-                            setRepayAmt(billDue.toFixed(2)); setRepayAmtEdited(true);
-                            setRepayFull(false); setSelectedBorrowIds([]);
-                          }}
-                          sx={{ px: 2.25, py: 1, borderRadius: 2, fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap',
-                            bgcolor: isThisBill ? `${C.blue}25` : C.blue, color: isThisBill ? C.blue : '#0B1226',
-                            border: isThisBill ? `1px solid ${C.blue}60` : 'none',
-                            '&:hover': { bgcolor: isThisBill ? `${C.blue}30` : '#4458E8' } }}>
-                          {isThisBill ? '✓ Amount Set' : 'Pay This Month'}
-                        </Button>
-                      </Box>
-                    );
-                  })()}
-
-                  {/* ── Repay amount ── */}
-                  <Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                      <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
-                        Repay Amount (MYR)
-                      </Typography>
-                    </Box>
-                    <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <Typography variant="body2" sx={{ color: C.teal, fontWeight: 800, fontSize: 17 }}>RM</Typography>
-                      <InputBase type="number" value={repayAmtEffective}
-                        onChange={e => {
-                          // Typing takes over the amount but keeps the ticked
-                          // borrows — they still mark which tranches this
-                          // payment settles (if the amount covers them).
-                          setRepayAmt(e.target.value); setRepayAmtEdited(true); setRepayFull(false);
-                        }}
-                        placeholder="0.00"
-                        sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
-                    </Box>
-                    {isLive && wallet.loanInfo && hasDue && (
-                      <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
-                        {[25, 50, 75].map(pct => (
-                          <Box key={pct} onClick={() => { setRepayAmt((due * pct / 100).toFixed(2)); setRepayAmtEdited(true); setRepayFull(false); setSelectedBorrowIds([]); }}
-                            sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: C.inner, borderRadius: 1.5,
-                              cursor: 'pointer', border: `1px solid ${C.border}`,
-                              '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
-                            <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.ts }}>{pct}%</Typography>
-                          </Box>
-                        ))}
-                        <Box onClick={() => { setRepayAmt(''); setRepayAmtEdited(false); setRepayFull(true); setSelectedBorrowIds(ledger ? ledger.rows.map(r => r.id) : []); }}
-                          sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: repayFull ? `${C.teal}25` : C.inner, borderRadius: 1.5,
-                            cursor: 'pointer', border: `1px solid ${repayFull ? C.teal : C.border}`,
-                            '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
-                          <Typography sx={{ fontSize: 11, fontWeight: 700, color: repayFull ? C.teal : C.ts }}>FULL</Typography>
-                        </Box>
-                      </Box>
-                    )}
-                  </Box>
-
-                  {/* Too-small-to-touch-principal warning — interest is always paid
-                      first, so a payment under the currently accrued interest lands
-                      entirely on interest and leaves principal (and this tranche's
-                      balance) completely unchanged. */}
-                  {hasDue && !repayFull && repayAmtNum > 0 && repayAmtNum <= contractIntNow && (
-                    <Box sx={{ p: 1.5, bgcolor: `${C.red}0A`, border: `1px solid ${C.red}30`, borderRadius: 2, display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
-                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                      </svg>
-                      <Typography sx={{ fontSize: 11, color: C.red, lineHeight: 1.5 }}>
-                        This won&apos;t reduce your principal — RM {contractIntNow.toFixed(2)} of interest has already
-                        accrued and is always paid first. Repay at least{' '}
-                        <Box component="span" sx={{ fontWeight: 700 }}>RM {(contractIntNow + 0.01).toFixed(2)}</Box>{' '}
-                        to start paying down principal too.
-                      </Typography>
-                    </Box>
-                  )}
-
-                  {/* Itemized borrows */}
+                  {/* ── Step 1 — pick the plan(s). Everything below (bill, amount,
+                      wallet, confirm) scopes to this selection, so a payment can
+                      only ever touch the plans the user actually chose. ── */}
                   {isLive && ledger && ledger.rows.length > 0 && (
                     <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                         <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
-                          Your Borrows ({ledger.rows.length})
+                          Your Borrows ({ledger.rows.length}) — tick to choose
                         </Typography>
-                        <Typography variant="caption" sx={{ color: C.ts, fontSize: 10 }}>tick to choose</Typography>
+                        {ledger.rows.length > 1 && (
+                          <Typography variant="caption" onClick={toggleSelectAll}
+                            sx={{ color: C.teal, fontSize: 10, fontWeight: 700, cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}>
+                            {allSelected ? 'clear all' : 'select all'}
+                          </Typography>
+                        )}
                       </Box>
                       {ledger.rows.map(r => {
                         const sel = selectedBorrowIds.includes(r.id);
@@ -2578,7 +2526,131 @@ function Dashboard() {
                     </Box>
                   )}
 
+                  {/* Nothing ticked yet — the repay panel waits for the choice. */}
+                  {hasDue && selectedRows.length === 0 && (
+                    <Box sx={{ p: 2.5, borderRadius: 2.5, border: `1px dashed ${C.border}`, textAlign: 'center' }}>
+                      <Typography sx={{ fontSize: 12.5, color: C.ts, lineHeight: 1.6 }}>
+                        Pick a plan above to repay — tick one, several, or select all.
+                        The bill and repay options follow your choice.
+                      </Typography>
+                    </Box>
+                  )}
+
+                  {/* ── This Month's Bill — Shopee-PayLater-style installment tracker,
+                      scoped to the ticked plans. No term picker here: the term was
+                      already chosen on the Borrow tab when each tranche was taken out.
+                      Sums each selected row's own thisMonthDue (its current remaining
+                      balance ÷ months left in ITS plan). Pay any amount, of any size —
+                      the balance shrinks, and next time this renders (immediately,
+                      since it's a live formula, not a cached quote) the bill is
+                      recalculated from the new smaller balance over the same remaining
+                      months, automatically smaller too. ── */}
+                  {hasDue && selectedRows.length > 0 && (() => {
+                    const billDue = selectedBill;
+                    const isThisBill = repayBillMode && !repayFull;
+                    // Single selection: name the plan directly ("Month 2 of 3"). Mixed
+                    // terms across multiple plans have no one shared "month N of M" to
+                    // show, so say how the payment is split instead.
+                    const single = selectedRows.length === 1 ? selectedRows[0] : null;
+                    const planLabel = single
+                      ? `Month ${Math.min(single.monthsElapsed + 1, single.termMonths)} of ${single.termMonths}`
+                      : `${selectedRows.length} plans selected — each pays its own installment`;
+                    return (
+                      <Box sx={{ p: 2, borderRadius: 2.5, bgcolor: `${C.blue}0F`, border: `1px solid ${C.blue}35`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap' }}>
+                        <Box>
+                          <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: C.tp }}>This Month&apos;s Bill</Typography>
+                          <Typography sx={{ fontSize: 10.5, color: C.ts, mt: 0.25 }}>
+                            {planLabel} · remaining balance ÷ months left · variable rate, tracks the market
+                          </Typography>
+                          <Typography sx={{ fontSize: 17, fontWeight: 800, color: C.blue, mt: 0.5 }}>RM {billDue.toFixed(2)}</Typography>
+                        </Box>
+                        <Button variant="contained" disableElevation disabled={isPending}
+                          onClick={() => {
+                            setRepayBillMode(true); setRepayAmt('');
+                            setRepayAmtEdited(false); setRepayFull(false);
+                          }}
+                          sx={{ px: 2.25, py: 1, borderRadius: 2, fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap',
+                            bgcolor: isThisBill ? `${C.blue}25` : C.blue, color: isThisBill ? C.blue : '#0B1226',
+                            border: isThisBill ? `1px solid ${C.blue}60` : 'none',
+                            '&:hover': { bgcolor: isThisBill ? `${C.blue}30` : '#4458E8' } }}>
+                          {isThisBill ? '✓ Amount Set' : 'Pay This Month'}
+                        </Button>
+                      </Box>
+                    );
+                  })()}
+
+                  {/* ── Repay amount — scoped to the ticked plans ── */}
+                  {selectedRows.length > 0 && (
+                  <Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
+                        Repay Amount (MYR)
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: C.ts, fontSize: 10 }}>
+                        {allSelected ? 'covers all plans' : `covers ${selectedRows.length} of ${ledger?.rows.length ?? 0} plans`}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Typography variant="body2" sx={{ color: C.teal, fontWeight: 800, fontSize: 17 }}>RM</Typography>
+                      <InputBase type="number" value={repayAmtEffective}
+                        onChange={e => {
+                          // Typing takes over the amount but keeps the ticked
+                          // borrows — they still mark which tranches this
+                          // payment settles (if the amount covers them). A typed
+                          // amount is no longer "the bill", so it distributes
+                          // oldest-first across the ticked plans.
+                          setRepayAmt(e.target.value); setRepayAmtEdited(true); setRepayFull(false); setRepayBillMode(false);
+                        }}
+                        placeholder="0.00"
+                        sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
+                    </Box>
+                    {isLive && wallet.loanInfo && hasDue && (() => {
+                      // FULL reads as active whenever the amount is the selection's
+                      // full settle value — the default un-edited state.
+                      const fullActive = repayFull || (!repayAmtEdited && !repayBillMode);
+                      return (
+                      <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
+                        {[25, 50, 75].map(pct => (
+                          <Box key={pct} onClick={() => { setRepayAmt((selectedTotal * pct / 100).toFixed(2)); setRepayAmtEdited(true); setRepayFull(false); setRepayBillMode(false); }}
+                            sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: C.inner, borderRadius: 1.5,
+                              cursor: 'pointer', border: `1px solid ${C.border}`,
+                              '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
+                            <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.ts }}>{pct}%</Typography>
+                          </Box>
+                        ))}
+                        <Box onClick={() => { setRepayAmt(''); setRepayAmtEdited(false); setRepayBillMode(false); setRepayFull(allSelected); }}
+                          sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: fullActive ? `${C.teal}25` : C.inner, borderRadius: 1.5,
+                            cursor: 'pointer', border: `1px solid ${fullActive ? C.teal : C.border}`,
+                            '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
+                          <Typography sx={{ fontSize: 11, fontWeight: 700, color: fullActive ? C.teal : C.ts }}>FULL</Typography>
+                        </Box>
+                      </Box>
+                      );
+                    })()}
+                  </Box>
+                  )}
+
+                  {/* Too-small-to-touch-principal warning — interest is always paid
+                      first, so a payment under the currently accrued interest lands
+                      entirely on interest and leaves principal (and this tranche's
+                      balance) completely unchanged. */}
+                  {hasDue && !repayFull && repayAmtNum > 0 && repayAmtNum <= contractIntNow && (
+                    <Box sx={{ p: 1.5, bgcolor: `${C.red}0A`, border: `1px solid ${C.red}30`, borderRadius: 2, display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                      </svg>
+                      <Typography sx={{ fontSize: 11, color: C.red, lineHeight: 1.5 }}>
+                        This won&apos;t reduce your principal — RM {contractIntNow.toFixed(2)} of interest has already
+                        accrued and is always paid first. Repay at least{' '}
+                        <Box component="span" sx={{ fontWeight: 700 }}>RM {(contractIntNow + 0.01).toFixed(2)}</Box>{' '}
+                        to start paying down principal too.
+                      </Typography>
+                    </Box>
+                  )}
+
                   {/* ── GrabPay-style MYR wallet → top up → repay ── */}
+                  {selectedRows.length > 0 && (
                   <Box sx={{ borderRadius: 2.5, overflow: 'hidden', border: `1px solid ${insuffBal ? C.red + '40' : C.teal + '35'}` }}>
 
                     {/* Wallet balance header */}
@@ -2621,7 +2693,10 @@ function Dashboard() {
                         </Typography>
                         <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1.75, lineHeight: 1.65 }}>
                           You&apos;re <b style={{ color: C.red }}>RM {shortage.toFixed(2)}</b> short.
-                          {' '}Buy MYR with your ETH — then repay below.
+                          {' '}Buy MYR with your ETH — then repay below. The suggested amount adds
+                          a <b style={{ color: C.tp }}>RM {(topUpAmt - shortage).toFixed(2)}</b> buffer
+                          for interest that keeps accruing while you confirm, so you won&apos;t end up
+                          a few sen short again.
                         </Typography>
                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
                           <Box sx={{ flex: 1, ...innerSx, display: 'flex', alignItems: 'center', gap: 1, py: '9px' }}>
@@ -2707,6 +2782,7 @@ function Dashboard() {
                       </Button>
                     </Box>
                   </Box>
+                  )}
 
                   {repayFull && (
                     <Box sx={{ p: 1.5, bgcolor: `${C.teal}08`, border: `1px solid ${C.teal}25`, borderRadius: 2 }}>
