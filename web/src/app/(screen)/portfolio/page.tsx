@@ -1,7 +1,6 @@
 'use client';
 
 import { ethers } from 'ethers';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -16,24 +15,6 @@ import { usePrices } from '@/hooks/usePrices';
 import { useTransactionHistory, ICONS, LABELS, COLORS } from '@/hooks/useTransactionHistory';
 import { AlertIcon, BankIcon, ClipboardIcon, InboxIcon } from '@/components/Icons';
 import { supplyApr } from '@/lib/rates';
-
-interface BankTransfer {
-  id: string;
-  amountMYR: number;
-  status: string;
-  referenceNo: string;
-  bankName: string;
-  accountLast4: string;
-  createdAt: string;
-  completedAt: string | null;
-}
-
-const TRANSFER_STATUS: Record<string, { label: string; color: string; bg: string }> = {
-  PENDING:    { label: 'Pending',    color: '#FFB224', bg: 'rgba(255,178,36,0.1)'   },
-  PROCESSING: { label: 'Processing', color: '#6E8BFF', bg: 'rgba(110,139,255,0.1)'   },
-  COMPLETED:  { label: 'Completed',  color: '#2BD9A2', bg: 'rgba(43,217,162,0.1)'  },
-  FAILED:     { label: 'Failed',     color: '#E5484D', bg: 'rgba(229,72,77,0.1)'   },
-};
 
 const ORIG_FEE  = 0.001;
 const MAX_LTV   = 70;
@@ -68,25 +49,6 @@ export default function PortfolioPage() {
   const APR        = wallet.borrowAprBps / 100;
   const isLive     = wallet.isConnected && wallet.isCorrectNetwork && wallet.isDeployed;
   const { events: txHistory, loading: txLoading } = useTransactionHistory(isLive ? wallet.address ?? undefined : undefined);
-
-  const [transfers, setTransfers]       = useState<BankTransfer[]>([]);
-  const [transfersLoading, setTransfersLoading] = useState(false);
-
-  useEffect(() => {
-    setTransfersLoading(true);
-    fetch('/api/transfers')
-      .then(r => r.ok ? r.json() : { transfers: [] })
-      .then((d: { transfers: BankTransfer[] }) => setTransfers(d.transfers ?? []))
-      .finally(() => setTransfersLoading(false));
-
-    // Poll every 5 s to pick up simulated status changes
-    const id = setInterval(() => {
-      fetch('/api/transfers')
-        .then(r => r.ok ? r.json() : { transfers: [] })
-        .then((d: { transfers: BankTransfer[] }) => setTransfers(d.transfers ?? []));
-    }, 5000);
-    return () => clearInterval(id);
-  }, []);
 
   const ethMYR  = prices.ethereum.myr;
   const loan    = wallet.loanInfo;
@@ -470,68 +432,6 @@ export default function PortfolioPage() {
                 )}
               </Paper>
             )}
-
-            {/* Bank Transfer History */}
-            <Paper sx={cardSx}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-                <Typography variant="h6" color="text.primary" sx={{ fontWeight: 600 }}>Bank Transfers</Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  {transfersLoading && <Typography variant="caption" color="text.secondary">Loading…</Typography>}
-                  <Button size="small" onClick={() => window.location.assign('/settings')}
-                    sx={{ fontSize: 11, color: '#6E8BFF', border: '1px solid rgba(110,139,255,0.25)', bgcolor: 'transparent',
-                          '&:hover': { bgcolor: 'rgba(110,139,255,0.06)' } }}>
-                    + Add Bank
-                  </Button>
-                </Box>
-              </Box>
-
-              {transfers.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1, color: 'rgba(255,255,255,0.4)' }}><BankIcon size={28} /></Box>
-                  <Typography variant="body2" color="text.secondary">No bank transfers yet.</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    When you borrow and choose "Bank Transfer", disbursements will appear here.
-                  </Typography>
-                </Box>
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {transfers.map(t => {
-                    const st = TRANSFER_STATUS[t.status] ?? TRANSFER_STATUS.PENDING;
-                    return (
-                      <Box key={t.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5,
-                                            bgcolor: '#0B1226', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2 }}>
-                        <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: 'rgba(110,139,255,0.1)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6E8BFF', flexShrink: 0 }}>
-                          <BankIcon size={18} />
-                        </Box>
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
-                            <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>
-                              {t.bankName} ****{t.accountLast4}
-                            </Typography>
-                            <Chip label={st.label} size="small"
-                              sx={{ height: 18, fontSize: 10, bgcolor: st.bg, color: st.color, border: `1px solid ${st.color}44` }} />
-                          </Box>
-                          <Typography variant="caption" color="text.secondary">
-                            {t.referenceNo} · {new Date(t.createdAt).toLocaleString('en-MY', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 700, color: '#2BD9A2' }}>
-                            {rm(t.amountMYR, 2)}
-                          </Typography>
-                          {t.completedAt && (
-                            <Typography variant="caption" color="text.secondary">
-                              {new Date(t.completedAt).toLocaleString('en-MY', { hour: '2-digit', minute: '2-digit' })}
-                            </Typography>
-                          )}
-                        </Box>
-                      </Box>
-                    );
-                  })}
-                </Box>
-              )}
-            </Paper>
 
             {/* Wallet Balances */}
             <Paper sx={cardSx}>

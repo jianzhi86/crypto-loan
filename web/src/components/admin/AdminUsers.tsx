@@ -27,9 +27,6 @@ import Menu from '@mui/material/Menu';
 
 import { Badge, C, EmptyState, PageHeader, ReadOnlyNotice, cellSx, headSx, monoSx } from './ui';
 
-interface BankAccount {
-  id: string; bankName: string; accountNumber: string; accountHolder: string; recipientAddress: string;
-}
 interface AdminUser {
   id: string;
   name: string | null;
@@ -40,9 +37,7 @@ interface AdminUser {
   statusReason: string | null;
   statusChangedAt: string | null;
   createdAt: string;
-  bankAccount: BankAccount | null;
   kyc: { status: string; fullName: string; submittedAt: string } | null;
-  transferCount: number;
 }
 
 const STATUS_TONE = { ACTIVE: 'green', RESTRICTED: 'red' } as const;
@@ -169,7 +164,7 @@ export default function AdminUsers() {
               <Table size="small" sx={{ minWidth: 1080 }}>
                 <TableHead>
                   <TableRow>
-                    {['User', 'Email', 'Wallet', 'Role', 'Status', 'KYC', 'Bank', 'Transfers', 'Joined', ''].map((h, i) => (
+                    {['User', 'Email', 'Wallet', 'Role', 'Status', 'KYC', 'Joined', ''].map((h, i) => (
                       <TableCell key={h + i} sx={headSx}>{h}</TableCell>
                     ))}
                   </TableRow>
@@ -265,7 +260,6 @@ function UserRow({ user, striped, onEdit, onDone }: {
     { key: 'reset-password', label: 'Reset password', disabled: !user.email, hint: !user.email ? 'Wallet-only account' : undefined },
     { key: 'reset-kyc',      label: 'Reset KYC to pending', disabled: !user.kyc, hint: !user.kyc ? 'No KYC submission' : undefined },
     { key: 'unlink-wallet',  label: 'Unlink wallet', disabled: !user.walletAddress || !user.email, hint: !user.walletAddress ? 'No wallet linked' : !user.email ? 'Would leave no way to sign in' : undefined },
-    { key: 'clear-bank',     label: 'Clear bank account', disabled: !user.bankAccount, hint: !user.bankAccount ? 'No bank account' : undefined, danger: true },
   ];
 
   const CONFIRMS: Record<string, { title: string; body: string; danger?: boolean }> = {
@@ -286,11 +280,6 @@ function UserRow({ user, striped, onEdit, onDone }: {
     'unlink-wallet': {
       title: 'Unlink this wallet?',
       body: 'The wallet is detached from the account and its on-chain borrow permission is revoked. Their KYC verification stays with the account — linking a new wallet re-enables borrowing automatically.',
-      danger: true,
-    },
-    'clear-bank': {
-      title: 'Delete the bank account on file?',
-      body: 'The stored bank details are permanently removed. Past transfer records keep their masked snapshot and are unaffected.',
       danger: true,
     },
   };
@@ -322,14 +311,6 @@ function UserRow({ user, striped, onEdit, onDone }: {
             ? <Badge label={user.kyc.status} tone={KYC_TONE[user.kyc.status] ?? 'neutral'} />
             : <span style={{ color: C.muted }}>none</span>}
         </TableCell>
-        <TableCell sx={cellSx}>
-          {user.bankAccount
-            ? <Tooltip title={`${user.bankAccount.bankName} · ${user.bankAccount.accountHolder}`}>
-                <span>{user.bankAccount.accountNumber}</span>
-              </Tooltip>
-            : <span style={{ color: C.muted }}>—</span>}
-        </TableCell>
-        <TableCell sx={cellSx}>{user.transferCount}</TableCell>
         <TableCell sx={cellSx}>{new Date(user.createdAt).toLocaleDateString('en-MY')}</TableCell>
         <TableCell sx={{ ...cellSx, textAlign: 'right' }}>
           <Button size="small" onClick={onEdit} disabled={busy}
@@ -465,7 +446,6 @@ function EditUserDialog({ user, onClose, onSaved }: {
             <Box sx={{ mt: 1.25, display: 'grid', gap: 0.75 }}>
               <ReadOnlyRow label="Wallet" value={user.walletAddress ?? '—'} note="Use “Unlink wallet” to detach it." />
               <ReadOnlyRow label="KYC" value={user.kyc ? `${user.kyc.status} · ${user.kyc.fullName}` : 'no submission'} note="Review it on the KYC tab." />
-              <ReadOnlyRow label="Bank account" value={user.bankAccount ? `${user.bankAccount.bankName} ${user.bankAccount.accountNumber}` : '—'} note="The user maintains this in Settings." />
               <ReadOnlyRow label="Collateral & debt" value="on-chain" note="Held by the CryptoLoan contract; no admin can alter it." />
             </Box>
           </Box>

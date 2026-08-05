@@ -21,12 +21,12 @@ interface Entry {
 
 const ACTIONS = [
   'USER_UPDATE', 'USER_RESTRICT', 'USER_UNRESTRICT', 'USER_RESET_PASSWORD',
-  'USER_RESET_KYC', 'USER_UNLINK_WALLET', 'USER_CLEAR_BANK', 'USER_SET_ADMIN',
+  'USER_RESET_KYC', 'USER_UNLINK_WALLET', 'USER_SET_ADMIN',
   'KYC_APPROVE', 'KYC_REJECT', 'KYC_DELETE', 'FLAG_UPDATE', 'PRICE_SYNC',
 ];
 
 const TONE: Record<string, 'green' | 'amber' | 'red' | 'blue' | 'neutral'> = {
-  USER_RESTRICT: 'red',    USER_CLEAR_BANK: 'red',    KYC_DELETE: 'red',     KYC_REJECT: 'red',
+  USER_RESTRICT: 'red',    KYC_DELETE: 'red',     KYC_REJECT: 'red',
   USER_RESET_PASSWORD: 'amber', USER_RESET_KYC: 'amber', USER_UNLINK_WALLET: 'amber',
   USER_UNRESTRICT: 'green', KYC_APPROVE: 'green',
   FLAG_UPDATE: 'blue', USER_SET_ADMIN: 'blue',

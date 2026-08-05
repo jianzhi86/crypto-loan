@@ -46,13 +46,12 @@ export const FLAGS: FlagDef[] = [
   { key: 'action.borrow',   label: 'Borrow MYR',  group: 'Loan actions', description: 'Take out a new MYR loan.', states: PAUSABLE, defaultMessage: 'Borrowing is temporarily paused for maintenance.' },
   { key: 'action.repay',    label: 'Repay loan',  group: 'Loan actions', description: 'Repay outstanding MYR debt. Think twice before pausing this — users cannot reduce their liquidation risk while it is off.', states: PAUSABLE, defaultMessage: 'Repayments are temporarily paused for maintenance.' },
   { key: 'action.buy',      label: 'Buy MYR',     group: 'Loan actions', description: 'Swap ETH for MYR.', states: PAUSABLE, defaultMessage: 'MYR purchases are temporarily paused for maintenance.' },
-  { key: 'action.transfer', label: 'Bank transfer', group: 'Loan actions', description: 'Off-chain MYR payout to a registered bank account.', states: PAUSABLE, defaultMessage: 'Bank transfers are temporarily paused for maintenance.' },
 
   { key: 'page.markets',   label: 'Markets',   group: 'Pages', description: 'Rates and calculator page.', states: ALL, defaultMessage: 'The markets page is under maintenance.' },
   { key: 'page.portfolio', label: 'Portfolio', group: 'Pages', description: 'Personal position and history page.', states: ALL, defaultMessage: 'The portfolio page is under maintenance.' },
   { key: 'page.docs',      label: 'Docs',      group: 'Pages', description: 'Documentation page.', states: ALL, defaultMessage: 'Docs are under maintenance.' },
   { key: 'page.kyc',       label: 'KYC',       group: 'Pages', description: 'KYC submission form. Turning this off blocks new verifications.', states: ALL, defaultMessage: 'KYC submissions are temporarily closed.' },
-  { key: 'page.settings',  label: 'Settings',  group: 'Pages', description: 'Account and bank account settings.', states: ALL, defaultMessage: 'Settings are under maintenance.' },
+  { key: 'page.settings',  label: 'Settings',  group: 'Pages', description: 'Account, sign-in and linked-wallet settings.', states: ALL, defaultMessage: 'Settings are under maintenance.' },
   { key: 'page.ico',       label: 'ICO',       group: 'Pages', description: 'Token sale page.', states: ALL, defaultMessage: 'The token sale page is under maintenance.' },
   { key: 'page.explorer',  label: 'Explorer',  group: 'Pages', description: 'Public transaction explorer. Hiding it does not make the data private — the same transactions remain readable on-chain by anyone.', states: ALL, defaultMessage: 'The explorer is under maintenance.' },
 

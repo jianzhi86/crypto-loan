@@ -116,7 +116,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
 /**
  * POST /api/admin/users/[id] — run a named action.
- * { action: 'restrict' | 'unrestrict' | 'reset-password' | 'reset-kyc' | 'unlink-wallet' | 'clear-bank' }
+ * { action: 'restrict' | 'unrestrict' | 'reset-password' | 'reset-kyc' | 'unlink-wallet' }
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
   const guard = await requireAdmin();
@@ -137,7 +137,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     case 'reset-password': return resetPassword(guard.user, target);
     case 'reset-kyc':     return resetKyc(guard.user, target);
     case 'unlink-wallet': return unlinkWallet(guard.user, target);
-    case 'clear-bank':    return clearBank(guard.user, target);
     default:
       return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 });
   }
@@ -278,13 +277,4 @@ async function unlinkWallet(actor: SessionUser, target: Target) {
     ok: true,
     note: 'Wallet unlinked. The account keeps its KYC approval; when the user links a new wallet, on-chain borrowing is granted for it automatically.',
   });
-}
-
-async function clearBank(actor: SessionUser, target: Target) {
-  const account = await prisma.bankAccount.findUnique({ where: { userId: target.id }, select: { id: true, bankName: true } });
-  if (!account) return NextResponse.json({ error: 'No bank account on file.' }, { status: 404 });
-
-  await prisma.bankAccount.delete({ where: { userId: target.id } });
-  await audit(actor, 'USER_CLEAR_BANK', 'user', target.id, { bankName: account.bankName });
-  return NextResponse.json({ ok: true });
 }

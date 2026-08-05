@@ -119,7 +119,6 @@ export type AuditAction =
   | 'USER_RESET_KYC'
   | 'USER_LINK_WALLET'
   | 'USER_UNLINK_WALLET'
-  | 'USER_CLEAR_BANK'
   | 'USER_SET_ADMIN'
   | 'KYC_APPROVE'
   | 'KYC_REJECT'

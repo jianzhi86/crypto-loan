@@ -46,7 +46,7 @@ const FEATURES = [
   { icon: <LockIcon size={22} />, title: 'Keep your crypto', body: 'Borrow against ETH, BTC, SOL and more — your collateral is never sold, so you keep all the upside.' },
   { icon: <TrendDownIcon size={22} />, title: 'Rates from 3.0% APR', body: 'Variable rates that track market conditions, with no hidden fees. Pay only for the days you borrow.' },
   { icon: <BoltIcon size={22} />, title: 'No credit checks', body: 'Your crypto is your credit. Get an instant decision based on collateral, not paperwork or a credit score.' },
-  { icon: <BankIcon size={22} />, title: 'Instant MYR via DuitNow', body: 'Receive Malaysian Ringgit straight to your bank account through DuitNow, or take it as MYRC tokens.' },
+  { icon: <BankIcon size={22} />, title: 'Instant MYRC payout', body: 'Ringgit-denominated MYRC tokens land in your wallet the moment the borrow confirms — no approval queue, no settlement window.' },
   { icon: <ShieldIcon size={22} />, title: 'Non-custodial escrow', body: 'Collateral is locked in audited smart contracts — not held by a company. You stay in control on-chain.' },
   { icon: <RefreshIcon size={22} />, title: 'Repay anytime', body: 'No fixed schedule, no early-repayment penalty. Repay whenever you like and unlock your collateral instantly.' },
 ];
@@ -54,7 +54,7 @@ const FEATURES = [
 const STEPS = [
   { n: '01', title: 'Deposit collateral', body: 'Lock your crypto into a non-custodial smart contract.' },
   { n: '02', title: 'Choose your LTV', body: 'Pick how much to borrow — up to 50–70% of your collateral.' },
-  { n: '03', title: 'Receive MYR', body: 'Get ringgit via DuitNow or as MYRC tokens, in minutes.' },
+  { n: '03', title: 'Receive MYR', body: 'MYRC tokens are credited to your wallet in the same transaction.' },
   { n: '04', title: 'Repay & reclaim', body: 'Repay anytime with no penalty and unlock your assets.' },
 ];
 
@@ -373,7 +373,7 @@ export default function HomeContent() {
                 },
                 {
                   title: 'Built for Malaysia',
-                  body:  'Tailored for MYR lending, DuitNow payouts and BNM-aligned KYC.',
+                  body:  'Tailored for MYR lending, MYRC payouts and BNM-aligned KYC.',
                   icon:  (
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                       <circle cx="12" cy="12" r="8.75" />

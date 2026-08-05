@@ -224,9 +224,9 @@ function Dashboard() {
   const [holdMultiplier,   setHoldMultiplier]    = useState(1.5);
   const [syncError,        setSyncError]         = useState('');
   const [syncing,          setSyncing]           = useState(false);
-  const [deliveryMethod,   setDeliveryMethod]    = useState<'token' | 'bank'>('token');
-  const [transferResult,   setTransferResult]    = useState<{ refNo: string; bankName: string; last4: string } | null>(null);
-  const [transferError,    setTransferError]     = useState('');
+  // Client-side guardrail messages for the Borrow tab (over capacity, market
+  // price drift) — surfaced before MetaMask is ever opened.
+  const [borrowError,      setBorrowError]       = useState('');
   const [kycDialogOpen,    setKycDialogOpen]     = useState(false);
   const kycDialogShown = useRef(false);
   // Countdown to the next earn-APR refresh (WalletContext polls every 60 s).
@@ -649,36 +649,6 @@ function Dashboard() {
     const termMonths = LOAN_TERMS.find(t => t.days === loanTermDays)?.months ?? 1;
     const borrowed = await wallet.borrow(borrowAmt, { termMonths });
     if (!borrowed) return;
-    if (deliveryMethod === 'bank') {
-      try {
-        const bankRes     = await fetch('/api/profile/bank-account');
-        const bankData    = await bankRes.json() as { account?: { recipientAddress?: string; bankName?: string; accountNumber?: string } };
-        const recipientAddr = bankData.account?.recipientAddress ?? '';
-        if (recipientAddr && /^0x[0-9a-fA-F]{40}$/.test(recipientAddr)) {
-          const sent = await wallet.transferMYR(borrowAmt, recipientAddr);
-          if (sent) {
-            const last4 = bankData.account?.accountNumber?.slice(-4) ?? '????';
-            setTransferResult({ refNo: 'ON-CHAIN', bankName: bankData.account?.bankName ?? 'Bank', last4 });
-          } else {
-            setTransferError('On-chain transfer failed. MYR tokens remain in your wallet.');
-          }
-        } else {
-          const res  = await fetch('/api/transfers', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amountMYR: parseFloat(borrowAmt) }),
-          });
-          const data = await res.json() as { transfer?: { referenceNo: string; bankName: string; accountLast4: string }; error?: string };
-          if (res.ok && data.transfer) {
-            setTransferResult({ refNo: data.transfer.referenceNo, bankName: data.transfer.bankName, last4: data.transfer.accountLast4 });
-          } else {
-            setTransferError(data.error ?? 'No recipient wallet set. Go to Settings first.');
-          }
-        }
-      } catch {
-        setTransferError('Network error initiating transfer.');
-      }
-    }
     setBorrowAmt('');
   };
 
@@ -2225,7 +2195,7 @@ function Dashboard() {
                         <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                           <Typography variant="body2" sx={{ color: C.teal, fontWeight: 800, fontSize: 15 }}>RM</Typography>
                           <InputBase type="number" value={borrowAmt}
-                            onChange={e => { setBorrowAmt(e.target.value); setTransferResult(null); setTransferError(''); }}
+                            onChange={e => { setBorrowAmt(e.target.value); setBorrowError(''); }}
                             placeholder="0.00"
                             sx={{ flex: 1, color: C.tp, fontSize: 20, fontWeight: 600, '& input': { p: 0 } }} />
                           <Button size="small"
@@ -2258,43 +2228,25 @@ function Dashboard() {
                         })()}
                       </Box>
 
-                      {/* Delivery method */}
+                      {/* Where the money lands. One destination — the loan is
+                          disbursed as MYRC to the borrowing wallet, which is
+                          the transfer the contract actually performs. */}
                       <Box>
                         <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 1, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75 }}>
                           Receive As
                         </Typography>
-                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-                          {([
-                            { key: 'token', icon: <CoinIcon size={18} />, title: 'MYR Token',    sub: 'MockMYR to wallet' },
-                            { key: 'bank',  icon: <BankIcon size={18} />, title: 'Bank Transfer', sub: 'DuitNow transfer' },
-                          ] as const).map(opt => (
-                            <Box key={opt.key}
-                              onClick={() => { setDeliveryMethod(opt.key); setTransferResult(null); setTransferError(''); }}
-                              sx={{
-                                p: 1.75, borderRadius: 2, cursor: 'pointer', transition: 'all 0.15s',
-                                border: `1px solid ${deliveryMethod === opt.key ? C.teal + '50' : C.border}`,
-                                bgcolor: deliveryMethod === opt.key ? `${C.teal}08` : C.inner,
-                                '&:hover': { borderColor: C.teal + '40' },
-                              }}>
-                              <Box sx={{ display: 'flex', mb: 0.5, color: deliveryMethod === opt.key ? C.teal : C.ts }}>{opt.icon}</Box>
-                              <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, color: deliveryMethod === opt.key ? C.teal : C.tp }}>
-                                {opt.title}
-                              </Typography>
-                              <Typography sx={{ fontSize: 10, color: C.ts }}>{opt.sub}</Typography>
-                            </Box>
-                          ))}
-                        </Box>
-                        {deliveryMethod === 'bank' && (
-                          <Box sx={{ mt: 1, p: 1.5, bgcolor: `${C.teal}06`, border: `1px solid ${C.teal}20`, borderRadius: 2 }}>
-                            <Typography variant="caption" sx={{ color: C.ts }}>
-                              ℹ MYR will be transferred via DuitNow.{' '}
-                              <Box component="span" onClick={() => router.push('/settings')}
-                                sx={{ color: C.teal, cursor: 'pointer', textDecoration: 'underline' }}>
-                                Add bank account in Settings →
-                              </Box>
+                        <Box sx={{ p: 1.75, borderRadius: 2, border: `1px solid ${C.teal}50`, bgcolor: `${C.teal}08`,
+                                    display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <Box sx={{ display: 'flex', color: C.teal }}><CoinIcon size={18} /></Box>
+                          <Box>
+                            <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, color: C.teal }}>
+                              MYR Token
+                            </Typography>
+                            <Typography sx={{ fontSize: 10, color: C.ts }}>
+                              MYRC credited to {isLive ? `${wallet.address?.slice(0, 6)}…${wallet.address?.slice(-4)}` : 'your connected wallet'}
                             </Typography>
                           </Box>
-                        )}
+                        </Box>
                       </Box>
 
                       <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -2337,21 +2289,9 @@ function Dashboard() {
                         })()}
                       </Box>
 
-                      {transferError && (
+                      {borrowError && (
                         <Alert severity="warning" sx={{ bgcolor: `${C.gold}08`, color: C.gold, '& .MuiAlert-icon': { color: C.gold }, borderRadius: 2 }}>
-                          {transferError}
-                        </Alert>
-                      )}
-
-                      {transferResult && (
-                        <Alert severity="success" sx={{ bgcolor: `${C.teal}08`, color: C.teal, '& .MuiAlert-icon': { color: C.teal }, borderRadius: 2 }}>
-                          <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, color: C.teal }}>
-                            {transferResult.refNo === 'ON-CHAIN' ? '✓ On-chain transfer confirmed' : '✓ DuitNow transfer initiated'}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: C.ts }}>
-                            {transferResult.bankName} ****{transferResult.last4}
-                            {transferResult.refNo !== 'ON-CHAIN' && ` · Ref: ${transferResult.refNo}`}
-                          </Typography>
+                          {borrowError}
                         </Alert>
                       )}
 
@@ -2391,15 +2331,15 @@ function Dashboard() {
                           (isLive && wallet.loanInfo != null && parseFloat(borrowAmt) > Number(wallet.loanInfo.available) / 1e6)}
                         sx={{ py: 1.75, fontSize: 14, borderRadius: 2.5, background: (isLive && !!borrowAmt && agreedTerms && wallet.txStatus !== 'pending') ? `linear-gradient(135deg, ${C.blue}, #4458E8)` : undefined }}
                         onClick={() => {
-                          setTransferResult(null); setTransferError('');
+                          setBorrowError('');
                           const available = wallet.loanInfo ? Number(wallet.loanInfo.available) / 1e6 : 0;
                           if (parseFloat(borrowAmt) > available) {
-                            setTransferError(`Exceeds available capacity (RM ${available.toFixed(2)}). Deposit more collateral first.`);
+                            setBorrowError(`Exceeds available capacity (RM ${available.toFixed(2)}). Deposit more collateral first.`);
                             return;
                           }
                           const mktAvail = Math.max(0, colEth * mktEthPrice * 0.7 - (wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0));
                           if (hasPriceMismatch && parseFloat(borrowAmt) > mktAvail) {
-                            setTransferError(`Warning: At live market price, your safe limit is RM ${mktAvail.toFixed(2)}.`);
+                            setBorrowError(`Warning: At live market price, your safe limit is RM ${mktAvail.toFixed(2)}.`);
                             return;
                           }
                           // All checks passed — show the final confirmation summary.
@@ -2409,7 +2349,7 @@ function Dashboard() {
                           : isLive && !!borrowAmt && parseFloat(borrowAmt) > borrowAvail + 1e-9
                             ? `Exceeds available — max RM ${(Math.floor(borrowAvail * 100) / 100).toFixed(2)}`
                           : !agreedTerms && borrowAmt ? 'Accept the terms to continue'
-                          : deliveryMethod === 'bank' ? 'Borrow + Transfer to Bank' : 'Borrow MYR'}
+                          : 'Borrow MYR'}
                       </Button>
                     </>
                   )}
@@ -3000,7 +2940,7 @@ function Dashboard() {
 
           <Box sx={{ p: 2, mb: 2, bgcolor: C.inner, border: `1px solid ${C.border}`, borderRadius: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Row label="Borrow amount" value={rm(borrowMYR, 2)} bold />
-            <Row label="Receive as" value={deliveryMethod === 'bank' ? 'Bank transfer (DuitNow)' : 'MYR tokens to wallet'} />
+            <Row label="Receive as" value="MYR tokens to wallet" />
             <Row label="Interest rate" value={`${liveAprPct.toFixed(2)}% APR · variable`} />
             <Row label={`Est. interest (${loanTermDays}d)`} value={rm(panelInterest, 2)} vc={C.gold} />
             <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>

@@ -20,7 +20,7 @@ flowchart LR
 ```
 
 - **On-chain** is the source of truth for money: collateral, debt, interest, liquidation, the ETH/MYR price, and a per-wallet `kycApproved` flag.
-- **Off-chain** (Postgres) is the source of truth for identity: accounts, KYC submissions and documents, bank accounts/transfers, feature flags, and the admin audit log.
+- **Off-chain** (Postgres) is the source of truth for identity: accounts, KYC submissions and documents, feature flags, and the admin audit log. It never holds money or payout instructions — loan disbursement is the on-chain MYRC transfer, nothing more.
 - The web app bridges the two: users sign their own transactions with MetaMask; the server (holding the contract owner key) performs owner-only calls like `setKYC` and price updates.
 
 ## Smart contracts (`blockchain/contracts/`)
@@ -63,13 +63,13 @@ Happy path: **signup → submit KYC (no wallet needed) → admin approves → on
 
 ### Main screens (`app/(screen)/`)
 - **`dashboard`** — the core loan UI: markets table plus the **Manage Position** modal (Deposit / Withdraw / Borrow / Repay / Buy MYR tabs, live LTV & health-factor math, inline transaction-status banner + global `TxToast`).
-- **`portfolio`** — personal position and transaction history; **`markets`** — rates/calculator; **`explorer`** — public on-chain tx explorer; **`docs`**, **`kyc`**, **`settings`** (account & sign-in self-service, bank account, wallet link/unlink).
+- **`portfolio`** — personal position and transaction history; **`markets`** — rates/calculator; **`explorer`** — public on-chain tx explorer; **`docs`**, **`kyc`**, **`settings`** (account & sign-in self-service, wallet link/unlink).
 - **`admin/*`** — users (restrict/delete), KYC review, transactions, feature flags, and an append-only **audit log** of every admin mutation.
 
 All transaction flows run through `lib/WalletContext.tsx`, which owns the MetaMask connection, enforces "connected account == linked wallet", and drives the pending/success/error toast state.
 
 ### API routes (`app/api/`)
-`auth/*` (signup, login, logout, me, wallet-nonce, wallet-login) · `kyc/*` (submit, approve, documents, resync) · `wallet/link|unlink` · `profile/account|bank-account` · `transfers` (off-chain MYR → bank payout records) · `loan-tx` (indexes on-chain events into `LoanTransaction`) · `prices` / `sync-price` (pushes a fresh ETH price to the contract via the owner key) · `explorer` · `admin/*` (users, features, transactions, audit, price sync) · `features` (public flag map).
+`auth/*` (signup, login, logout, me, wallet-nonce, wallet-login) · `kyc/*` (submit, approve, documents, resync) · `wallet/link|unlink` · `profile/account` · `loan-tx` (indexes on-chain events into `LoanTransaction`) · `prices` / `sync-price` (pushes a fresh ETH price to the contract via the owner key) · `explorer` · `admin/*` (users, features, transactions, audit, price sync) · `features` (public flag map).
 
 ### Feature flags
 `lib/features.ts` declares a registry (loan actions, pages, signup/login, site-wide maintenance); `FeatureFlag` rows in the DB are admin overrides — `ON`, `MAINTENANCE` (visible but blocked), or `HIDDEN`. Empty table = everything on. Server-side `featureBlocked()` enforces flags on APIs; the UI shows maintenance dialogs. Admin sign-in can never be locked out.
@@ -80,7 +80,6 @@ All transaction flows run through `lib/WalletContext.tsx`, which owns the MetaMa
 |---|---|
 | `User` | Account: email/password and/or wallet, `isAdmin`, `status` (ACTIVE/RESTRICTED), `sessionEpoch` |
 | `KycSubmission` | One per user; personal details + document images; `status` pending/approved/rejected; optional `wallet` anchor |
-| `BankAccount` / `BankTransfer` | Registered payout account and off-chain MYR transfer records |
 | `LoanTransaction` | Indexed on-chain events (deposit/borrow/repay/…) keyed by wallet + txHash |
 | `FeatureFlag` | Admin overrides over the feature registry |
 | `AdminAuditLog` | Append-only record of every admin mutation |

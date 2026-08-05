@@ -21,7 +21,7 @@ const T = {
 
 /**
  * Post-transaction receipt. Every completed action (deposit / borrow / repay /
- * withdraw / buy / transfer) ends here with a thank-you, the exact amounts,
+ * withdraw / buy) ends here with a thank-you, the exact amounts,
  * a reference (the tx hash), and a jump to the full history — so the user
  * always has confirmation and something to quote later.
  */

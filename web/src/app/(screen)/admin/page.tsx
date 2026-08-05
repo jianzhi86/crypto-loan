@@ -60,7 +60,7 @@ export const dynamic = 'force-dynamic';
 
 /* ─── Audit tone map ──────────────────────────────────────────────────────── */
 const ACTION_TONE: Record<string, Tone> = {
-  USER_RESTRICT: 'red',   USER_CLEAR_BANK: 'red',   KYC_DELETE: 'red',   KYC_REJECT: 'red',
+  USER_RESTRICT: 'red',   KYC_DELETE: 'red',   KYC_REJECT: 'red',
   USER_RESET_PASSWORD: 'amber', USER_RESET_KYC: 'amber', USER_UNLINK_WALLET: 'amber',
   USER_UNRESTRICT: 'green', KYC_APPROVE: 'green',
   FLAG_UPDATE: 'blue', USER_SET_ADMIN: 'blue',
@@ -72,8 +72,8 @@ export default async function AdminOverviewPage() {
   const [
     users, restricted, admins,
     kycPending, kycApproved, kycRejected,
-    loanTxs, transfers, flags,
-    recent, txAgg, bankAgg, recentTxs, chain,
+    loanTxs, flags,
+    recent, txAgg, recentTxs, chain,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.user.count({ where: { status: 'RESTRICTED' } }),
@@ -82,7 +82,6 @@ export default async function AdminOverviewPage() {
     prisma.kycSubmission.count({ where: { status: 'approved' } }),
     prisma.kycSubmission.count({ where: { status: 'rejected' } }),
     prisma.loanTransaction.count(),
-    prisma.bankTransfer.count(),
     getFlags(),
     prisma.adminAuditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 8 }),
     prisma.$queryRaw<TxAgg[]>`
@@ -101,7 +100,6 @@ export default async function AdminOverviewPage() {
         COUNT(DISTINCT wallet)::int                                                                       AS unique_wallets
       FROM "LoanTransaction"
     `,
-    prisma.bankTransfer.aggregate({ _sum: { amountMYR: true }, _count: { _all: true } }),
     prisma.loanTransaction.findMany({ orderBy: { id: 'desc' }, take: 7, select: { id: true, wallet: true, type: true, amount: true, txHash: true } }),
     readChainStats(),
   ]);
@@ -122,8 +120,6 @@ export default async function AdminOverviewPage() {
   const totalDepositedEth    = stat.total_deposited / 1e18;
   const totalWithdrawnEth    = stat.total_withdrawn / 1e18;
   const netLockedEth         = totalDepositedEth - totalWithdrawnEth;
-  const bankSum              = bankAgg._sum.amountMYR ?? 0;
-  const bankCount            = bankAgg._count._all;
   const totalTxs             = stat.borrow_count + stat.repay_count + stat.deposit_count + stat.purchase_count + stat.claim_count;
   const totalSupplyClaimedMYR = stat.total_supply_claimed / 1e6;
 

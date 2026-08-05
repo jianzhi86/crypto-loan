@@ -25,7 +25,7 @@ const FAQS = [
   },
   {
     q: 'How do I receive the money, and how do I repay?',
-    a: 'Approved loans are paid out in Malaysian Ringgit via DuitNow bank transfer, or as MYRC tokens. Repay any time with no early-repayment penalty, and your collateral is unlocked instantly.',
+    a: 'Approved loans are paid out as MYRC, the ringgit-denominated token, credited to your wallet in the same transaction as the borrow. Repay any time with no early-repayment penalty, and your collateral is unlocked instantly.',
   },
   {
     q: 'What is the MYRC token?',

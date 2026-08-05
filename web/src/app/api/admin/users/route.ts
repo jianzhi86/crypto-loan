@@ -47,21 +47,14 @@ export async function GET(req: NextRequest) {
           status: true, statusReason: true, statusChangedAt: true,
           createdAt: true, updatedAt: true,
           // Never select `password` — it must not leave the server, even to an admin.
-          bankAccount: { select: { id: true, bankName: true, accountNumber: true, accountHolder: true, recipientAddress: true } },
           kyc: { select: { status: true, fullName: true, submittedAt: true } },
-          _count: { select: { transfers: true } },
         },
       }),
     ]);
 
     const shaped = users.map(u => ({
       ...u,
-      accountNumber: undefined,
-      bankAccount: u.bankAccount
-        ? { ...u.bankAccount, accountNumber: `••••${u.bankAccount.accountNumber.slice(-4)}` }
-        : null,
       kyc: u.kyc ?? null,
-      transferCount: u._count.transfers,
     }));
 
     // KYC is filtered after stitching; the row count reflects the page, so the

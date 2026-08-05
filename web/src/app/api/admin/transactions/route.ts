@@ -2,16 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireAdmin } from '@/lib/authz';
 import { buildTxWhere, parseTxFilters } from '@/lib/tx-query';
-import type { Prisma } from '@prisma/client';
 
 /**
  * GET /api/admin/transactions — the full ledger, with identity joined on.
  *
- * Covers both halves of the system:
- *  - `loan`     : on-chain events mirrored into LoanTransaction. READ-ONLY.
- *                 There is no PATCH/DELETE here and there never should be —
- *                 the chain is the record of truth and this table is a copy.
- *  - `transfer` : off-chain BankTransfer rows, which admins may act on.
+ * On-chain events mirrored into LoanTransaction, and nothing else. READ-ONLY:
+ * there is no PATCH/DELETE here and there never should be — the chain is the
+ * record of truth and this table is a copy.
  *
  * Supports `format=csv` for export.
  */
@@ -20,15 +17,13 @@ export async function GET(req: NextRequest) {
   if (!guard.ok) return guard.response;
 
   const sp       = req.nextUrl.searchParams;
-  const source   = sp.get('source') ?? 'loan';
   const filters  = parseTxFilters(sp);
   const page     = Math.max(1, Number(sp.get('page') ?? 1) || 1);
   const pageSize = Math.min(200, Math.max(10, Number(sp.get('pageSize') ?? 50) || 50));
   const csv      = sp.get('format') === 'csv';
 
   try {
-    if (source === 'transfer') return transfers(sp, page, pageSize, csv);
-    return loans(filters, page, pageSize, csv);
+    return await loans(filters, page, pageSize, csv);
   } catch (err) {
     console.error('[GET /api/admin/transactions]', err);
     return NextResponse.json({ error: 'Database error' }, { status: 500 });
@@ -86,59 +81,6 @@ async function loans(
     total, page, pageSize,
     pages: Math.max(1, Math.ceil(total / pageSize)),
     readOnly: true,
-  });
-}
-
-async function transfers(sp: URLSearchParams, page: number, pageSize: number, csv: boolean) {
-  const q      = sp.get('q')?.trim();
-  const status = sp.get('status')?.trim();
-
-  const where: Prisma.BankTransferWhereInput = {};
-  if (status) where.status = status;
-  if (q) {
-    where.OR = [
-      { referenceNo: { contains: q, mode: 'insensitive' } },
-      { bankName:    { contains: q, mode: 'insensitive' } },
-      { user: { email: { contains: q, mode: 'insensitive' } } },
-      { user: { name:  { contains: q, mode: 'insensitive' } } },
-    ];
-  }
-
-  const from = sp.get('from');
-  const to   = sp.get('to');
-  const createdAt: Prisma.DateTimeFilter = {};
-  if (from) { const d = new Date(`${from}T00:00:00`);     if (!Number.isNaN(d.getTime())) createdAt.gte = d; }
-  if (to)   { const d = new Date(`${to}T23:59:59.999`);   if (!Number.isNaN(d.getTime())) createdAt.lte = d; }
-  if (createdAt.gte || createdAt.lte) where.createdAt = createdAt;
-
-  const [total, rows] = await Promise.all([
-    prisma.bankTransfer.count({ where }),
-    prisma.bankTransfer.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip: csv ? 0 : (page - 1) * pageSize,
-      take: csv ? 10_000 : pageSize,
-      include: { user: { select: { id: true, name: true, email: true, status: true } } },
-    }),
-  ]);
-
-  if (csv) {
-    return csvResponse(
-      'bank-transfers',
-      ['id', 'referenceNo', 'amountMYR', 'status', 'bankName', 'accountLast4', 'createdAt', 'completedAt', 'userEmail'],
-      rows.map(r => [
-        r.id, r.referenceNo, r.amountMYR, r.status, r.bankName, r.accountLast4,
-        r.createdAt.toISOString(), r.completedAt?.toISOString() ?? '', r.user?.email ?? '',
-      ]),
-    );
-  }
-
-  return NextResponse.json({
-    source: 'transfer',
-    txs: rows,
-    total, page, pageSize,
-    pages: Math.max(1, Math.ceil(total / pageSize)),
-    readOnly: false,
   });
 }
 

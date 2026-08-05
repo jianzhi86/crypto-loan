@@ -17,8 +17,8 @@ import { buildTxWhere, parseTxFilters, shortWallet } from '@/lib/tx-query';
  *
  * The line is drawn at *identity*, not at transactions. This endpoint never
  * returns anything that ties a wallet to a person: no name, email, phone, IC
- * number, KYC record, bank account, or off-chain bank transfer. Wallets are
- * truncated for display. Those joins exist only behind /api/admin/transactions.
+ * number, or KYC record. Wallets are truncated for display. Those joins exist
+ * only behind /api/admin/transactions.
  */
 export async function GET(req: NextRequest) {
   const flags = await getFlags();

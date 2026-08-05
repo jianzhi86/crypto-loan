@@ -31,7 +31,7 @@ export type TxStatus = 'idle' | 'pending' | 'success' | 'error';
 // A completed action's receipt — everything the user needs to reference the
 // transaction later: what happened, the exact amounts, and the on-chain hash.
 export interface TxReceipt {
-  action: 'deposit' | 'withdraw' | 'borrow' | 'repay' | 'buy' | 'transfer';
+  action: 'deposit' | 'withdraw' | 'borrow' | 'repay' | 'buy';
   title: string;
   amountLabel: string;
   lines: { label: string; value: string }[];
@@ -295,7 +295,6 @@ interface WalletCtx extends WalletState {
   depositCollateral: (eth: string) => Promise<void>;
   borrow: (myr: string, opts?: { termMonths?: number }) => Promise<boolean>;
   buyMYR: (myr: string) => Promise<boolean>;
-  transferMYR: (myr: string, to: string) => Promise<boolean>;
   repay: (myr: string, opts?: {
     full?: boolean;
     /** Ledger tranches this payment settles — marked REPAID in the DB once
@@ -742,30 +741,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       return false;
     }
   }, [getContracts, s.address, s.ethPriceMYR, refresh, guardTx]);
-
-  const transferMYR = useCallback(async (myrAmt: string, to: string): Promise<boolean> => {
-    if (!guardTx()) return false;
-    const c = await getContracts(true);
-    if (!c || !s.address) return false;
-    setTx('pending', `Transferring RM ${myrAmt} to bank…`);
-    try {
-      const units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
-      const tx = await (c.myr.transfer as (to: string, amount: bigint) => Promise<ethers.TransactionResponse>)(to, units);
-      const receipt = await tx.wait();
-      setTx('success', `RM ${myrAmt} transferred on-chain to bank wallet`);
-      if (receipt) {
-        setReceipt({
-          action: 'transfer',
-          title: 'Transfer Sent',
-          amountLabel: `RM ${parseFloat(myrAmt).toFixed(2)}`,
-          lines: [{ label: 'Recipient', value: `${to.slice(0, 6)}…${to.slice(-4)}` }],
-          txHash: receipt.hash,
-        });
-      }
-      await refresh(s.address);
-      return true;
-    } catch { setTx('error', 'Transfer failed'); return false; }
-  }, [getContracts, s.address, refresh, guardTx]);
 
   const repay = useCallback(async (myrAmt: string, opts?: {
     full?: boolean;
@@ -1224,7 +1199,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value: WalletCtx = {
     ...s,
     connect, disconnect, tryAutoConnect, switchToHardhat,
-    depositCollateral, borrow, buyMYR, transferMYR, repay, withdrawCollateral, claimSupplyInterest,
+    depositCollateral, borrow, buyMYR, repay, withdrawCollateral, claimSupplyInterest,
     addTokenToWallet,
     refresh: () => s.address ? refresh(s.address) : Promise.resolve(),
     clearTx: () => setS(p => ({ ...p, txStatus: 'idle', txMessage: '' })),
