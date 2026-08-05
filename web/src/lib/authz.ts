@@ -126,7 +126,8 @@ export type AuditAction =
   | 'KYC_RESYNC'
   | 'KYC_DELETE'
   | 'FLAG_UPDATE'
-  | 'PRICE_SYNC';
+  | 'PRICE_SYNC'
+  | 'PROTOCOL_FEES_WITHDRAWN';
 
 /**
  * Append an entry to the admin audit trail. Never throws — an audit write

@@ -11,7 +11,8 @@ import { FLAGS, ON } from '@/lib/features';
 import { readChainStats } from '@/lib/contract-read';
 import { dynamicApr, supplyApr } from '@/lib/rates';
 import { AdminAutoSync } from '@/components/AdminAutoSync';
-import { ShieldIcon, BoltIcon, PulseIcon } from '@/components/Icons';
+import { AdminWithdrawFees } from '@/components/admin/AdminWithdrawFees';
+import { ShieldIcon, BoltIcon, PulseIcon, BankIcon } from '@/components/Icons';
 import { Badge, C, type Tone } from '@/components/admin/ui';
 import { Sparkline, ProtocolAreaChart, ActivityDonut } from '@/components/admin/AdminCharts';
 
@@ -63,7 +64,7 @@ const ACTION_TONE: Record<string, Tone> = {
   USER_RESET_PASSWORD: 'amber', USER_RESET_KYC: 'amber', USER_UNLINK_WALLET: 'amber',
   USER_UNRESTRICT: 'green', KYC_APPROVE: 'green',
   FLAG_UPDATE: 'blue', USER_SET_ADMIN: 'blue',
-  PRICE_SYNC: 'neutral',
+  PRICE_SYNC: 'neutral', PROTOCOL_FEES_WITHDRAWN: 'amber',
 };
 
 /* ─── Page ────────────────────────────────────────────────────────────────── */
@@ -250,6 +251,104 @@ export default async function AdminOverviewPage() {
             <AdminAutoSync />
           </Box>
         </Box>
+
+        {/* ── Company Treasury — actual on-chain holdings, not bookkeeping counters.
+            contractEthBalanceETH reads provider.getBalance() directly, and
+            myrTotalSupplyMYR reads myr.totalSupply() — both live queries, so
+            this reflects a deposit/borrow/repay the instant it confirms, no
+            separate "add to balance" step. The reconciliation line below is a
+            trust check: totalCollateralETH (the contract's internal counter)
+            should always equal the wallet's real ETH balance. ── */}
+        <Card sx={{
+          mb: 3, borderRadius: 3, boxShadow: 'none', overflow: 'hidden',
+          border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.blue}`,
+          background: 'linear-gradient(135deg, rgba(110,139,255,0.06) 0%, #0D1628 55%)',
+        }}>
+          <Box sx={{ px: 2.5, pt: 2, pb: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ color: C.blue }}><BankIcon size={16} /></Box>
+              <Typography sx={{ fontWeight: 700, fontSize: 15, color: C.ink }}>Company Treasury</Typography>
+              <Typography sx={{ fontSize: 11, color: C.muted }}>— what the protocol actually holds right now</Typography>
+            </Box>
+            {chain && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Box sx={{
+                  width: 5, height: 5, borderRadius: '50%',
+                  bgcolor: Math.abs(chain.contractEthBalanceETH - chain.totalCollateralETH) < 0.0001 ? C.green : C.red,
+                }} />
+                <Typography sx={{ fontSize: 10, color: C.muted }}>
+                  {Math.abs(chain.contractEthBalanceETH - chain.totalCollateralETH) < 0.0001
+                    ? 'Balance reconciles with contract state'
+                    : 'Mismatch vs. internal collateral counter — investigate'}
+                </Typography>
+              </Box>
+            )}
+          </Box>
+
+          <Divider sx={{ borderColor: C.border }} />
+
+          {chain ? (
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2,1fr)', md: 'repeat(4,1fr)' } }}>
+              <Box sx={{ px: 2.5, py: 2 }}>
+                <Typography sx={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.5 }}>
+                  ETH Balance
+                </Typography>
+                <Typography sx={{ fontSize: 24, fontWeight: 800, color: '#627EEA', lineHeight: 1.1, letterSpacing: -0.4 }}>
+                  {chain.contractEthBalanceETH.toFixed(4)} <Typography component="span" sx={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>ETH</Typography>
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.4 }}>
+                  ≈ {rm(chain.contractEthBalanceETH * chain.ethPriceMYR)} · live wallet balance
+                </Typography>
+              </Box>
+              <Box sx={{ px: 2.5, py: 2, borderLeft: { sm: `1px solid ${C.border}` }, borderTop: { xs: `1px solid ${C.border}`, sm: 'none' } }}>
+                <Typography sx={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.5 }}>
+                  MYR in Circulation
+                </Typography>
+                <Typography sx={{ fontSize: 24, fontWeight: 800, color: C.ink, lineHeight: 1.1, letterSpacing: -0.4 }}>
+                  {rm(chain.myrTotalSupplyMYR)}
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.4 }}>
+                  Total ever minted · borrows + purchases + earn claims
+                </Typography>
+              </Box>
+              <Box sx={{ px: 2.5, py: 2, borderLeft: { md: `1px solid ${C.border}` }, borderTop: { xs: `1px solid ${C.border}`, md: 'none' } }}>
+                <Typography sx={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.5 }}>
+                  Today&apos;s Borrow APR
+                </Typography>
+                <Typography sx={{ fontSize: 24, fontWeight: 800, color: C.green, lineHeight: 1.1, letterSpacing: -0.4 }}>
+                  {liveAprPct!.toFixed(2)}%
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.4 }}>
+                  {rm(chain.totalBorrowedMYR)} currently borrowed
+                </Typography>
+              </Box>
+              <Box sx={{
+                px: 2.5, py: 2, borderLeft: { sm: `1px solid ${C.border}` }, borderTop: `1px solid ${C.border}`,
+                display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1.5,
+                gridColumn: { xs: '1', sm: '2', md: '4' },
+              }}>
+                <Box>
+                  <Typography sx={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.5 }}>
+                    Protocol Fees (withdrawable)
+                  </Typography>
+                  <Typography sx={{ fontSize: 24, fontWeight: 800, color: C.amber, lineHeight: 1.1, letterSpacing: -0.4 }}>
+                    {rm(chain.protocolFeesMYR)}
+                  </Typography>
+                  <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.4 }}>
+                    Interest revenue collected, not yet swept
+                  </Typography>
+                </Box>
+                <AdminWithdrawFees feesMYR={chain.protocolFeesMYR} ownerAddress={chain.ownerAddress} />
+              </Box>
+            </Box>
+          ) : (
+            <Box sx={{ px: 2.5, py: 2 }}>
+              <Typography sx={{ fontSize: 13, color: C.muted }}>
+                Treasury data unavailable — the local Hardhat node is not reachable. Start it with <code>npm run chain</code>.
+              </Typography>
+            </Box>
+          )}
+        </Card>
 
         {/* ── KPI cards row ─────────────────────────────────────────────── */}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', lg: 'repeat(4,1fr)' }, gap: 2, mb: 3 }}>

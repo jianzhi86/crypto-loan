@@ -360,13 +360,13 @@ function Dashboard() {
     termMonths: number; monthsElapsed: number; remainingMonths: number; thisMonthDue: number;
   };
   const LEGACY_ID = '__legacy__';
-  const [borrowRows, setBorrowRows] = useState<{ id: string; principal: string; aprBps: number; termMonths: number; borrowedAt: string }[]>([]);
+  const [borrowRows, setBorrowRows] = useState<{ id: string; principal: string; originalPrincipal: string; aprBps: number; termMonths: number; borrowedAt: string }[]>([]);
   const [selectedBorrowIds, setSelectedBorrowIds] = useState<string[]>([]);
   const fetchBorrows = useCallback(async () => {
     if (!wallet.address) { setBorrowRows([]); return; }
     try {
       const r = await fetch(`/api/borrows?wallet=${wallet.address}`);
-      const d = await r.json() as { borrows?: { id: string; principal: string; aprBps: number; termMonths: number; borrowedAt: string }[] };
+      const d = await r.json() as { borrows?: { id: string; principal: string; originalPrincipal: string; aprBps: number; termMonths: number; borrowedAt: string }[] };
       if (Array.isArray(d.borrows)) setBorrowRows(d.borrows);
     } catch { /* keep the last known list */ }
   }, [wallet.address]);
@@ -413,9 +413,27 @@ function Dashboard() {
     const now = wallet.lastRefreshAt || Date.now();
     const YEAR_MS  = 31_536_000_000;
     const MONTH_MS = 30 * 86_400_000; // matches LOAN_TERMS' own 30-day "1 month"
-    const installment = (principalMYR: number, interest: number, termMonths: number, borrowedAtMs: number) => {
-      const monthsElapsed   = Math.max(0, Math.floor((now - borrowedAtMs) / MONTH_MS));
-      const remainingMonths = Math.max(1, termMonths - monthsElapsed);
+    // "Months elapsed" advances two ways, whichever is FURTHER along: real
+    // calendar time passing (30-day cycles since borrow — falling behind
+    // makes the next bill bigger, same as any installment plan), OR having
+    // already paid down that fraction of the ORIGINAL principal (paying an
+    // installment early moves you to the next one immediately, rather than
+    // still dividing by the full original term until 30 real days pass).
+    const installment = (
+      originalPrincipalMYR: number, principalMYR: number, interest: number, termMonths: number, borrowedAtMs: number,
+    ) => {
+      const monthsElapsedByTime = Math.max(0, Math.floor((now - borrowedAtMs) / MONTH_MS));
+      // A real installment payment pays interest first, so the PRINCIPAL-only
+      // reduction from paying exactly one installment's bill always lands a
+      // bit short of a clean 1/termMonths share — that's not rounding noise,
+      // it's the interest portion for that cycle. Tolerance sized to the
+      // contract's own worst case (MAX_BASE_RATE_BPS = 15% APR ≈ 1.25%/month)
+      // plus margin, so an on-time payment still advances the plan.
+      const monthsElapsedByPay  = originalPrincipalMYR > 0
+        ? Math.floor(((originalPrincipalMYR - principalMYR) / originalPrincipalMYR) * termMonths + 0.02)
+        : 0;
+      const monthsElapsed    = Math.min(termMonths - 1, Math.max(monthsElapsedByTime, monthsElapsedByPay));
+      const remainingMonths  = Math.max(1, termMonths - monthsElapsed);
       return { termMonths, monthsElapsed, remainingMonths, thisMonthDue: (principalMYR + interest) / remainingMonths };
     };
     // Interest clock: the contract charges ALL accrued interest on every
@@ -426,13 +444,14 @@ function Dashboard() {
     const lastRepayMs = Number(wallet.loanInfo.lastRepayTime || 0) * 1000;
     const rows: LedgerRow[] = borrowRows.map(r => {
       const principalMYR  = Number(r.principal) / 1e6;
+      const originalMYR   = Number(r.originalPrincipal || r.principal) / 1e6;
       const borrowedAtMs  = new Date(r.borrowedAt).getTime();
       const years         = Math.max(0, now - Math.max(borrowedAtMs, lastRepayMs)) / YEAR_MS;
       const interest       = principalMYR * (r.aprBps / 10_000) * years;
       return {
         id: r.id, principalMYR, aprBps: r.aprBps, interest,
         label: new Date(r.borrowedAt).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
-        ...installment(principalMYR, interest, r.termMonths, borrowedAtMs),
+        ...installment(originalMYR, principalMYR, interest, r.termMonths, borrowedAtMs),
       };
     });
     // Debt that predates the itemized ledger (or rows lost to a DB miss):
@@ -450,7 +469,7 @@ function Dashboard() {
       rows.unshift({
         id: LEGACY_ID, principalMYR: remainder, aprBps: wallet.borrowAprBps, interest,
         label: 'Earlier borrows (before itemized ledger)',
-        ...installment(remainder, interest, 1, sinceMs || now),
+        ...installment(remainder, remainder, interest, 1, sinceMs || now),
       });
     }
     return { rows, totalInt: rows.reduce((s, r) => s + r.interest, 0), totalPrincipal: chainPrincipal };
@@ -597,9 +616,19 @@ function Dashboard() {
     const attempt = () => {
       const last = Number(localStorage.getItem(KEY) || 0);
       if (Date.now() - last < 3600_000) return;
-      localStorage.setItem(KEY, String(Date.now()));
+      // Only advance the timestamp on a CONFIRMED success. Stamping it before
+      // the fetch resolves used to mean one failed attempt (CoinGecko rate
+      // limit, a momentary RPC hiccup) silently blocked every retry for a
+      // full hour — the next 5-minute check would see "synced within the
+      // hour" and skip, even though nothing actually happened. Leaving it
+      // untouched on failure lets the next 5-minute tick retry instead.
+      // /api/sync-price dedupes concurrent calls server-side, so it's safe
+      // even if a slow request overlaps the next scheduled attempt.
       fetch('/api/sync-price', { method: 'POST' })
-        .then(() => walletRefreshRef.current())
+        .then(res => {
+          if (res.ok) localStorage.setItem(KEY, String(Date.now()));
+          return walletRefreshRef.current();
+        })
         .catch(() => {});
     };
     attempt();
@@ -2098,6 +2127,9 @@ function Dashboard() {
                             <Box sx={{ pt: 0.75, borderTop: `1px solid ${C.border}` }}>
                               <Row label="You receive (wallet)"    value={`≈ ${receiveEth.toFixed(4)} ETH`} vc={C.teal} bold />
                               <Row label=""                         value={`≈ ${rm(receiveEth * price)} after gas`} vc={C.ts} />
+                              {colAfter <= 0 && wallet.pendingYieldMYR > 0.000001 && (
+                                <Row label="+ Supply interest (auto-claimed)" value={`${rm(wallet.pendingYieldMYR, 4)}`} vc={C.teal} bold />
+                              )}
                             </Box>
                           </Box>
                         )}

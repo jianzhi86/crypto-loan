@@ -26,10 +26,11 @@ export async function POST(req: NextRequest) {
       where:  { txHash },
       update: {},
       create: {
-        wallet:      String(wallet).toLowerCase(),
-        principal:   String(principal),
-        aprBps:      Math.round(Number(aprBps)),
-        termMonths:  resolvedTermMonths,
+        wallet:            String(wallet).toLowerCase(),
+        principal:         String(principal),
+        originalPrincipal: String(principal),
+        aprBps:            Math.round(Number(aprBps)),
+        termMonths:        resolvedTermMonths,
         txHash,
       },
     });
@@ -56,7 +57,7 @@ export async function GET(req: NextRequest) {
     const borrows = await prisma.borrowPosition.findMany({
       where:   { wallet: wallet.toLowerCase(), status: 'OPEN' },
       orderBy: { borrowedAt: 'asc' },
-      select:  { id: true, principal: true, aprBps: true, termMonths: true, borrowedAt: true, txHash: true },
+      select:  { id: true, principal: true, originalPrincipal: true, aprBps: true, termMonths: true, borrowedAt: true, txHash: true },
     });
     return NextResponse.json({ borrows });
   } catch (err) {

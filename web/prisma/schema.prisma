@@ -108,8 +108,17 @@ model LoanTransaction {
 model BorrowPosition {
   id           String    @id @default(cuid())
   wallet       String
-  /// MYR units (1e6), stringified — bigint-safe.
+  /// MYR units (1e6), stringified — bigint-safe. Shrinks as settle() applies
+  /// payments; never the original borrowed amount after the first payment.
   principal    String
+  /// `principal`'s value at creation, frozen — settle() never touches this.
+  /// Needed to tell how much of the installment PLAN has actually been paid
+  /// off (installmentsPaid = (originalPrincipal - principal) / (originalPrincipal
+  /// / termMonths)), independent of how much elapsed calendar time. Without
+  /// it, paying an installment early has no way to advance "Month X of N" —
+  /// only elapsed time could, so an early payoff still divided by the full
+  /// term instead of by what's actually left.
+  originalPrincipal String @default("0")
   /// Borrow APR in basis points, read from currentAprBps() at borrow time.
   aprBps       Int
   /// Installment plan length in months (1/3/6/12 — the same options the
