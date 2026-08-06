@@ -91,6 +91,9 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 lastRepayTime; // interest clock for THIS loan (resets on its repays)
         uint256 termDays;      // 30 / 90 / 180 / 365
         uint256 aprBps;        // APR locked at borrow time — fixed for the loan's life
+        uint256 baseBps;       // baseRateBps at the same moment — display split only
+                               // (aprBps - baseBps = the utilization premium paid);
+                               // never used in interest math, aprBps is
         bool    active;        // false once fully repaid or fully liquidated
     }
     mapping(address => Loan[]) private _userLoans;
@@ -98,7 +101,7 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     // ── Events ─────────────────────────────────────────────────────────────
     event CollateralDeposited(address indexed user, uint256 amount);
     event Borrowed(address indexed user, uint256 myrAmount, uint256 newTotal);
-    event LoanCreated(address indexed borrower, uint256 indexed loanId, uint256 principal, uint256 dueDate, uint256 termDays, uint256 aprBps);
+    event LoanCreated(address indexed borrower, uint256 indexed loanId, uint256 principal, uint256 dueDate, uint256 termDays, uint256 aprBps, uint256 baseBps);
     event Repaid(address indexed user, uint256 indexed loanId, uint256 principal, uint256 interest);
     event LoanClosed(address indexed user, uint256 indexed loanId);
     event CollateralWithdrawn(address indexed user, uint256 amount);
@@ -244,6 +247,11 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
 
         uint256 loanId = _userLoans[msg.sender].length;
         uint256 due    = block.timestamp + termDays * 1 days;
+        // Both rates are captured BEFORE totalBorrowed grows below: the loan
+        // locks the utilization the pool had when the borrower committed, not
+        // the utilization their own debt creates. (This is also why any APR
+        // the UI re-reads AFTER the transaction can come back higher than the
+        // locked figure — the receipt must quote the event, not a fresh read.)
         _userLoans[msg.sender].push(Loan({
             principal:     myrAmount,
             startTime:     block.timestamp,
@@ -251,13 +259,14 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
             lastRepayTime: block.timestamp,
             termDays:      termDays,
             aprBps:        currentAprBps(),   // locked for this loan's whole life
+            baseBps:       baseRateBps,
             active:        true
         }));
         totalBorrowed += myrAmount;
 
         myr.mint(msg.sender, myrAmount);
         emit Borrowed(msg.sender, myrAmount, principalNow + myrAmount);
-        emit LoanCreated(msg.sender, loanId, myrAmount, due, termDays, _userLoans[msg.sender][loanId].aprBps);
+        emit LoanCreated(msg.sender, loanId, myrAmount, due, termDays, _userLoans[msg.sender][loanId].aprBps, baseRateBps);
     }
 
     /// @notice Repay ONE loan. Interest paid first, then principal — but only

@@ -174,8 +174,9 @@ describe("CryptoLoan", function () {
       expect(await myr.balanceOf(user.address)).to.equal(maxBorrow);
     });
 
-    it("records startTime, dueDate, term and locked APR on the loan", async () => {
-      const apr = await loan.currentAprBps();
+    it("records startTime, dueDate, term and locked APR + base split on the loan", async () => {
+      const apr  = await loan.currentAprBps();
+      const base = await loan.baseRateBps();
       await loan.connect(user).borrow(5_000n * MYR_6, 90n);
       const now = BigInt(await time.latest());
 
@@ -187,15 +188,29 @@ describe("CryptoLoan", function () {
       expect(loans[0].dueDate).to.equal(now + 90n * BigInt(DAY));
       expect(loans[0].termDays).to.equal(90n);
       expect(loans[0].aprBps).to.equal(apr);
+      expect(loans[0].baseBps).to.equal(base);
       expect(loans[0].active).to.be.true;
     });
 
-    it("emits LoanCreated with loanId and dueDate", async () => {
+    it("locks the PRE-borrow rate — a fresh read after the tx can be higher", async () => {
+      // The borrow itself raises utilization; the loan must keep the rate the
+      // pool had when the borrower committed, not the one their debt creates.
+      await loan.connect(owner).setSupplyCap(20_000n * MYR_6);
+      const aprBefore = await loan.currentAprBps();
+      await loan.connect(user).borrow(10_000n * MYR_6, 90n);   // 50% of the pool
+      const aprAfter = await loan.currentAprBps();
+
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans[0].aprBps).to.equal(aprBefore);
+      expect(aprAfter).to.be.gt(aprBefore);
+    });
+
+    it("emits LoanCreated with loanId, dueDate and the rate split", async () => {
       const tx = await loan.connect(user).borrow(5_000n * MYR_6, 180n);
       const now = BigInt(await time.latest());
       await expect(tx)
         .to.emit(loan, "LoanCreated")
-        .withArgs(user.address, 0n, 5_000n * MYR_6, now + 180n * BigInt(DAY), 180n, await loan.currentAprBps());
+        .withArgs(user.address, 0n, 5_000n * MYR_6, now + 180n * BigInt(DAY), 180n, await loan.currentAprBps(), await loan.baseRateBps());
     });
 
     it("accepts only the 30/90/180/365 day terms", async () => {

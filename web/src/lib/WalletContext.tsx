@@ -50,6 +50,7 @@ export interface ChainLoan {
   lastRepayTime: bigint;  // THIS loan's interest clock
   termDays: number;       // 30 / 90 / 180 / 365
   aprBps: number;         // locked at borrow — fixed for the loan's life
+  baseBps: number;        // base rate at the same moment (aprBps - baseBps = utilization premium)
   active: boolean;
   interest: bigint;       // contract's accrued figure (stale between blocks on Hardhat)
 }
@@ -224,6 +225,7 @@ function cachePosition(addr: string, p: Omit<CachedPosition, 'savedAt'>) {
           lastRepayTime: l.lastRepayTime.toString(),
           termDays:      l.termDays,
           aprBps:        l.aprBps,
+          baseBps:       l.baseBps,
           active:        l.active,
           interest:      l.interest.toString(),
         })),
@@ -244,7 +246,7 @@ function readCachedPosition(addr: string): CachedPosition | null {
     const d = JSON.parse(raw);
     interface CachedLoan {
       loanId: number; principal: string; startTime: string; dueDate: string;
-      lastRepayTime: string; termDays: number; aprBps: number; active: boolean; interest: string;
+      lastRepayTime: string; termDays: number; aprBps: number; baseBps?: number; active: boolean; interest: string;
     }
     return {
       info: {
@@ -268,6 +270,7 @@ function readCachedPosition(addr: string): CachedPosition | null {
               lastRepayTime: BigInt(l.lastRepayTime),
               termDays:      Number(l.termDays),
               aprBps:        Number(l.aprBps),
+              baseBps:       Number(l.baseBps ?? 0),
               active:        Boolean(l.active),
               interest:      BigInt(l.interest),
             }))
@@ -501,7 +504,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const hf = hfRaw === MAX_U ? Infinity : Number(hfRaw) / 1e18;
       // getUserLoans returns (Loan[] loansOut, uint256[] interests), index = loanId.
       const [loansRaw, interestsRaw] = userLoansRaw as unknown as [
-        { principal: bigint; startTime: bigint; dueDate: bigint; lastRepayTime: bigint; termDays: bigint; aprBps: bigint; active: boolean }[],
+        { principal: bigint; startTime: bigint; dueDate: bigint; lastRepayTime: bigint; termDays: bigint; aprBps: bigint; baseBps: bigint; active: boolean }[],
         bigint[],
       ];
       const loans: ChainLoan[] = loansRaw.map((l, i) => ({
@@ -512,6 +515,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         lastRepayTime: l.lastRepayTime,
         termDays:      Number(l.termDays),
         aprBps:        Number(l.aprBps),
+        baseBps:       Number(l.baseBps ?? 0),
         active:        l.active,
         interest:      interestsRaw[i] ?? BigInt(0),
       }));
@@ -771,40 +775,43 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const tx = await c.loan.borrow(units, BigInt(termDays));
       const receipt = await tx.wait();
       if (receipt) saveTxToDB(addr, 'Borrowed', units.toString(), receipt);
-      // LoanCreated carries the on-chain loanId and dueDate for this borrow —
-      // the ledger row stores both so repayments can settle by loanId and the
-      // admin view can query due dates without an RPC call.
+      // LoanCreated carries the on-chain loanId, dueDate AND the rates the
+      // contract actually locked into this loan. The rates matter: they were
+      // captured BEFORE this borrow raised pool utilization, so a fresh
+      // currentAprBps() read after the transaction comes back HIGHER than
+      // what the loan is really charged — quoting that fresh read is what
+      // once showed 3.40% on the receipt for a loan locked at 3.36%.
       let loanId: number | null = null;
       let dueDateIso: string | null = null;
+      let lockedAprBps: number | null = null;
+      let lockedBaseBps: number | null = null;
       try {
         const createdEvt = ((receipt?.logs ?? []) as ethers.Log[])
           .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } })
           .find(p => p?.name === 'LoanCreated');
         if (createdEvt) {
-          loanId     = Number(createdEvt.args[1] as bigint);
-          dueDateIso = new Date(Number(createdEvt.args[3] as bigint) * 1000).toISOString();
+          loanId        = Number(createdEvt.args[1] as bigint);
+          dueDateIso    = new Date(Number(createdEvt.args[3] as bigint) * 1000).toISOString();
+          lockedAprBps  = Number(createdEvt.args[5] as bigint);
+          lockedBaseBps = Number(createdEvt.args[6] as bigint);
         }
       } catch { /* event decode is best-effort */ }
-      // The rate this borrow is recorded at: currentAprBps() — the SAME call
-      // accruedInterest() charges against, and the same number the Borrow tab
-      // quotes. Recording baseRateBps here was the divergence: the ledger then
-      // accrued at base while the contract charged base + utilization premium,
-      // so a "full" repayment computed from the ledger always came up short and
-      // left a residual sen of principal behind. Three borrows in a minute can
-      // now record three different rates — that is honest, and it changes
-      // nothing about the charge, which is uniform across the whole position.
-      // Re-read fresh from the contract (state can be a minute stale).
-      let aprBps = s.currentAprBps;
-      try {
-        aprBps = Number(await (c.loan.currentAprBps as () => Promise<bigint>)());
-      } catch { /* pre-redeploy contract — keep the state value */ }
-      // Base rate at the same moment — a separate read purely for the "base +
-      // premium = rate" breakdown shown on this row later; never used for any
-      // money math, only aprBps (the effective rate) is.
-      let baseAprBps = s.borrowAprBps;
-      try {
-        baseAprBps = Number(await (c.loan.baseRateBps as () => Promise<bigint>)());
-      } catch { /* pre-redeploy contract — keep the state value */ }
+      // The rate recorded for this borrow is the one the CONTRACT LOCKED —
+      // taken from the LoanCreated event, never a fresh currentAprBps() read
+      // (which already includes this borrow's own utilization bump). Fresh
+      // reads survive only as the fallback for an undecodable event.
+      let aprBps = lockedAprBps ?? s.currentAprBps;
+      if (lockedAprBps === null) {
+        try {
+          aprBps = Number(await (c.loan.currentAprBps as () => Promise<bigint>)());
+        } catch { /* keep the state value */ }
+      }
+      let baseAprBps = lockedBaseBps ?? s.borrowAprBps;
+      if (lockedBaseBps === null) {
+        try {
+          baseAprBps = Number(await (c.loan.baseRateBps as () => Promise<bigint>)());
+        } catch { /* keep the state value */ }
+      }
       if (receipt) {
         // Tranche ledger row — lets the Repay tab itemize borrows, settle them
         // individually, and (via termMonths) run the installment-bill math.
@@ -834,7 +841,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           title: 'Loan Disbursed',
           amountLabel: `RM ${parseFloat(myrAmt).toFixed(2)}`,
           lines: [
-            { label: 'Interest rate', value: `${(aprBps / 100).toFixed(2)}% APR (locked for this loan)` },
+            {
+              label: 'Interest rate',
+              value: baseAprBps > 0 && aprBps >= baseAprBps
+                ? `${(aprBps / 100).toFixed(2)}% APR (${(baseAprBps / 100).toFixed(2)}% base + ${((aprBps - baseAprBps) / 100).toFixed(2)}% utilisation) — locked`
+                : `${(aprBps / 100).toFixed(2)}% APR (locked for this loan)`,
+            },
             { label: 'Loan term', value: `${termDays} days` },
             ...(dueDateIso
               ? [{ label: 'Due date', value: `${new Date(dueDateIso).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })} (+7-day grace period)` }]

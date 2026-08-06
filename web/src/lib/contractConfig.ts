@@ -3,7 +3,7 @@
 
 export const HARDHAT_CHAIN_ID = 31337;
 export const HARDHAT_RPC_URL  = "http://127.0.0.1:8545";
-export const ETH_PRICE_MYR    = 7813;
+export const ETH_PRICE_MYR    = 7809;
 
 export const CONTRACT_ADDRESSES = {
   CryptoLoan: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
@@ -285,6 +285,12 @@ export const CRYPTO_LOAN_ABI = [
         "indexed": false,
         "internalType": "uint256",
         "name": "aprBps",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "baseBps",
         "type": "uint256"
       }
     ],
@@ -1105,6 +1111,11 @@ export const CRYPTO_LOAN_ABI = [
           {
             "internalType": "uint256",
             "name": "aprBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseBps",
             "type": "uint256"
           },
           {

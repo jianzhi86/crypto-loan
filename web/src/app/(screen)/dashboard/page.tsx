@@ -564,7 +564,9 @@ function Dashboard() {
         rowId: db?.id ?? null,
         principalMYR,
         aprBps: l.aprBps,
-        baseAprBps: db?.baseAprBps ?? 0,
+        // The split is on-chain state now (loan.baseBps); the DB copy survives
+        // only as a fallback for loans made before the contract stored it.
+        baseAprBps: l.baseBps > 0 ? l.baseBps : (db?.baseAprBps ?? 0),
         interest,
         label: new Date(startMs).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
         startMs, dueMs, termDays: l.termDays, status,
@@ -2559,8 +2561,8 @@ function Dashboard() {
                                   RM {r.principalMYR.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                   <Box component="span" sx={{ color: C.ts, fontWeight: 500 }}>
                                     {' · '}
-                                    {r.baseAprBps > 0
-                                      ? `${(r.baseAprBps / 100).toFixed(2)}% base + ${Math.max(0, (r.aprBps - r.baseAprBps) / 100).toFixed(2)}% = ${(r.aprBps / 100).toFixed(2)}% locked`
+                                    {r.baseAprBps > 0 && r.aprBps >= r.baseAprBps
+                                      ? `${(r.baseAprBps / 100).toFixed(2)}% base + ${((r.aprBps - r.baseAprBps) / 100).toFixed(2)}% util = ${(r.aprBps / 100).toFixed(2)}% locked`
                                       : `${(r.aprBps / 100).toFixed(2)}% APR locked`}
                                   </Box>
                                 </Typography>

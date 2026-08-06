@@ -8,7 +8,7 @@ const LOAN_ABI = [
   'function setKYC(address user, bool approved) external',
   'function kycApproved(address user) view returns (bool)',
   'function getPosition(address user) view returns (uint256 collateral, uint256 principal)',
-  'function getUserLoans(address user) view returns (tuple(uint256 principal, uint256 startTime, uint256 dueDate, uint256 lastRepayTime, uint256 termDays, uint256 aprBps, bool active)[] loansOut, uint256[] interests)',
+  'function getUserLoans(address user) view returns (tuple(uint256 principal, uint256 startTime, uint256 dueDate, uint256 lastRepayTime, uint256 termDays, uint256 aprBps, uint256 baseBps, bool active)[] loansOut, uint256[] interests)',
 ];
 
 function readContract() {
