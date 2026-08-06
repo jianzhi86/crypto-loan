@@ -482,10 +482,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const utilizationRate       = pool ? Number(pool[3]) / 10000 : 0;
       const protocolBorrowedMYR   = Number(ps[0]) / 1e6;
       const protocolCollateralETH = Number(ps[1]) / 1e18;
-      // Mirrors the contract's supplyInterestRate() = baseRateBps * 38 / 100.
-      // Deliberately off the BASE rate: depositors are not paid the borrower's
-      // utilization premium.
-      const supplyAprBps       = Math.round(borrowAprBps * 38 / 100);
+      // Mirrors the contract's supplyInterestRate() = currentAprBps() * 38 / 100
+      // — off the EFFECTIVE rate (base + utilization premium), so depositor
+      // yield tracks the same market conditions borrowers are paying for.
+      const supplyAprBps       = Math.round(currentAprBps * 38 / 100);
       const pendingYieldMYR    = supplyIntResult.status === 'fulfilled' ? Number(supplyIntResult.value as bigint) / 1e6 : 0;
       // Remember this position so it survives a disconnect / reload.
       cachePosition(address, { info: loanInfo, ethBalance, myrBalance, ethPriceMYR });
@@ -703,6 +703,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       try {
         aprBps = Number(await (c.loan.currentAprBps as () => Promise<bigint>)());
       } catch { /* pre-redeploy contract — keep the state value */ }
+      // Base rate at the same moment — a separate read purely for the "base +
+      // premium = rate" breakdown shown on this row later; never used for any
+      // money math, only aprBps (the effective rate) is.
+      let baseAprBps = s.borrowAprBps;
+      try {
+        baseAprBps = Number(await (c.loan.baseRateBps as () => Promise<bigint>)());
+      } catch { /* pre-redeploy contract — keep the state value */ }
       if (receipt) {
         // Tranche ledger row — lets the Repay tab itemize borrows, settle them
         // individually, and (via termMonths) run the installment-bill math.
@@ -715,7 +722,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            wallet: addr, principal: units.toString(), aprBps,
+            wallet: addr, principal: units.toString(), aprBps, baseAprBps,
             termMonths: opts?.termMonths ?? 1, txHash: receipt.hash,
           }),
         }).then(res => {

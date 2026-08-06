@@ -38,7 +38,12 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     ///         figure the UI quotes on its 60s refresh is exactly the figure the
     ///         contract charges — not a per-second value that has already moved
     ///         by the time the user signs the transaction.
-    uint256 public constant ACCRUAL_STEP = 60;
+    uint256 public constant ACCRUAL_STEP = 1 days;
+
+    /// @dev Offset applied before flooring to ACCRUAL_STEP so day boundaries
+    ///      land on Malaysia midnight (UTC+8) instead of UTC midnight — this
+    ///      is an MYR product, so "today"/"12am" means local time.
+    uint256 public constant MYR_TZ_OFFSET = 8 hours;
 
     // ── State ──────────────────────────────────────────────────────────────
     uint256 public ethPrice;       // MYR per ETH (whole number, e.g. 18000)
@@ -383,10 +388,15 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     function accruedInterest(address user) public view returns (uint256) {
         Loan storage loan = loans[user];
         if (loan.principal == 0 || loan.startTime == 0) return 0;
-        // Floored to whole minutes (ACCRUAL_STEP): the number quoted on the UI's
-        // 60s cycle is then exactly the number charged, so a full repay settles
-        // to zero instead of leaving a few sen of principal behind.
-        uint256 elapsed = ((block.timestamp - loan.lastRepayTime) / ACCRUAL_STEP) * ACCRUAL_STEP;
+        // Anchored to calendar days at Malaysia midnight (UTC+8 — this is an
+        // MYR product, so "today"/"12am" means local time, not UTC), not a
+        // rolling 24h window from the last repay: interest is owed for the
+        // borrow/last-repay date itself, and each local calendar date crossed
+        // after that adds one more day's interest.
+        uint256 lastDay = (loan.lastRepayTime + MYR_TZ_OFFSET) / ACCRUAL_STEP;
+        uint256 curDay  = (block.timestamp + MYR_TZ_OFFSET) / ACCRUAL_STEP;
+        uint256 dayDiff = curDay - lastDay;
+        uint256 elapsed = (dayDiff == 0 ? 1 : dayDiff) * ACCRUAL_STEP;
         return (loan.principal * currentAprBps() * elapsed) / (10_000 * 365 days);
     }
 
@@ -440,16 +450,19 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         );
     }
 
-    /// @notice Supply APR in bps — 38% of the borrow rate passed to depositors.
+    /// @notice Supply APR in bps — 38% of the CURRENT effective borrow rate
+    ///         (base + utilization premium, same figure borrowers pay), so
+    ///         lender yield tracks real market demand instead of the flat floor.
     function supplyInterestRate() public view returns (uint256) {
-        return (baseRateBps * 38) / 100;
+        return (currentAprBps() * 38) / 100;
     }
 
     /// @notice MYR interest accrued (6 decimals) since the user first deposited.
     function accruedSupplyInterest(address user) public view returns (uint256) {
         Loan storage loan = loans[user];
         if (loan.collateral == 0 || supplyStart[user] == 0) return 0;
-        // Same whole-minute floor as accruedInterest() — see ACCRUAL_STEP.
+        // Rolling whole-day floor (UTC, not the local-midnight anchoring
+        // accruedInterest() uses) — see ACCRUAL_STEP.
         uint256 elapsed = ((block.timestamp - supplyStart[user]) / ACCRUAL_STEP) * ACCRUAL_STEP;
         uint256 colMYR  = (loan.collateral * ethPrice * MYR_DECIMALS) / PRECISION;
         return (colMYR * supplyInterestRate() * elapsed) / (10_000 * 365 days);

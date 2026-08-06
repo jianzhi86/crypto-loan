@@ -523,10 +523,6 @@ Example (RM 10,000 borrowed for 30 days at 4.8% APR):
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
               {[
                 {
-                  q: 'Why do I need to run the deploy script every time?',
-                  a: 'Each Hardhat node restart wipes all contract state and generates fresh addresses. Run `npm run chain` then `npm run deploy:local` — the deploy script regenerates contractConfig.ts automatically.',
-                },
-                {
                   q: 'Why does repay require two MetaMask confirmations?',
                   a: 'MockMYR is an ERC-20 token. Before the CryptoLoan contract can pull MYR from your wallet, you must first grant it an allowance (the "approve" step). This is standard ERC-20 behaviour — the same flow used by Uniswap, Aave, and every DeFi protocol.',
                 },

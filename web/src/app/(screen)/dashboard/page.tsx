@@ -67,9 +67,22 @@ const LOAN_TERMS = [
   { days: 365, months: 12, label: '1 Year'   },
 ];
 
-/// Interest ticks once per minute on-chain (CryptoLoan.ACCRUAL_STEP), so every
-/// accrual here is expressed in whole minutes over a 365-day year to match.
-const MINUTES_PER_YEAR = 525_600;
+/// Interest steps once per calendar day on-chain (CryptoLoan.ACCRUAL_STEP),
+/// so every accrual here is expressed in whole days over a 365-day year.
+const DAY_MS = 86_400_000;
+const MYR_TZ_OFFSET_MS = 8 * 60 * 60 * 1000; // UTC+8 — see CryptoLoan.MYR_TZ_OFFSET
+// Mirrors accruedInterest()'s calendar-day anchoring: interest is owed for
+// the borrow/last-repay date itself (Malaysia midnight boundaries — "today"
+// means local time for an MYR product, not UTC), and each local calendar
+// date crossed since then adds one more day's interest — not a rolling 24h
+// window from the borrow timestamp.
+const daysSince = (sinceMs: number, now: number) => {
+  if (sinceMs <= 0) return 0;
+  const lastDay = Math.floor((sinceMs + MYR_TZ_OFFSET_MS) / DAY_MS);
+  const curDay  = Math.floor((now + MYR_TZ_OFFSET_MS) / DAY_MS);
+  const diff    = curDay - lastDay;
+  return diff === 0 ? 1 : diff;
+};
 
 /// ETH the MAX buttons hold back for gas. A depositCollateral() costs about
 /// 0.00008 ETH on this chain, so this covers roughly a hundred more actions —
@@ -386,17 +399,17 @@ function Dashboard() {
   // after paying" logic, and grows in your favor as billing cycles pass even
   // with zero payments, same as any straight-line installment plan would.
   type LedgerRow = {
-    id: string; principalMYR: number; aprBps: number; interest: number; label: string;
+    id: string; principalMYR: number; aprBps: number; baseAprBps: number; interest: number; label: string;
     termMonths: number; monthsElapsed: number; remainingMonths: number; thisMonthDue: number;
   };
   const LEGACY_ID = '__legacy__';
-  const [borrowRows, setBorrowRows] = useState<{ id: string; principal: string; originalPrincipal: string; aprBps: number; termMonths: number; borrowedAt: string }[]>([]);
+  const [borrowRows, setBorrowRows] = useState<{ id: string; principal: string; originalPrincipal: string; aprBps: number; baseAprBps: number; termMonths: number; borrowedAt: string }[]>([]);
   const [selectedBorrowIds, setSelectedBorrowIds] = useState<string[]>([]);
   const fetchBorrows = useCallback(async () => {
     if (!wallet.address) { setBorrowRows([]); return; }
     try {
       const r = await fetch(`/api/borrows?wallet=${wallet.address}`);
-      const d = await r.json() as { borrows?: { id: string; principal: string; originalPrincipal: string; aprBps: number; termMonths: number; borrowedAt: string }[] };
+      const d = await r.json() as { borrows?: { id: string; principal: string; originalPrincipal: string; aprBps: number; baseAprBps: number; termMonths: number; borrowedAt: string }[] };
       if (Array.isArray(d.borrows)) setBorrowRows(d.borrows);
     } catch { /* keep the last known list */ }
   }, [wallet.address]);
@@ -481,11 +494,10 @@ function Dashboard() {
       const principalMYR  = Number(r.principal) / 1e6;
       const originalMYR   = Number(r.originalPrincipal || r.principal) / 1e6;
       const borrowedAtMs  = new Date(r.borrowedAt).getTime();
-      // Whole minutes, exactly like accruedInterest()'s ACCRUAL_STEP floor.
-      const minutes       = Math.floor(Math.max(0, now - Math.max(borrowedAtMs, lastRepayMs)) / 60_000);
-      const interest      = principalMYR * (effAprBps / 10_000) * (minutes / MINUTES_PER_YEAR);
+      const days          = daysSince(Math.max(borrowedAtMs, lastRepayMs), now);
+      const interest      = principalMYR * (effAprBps / 10_000) * (days / 365);
       return {
-        id: r.id, principalMYR, aprBps: r.aprBps, interest,
+        id: r.id, principalMYR, aprBps: r.aprBps, baseAprBps: r.baseAprBps, interest,
         label: new Date(r.borrowedAt).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
         ...installment(originalMYR, principalMYR, interest, r.termMonths, borrowedAtMs),
       };
@@ -500,10 +512,10 @@ function Dashboard() {
     const remainder = chainPrincipal - covered;
     if (remainder > 0.01) {
       const sinceMs = Number(wallet.loanInfo.lastRepayTime || wallet.loanInfo.startTime) * 1000;
-      const minutes = sinceMs > 0 ? Math.floor(Math.max(0, now - sinceMs) / 60_000) : 0;
-      const interest = remainder * (effAprBps / 10_000) * (minutes / MINUTES_PER_YEAR);
+      const days = daysSince(sinceMs, now);
+      const interest = remainder * (effAprBps / 10_000) * (days / 365);
       rows.unshift({
-        id: LEGACY_ID, principalMYR: remainder, aprBps: effAprBps, interest,
+        id: LEGACY_ID, principalMYR: remainder, aprBps: effAprBps, baseAprBps: wallet.borrowAprBps, interest,
         label: 'Earlier borrows (before itemized ledger)',
         ...installment(remainder, remainder, interest, 1, sinceMs || now),
       });
@@ -1655,13 +1667,13 @@ function Dashboard() {
                 const hfLabel      = hfPos < 1.2 ? 'At Risk' : hfPos < 1.5 ? 'Moderate' : 'Healthy';
                 const hfBarPct     = Math.min((isFinite(hfPos) ? hfPos : 3) / 3 * 100, 100);
                 const earnedMYR    = wallet.pendingYieldMYR;
-                const stripSupApr  = supplyApr(baseAprPct, 0.38);
+                const stripSupApr  = supplyApr(effAprPct, 0.38);
                 return (
                   <Box sx={{ mb: 2, borderRadius: 2, overflow: 'hidden', border: `1px solid ${C.border}`, bgcolor: '#111B38' }}>
                     <Box sx={{ display: 'flex' }}>
                       {[
                         { label: 'Collateral', value: `${colEthPos.toFixed(3)} ETH`, color: C.tp,   sub: `≈ ${rm(colEthPos * wallet.ethPriceMYR)}` },
-                        { label: 'Borrowed',   value: borMYRPos > 0 ? `RM ${borMYRPos.toFixed(2)}` : '—', color: borMYRPos > 0 ? C.gold : C.ts, sub: borMYRPos > 0 ? `${baseAprPct.toFixed(2)}% base · ${effAprPct.toFixed(2)}% eff. APR` : 'No debt' },
+                        { label: 'Borrowed',   value: borMYRPos > 0 ? `RM ${borMYRPos.toFixed(2)}` : '—', color: borMYRPos > 0 ? C.gold : C.ts, sub: borMYRPos > 0 ? `${baseAprPct.toFixed(2)}% base + ${Math.max(0, effAprPct - baseAprPct).toFixed(2)}% = ${effAprPct.toFixed(2)}% eff. APR now` : 'No debt' },
                         { label: 'Earning',    value: `RM ${earnedMYR.toFixed(4)}`, color: C.teal, sub: `${stripSupApr.toFixed(2)}% Supply APR` },
                         { label: 'Health',     value: borMYRPos > 0 ? fmtHF(hfPos) : '—', color: hfColor, sub: borMYRPos > 0 ? hfLabel : '—' },
                       ].map((item, i) => (
@@ -1810,7 +1822,7 @@ function Dashboard() {
                   {/* Earn-rate estimate — read-only preview of what this deposit would
                       earn; live claim balance lives on the Portfolio page instead. */}
                   {(() => {
-                    const ethSupplyApr = supplyApr(baseAprPct, 0.38);
+                    const ethSupplyApr = supplyApr(effAprPct, 0.38);
                     const depEth       = parseFloat(depositAmt || '0');
                     const price        = isLive ? wallet.ethPriceMYR : ethPriceMYR;
                     const hourlyEarn   = depEth > 0 ? depEth * price * (ethSupplyApr / 100) / 8760 : 0;
@@ -1983,7 +1995,7 @@ function Dashboard() {
                   </Box>
 
                   {(() => {
-                    const ethSupplyApr   = supplyApr(baseAprPct, 0.38);
+                    const ethSupplyApr   = supplyApr(effAprPct, 0.38);
                     const hourlyNow      = colEth  * price * (ethSupplyApr / 100) / 8760;
                     const hourlyAfter    = colAfter * price * (ethSupplyApr / 100) / 8760;
                     const gasEth         = 0.010;
@@ -2280,23 +2292,23 @@ function Dashboard() {
                 const perDay       = principal > 0 ? principal * (contractAprPct / 100) / 365 : 0;
                 const repayAmtNum  = parseFloat(repayAmtEffective || '0');
                 // What the CONTRACT will actually pull on a full settlement,
-                // over the same whole-minute window it accrues on (ACCRUAL_STEP).
+                // over the same whole-day window it accrues on (ACCRUAL_STEP),
+                // with the same minimum-one-day floor — borrow and repay the
+                // same day still owes that day's interest.
                 const contractIntNow = (() => {
                   if (!wallet.loanInfo || principal <= 0) return 0;
                   const since = Number(wallet.loanInfo.lastRepayTime || wallet.loanInfo.startTime) * 1000;
-                  if (since <= 0) return 0;
-                  const minutes = Math.floor(Math.max(0, (wallet.lastRefreshAt || Date.now()) - since) / 60_000);
-                  return principal * (contractAprPct / 100) * (minutes / MINUTES_PER_YEAR);
+                  const days = daysSince(since, wallet.lastRefreshAt || Date.now());
+                  return principal * (contractAprPct / 100) * (days / 365);
                 })();
-                const contractPerMin = principal * (contractAprPct / 100) / MINUTES_PER_YEAR;
                 // Full payoff must be funded to the contract's cost, whatever the
                 // input shows; partial repays only need the typed amount.
                 const requiredBal  = repayFull ? Math.max(repayAmtNum, principal + contractIntNow) : repayAmtNum;
                 const shortage     = repayAmtNum > 0 ? Math.max(0, requiredBal - myrBal) : 0;
-                const perMin       = contractPerMin;
+                const perMin       = perDay / 1440;
                 // Buffer: 30 min of growth at the contract rate (min RM 1), so the
                 // suggested top-up survives signing time and the next few refreshes.
-                const topUpAmt     = shortage > 0 ? Math.ceil((shortage + Math.max(contractPerMin * 30, 1)) * 100) / 100 : 0;
+                const topUpAmt     = shortage > 0 ? Math.ceil((shortage + Math.max(perMin * 30, 1)) * 100) / 100 : 0;
                 const hasDue       = principal > 0;
                 const isPending    = wallet.txStatus === 'pending';
                 const insuffBal    = shortage > 0;
@@ -2323,13 +2335,14 @@ function Dashboard() {
                         </Typography>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                           <LiveDot color={C.gold} />
-                          <Chip label={`${contractAprPct.toFixed(2)}% APR`} size="small"
+                          <Chip label={`${contractAprPct.toFixed(2)}% Live APR`} size="small"
                             sx={{ bgcolor: `${C.gold}18`, color: C.gold, border: `1px solid ${C.gold}45`, fontSize: 11, fontWeight: 700, height: 22 }} />
                         </Box>
                       </Box>
                       <Typography sx={{ fontSize: 10, color: C.ts, mt: -0.75, mb: 1, lineHeight: 1.4 }}>
-                        Variable rate — moves with the market, never fixed. Currently{' '}
-                        <Box component="span" sx={{ color: C.gold, fontWeight: 600 }}>{contractAprPct.toFixed(2)}% effective</Box> on new interest.
+                        Variable rate, not locked at borrow — it moves with the market and applies to your{' '}
+                        <Box component="span" sx={{ color: C.gold, fontWeight: 600 }}>whole outstanding balance</Box>, so the % shown
+                        here can differ from the rate a plan below was opened at.
                       </Typography>
                       <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 1 }}>
                         {[
@@ -2350,7 +2363,7 @@ function Dashboard() {
                             {wallet.isRefreshing ? 'Updating…' : `Quote refreshes in ${quoteIn}s`}
                           </Typography>
                         </Box>
-                        <Typography sx={{ fontSize: 10.5, color: C.ts }}>+RM {perMin < 0.01 ? perMin.toFixed(4) : perMin.toFixed(3)}/min</Typography>
+                        <Typography sx={{ fontSize: 10.5, color: C.ts }}>+RM {perDay < 0.01 ? perDay.toFixed(4) : perDay.toFixed(3)}/day</Typography>
                       </Box>
                     </Box>
                   )}
@@ -2386,7 +2399,12 @@ function Dashboard() {
                             <Box sx={{ flex: 1, minWidth: 0 }}>
                               <Typography sx={{ fontSize: 12.5, fontWeight: 600, color: C.tp }}>
                                 RM {r.principalMYR.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                <Box component="span" sx={{ color: C.ts, fontWeight: 500 }}> · {(r.aprBps / 100).toFixed(2)}% APR</Box>
+                                <Box component="span" sx={{ color: C.ts, fontWeight: 500 }}>
+                                  {' · '}
+                                  {r.baseAprBps > 0
+                                    ? `${(r.baseAprBps / 100).toFixed(2)}% base + ${Math.max(0, (r.aprBps - r.baseAprBps) / 100).toFixed(2)}% = ${(r.aprBps / 100).toFixed(2)}% at borrow`
+                                    : `${(r.aprBps / 100).toFixed(2)}% APR at borrow`}
+                                </Box>
                               </Typography>
                               <Typography sx={{ fontSize: 10.5, color: C.ts }}>{r.label}</Typography>
                               <Typography sx={{ fontSize: 10.5, color: C.blue, mt: 0.25 }}>

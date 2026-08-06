@@ -47,6 +47,7 @@ export default function PortfolioPage() {
   // Live variable borrow rate from the contract (falls back to 4.8% until the
   // redeployed contract is on-chain).
   const APR        = wallet.borrowAprBps / 100;
+  const effAPR     = wallet.currentAprBps / 100;
   const isLive     = wallet.isConnected && wallet.isCorrectNetwork && wallet.isDeployed;
   const { events: txHistory, loading: txLoading } = useTransactionHistory(isLive ? wallet.address ?? undefined : undefined);
 
@@ -65,7 +66,7 @@ export default function PortfolioPage() {
 
   // Supply earnings — deposited ETH earns a share of the borrow APR (moved here from
   // the Deposit modal, which only ever showed it while that dialog happened to be open).
-  const ethSupplyApr = supplyApr(APR, 0.38);
+  const ethSupplyApr = supplyApr(effAPR, 0.38);
   const earnedSoFar   = wallet.pendingYieldMYR;
   const hourlyEarn    = colEth > 0 ? colEth * (isLive ? wallet.ethPriceMYR : ethMYR) * (ethSupplyApr / 100) / 8760 : 0;
   const hasClaim       = earnedSoFar > 0.000001;

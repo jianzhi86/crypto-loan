@@ -9,7 +9,7 @@ import { prisma } from '@/lib/db/prisma';
 import { getFlags } from '@/lib/features-server';
 import { FLAGS, ON } from '@/lib/features';
 import { readChainStats } from '@/lib/contract-read';
-import { dynamicApr, supplyApr } from '@/lib/rates';
+import { supplyApr } from '@/lib/rates';
 import { AdminAutoSync } from '@/components/AdminAutoSync';
 import { AdminWithdrawFees } from '@/components/admin/AdminWithdrawFees';
 import { ShieldIcon, BoltIcon, PulseIcon, BankIcon } from '@/components/Icons';
@@ -37,6 +37,13 @@ function pct(a: number, b: number) {
   return b > 0 ? Math.round((a / b) * 100) : 0;
 }
 
+
+/* Build sparkline trend ending at `final` over 7 data points */
+function spark(final: number) {
+  const w = [0.55, 0.63, 0.70, 0.77, 0.85, 0.92, 1.0];
+  return w.map(t => ({ v: Math.round(final * t) }));
+}
+
 /* Build deterministic monthly cumulative series from a final total */
 function monthlyData(borrowed: number, repaid: number) {
   const MONTHS  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -47,12 +54,6 @@ function monthlyData(borrowed: number, repaid: number) {
     cumR += repaid  * WEIGHTS[i] * 0.9;
     return { month, borrowed: Math.round(cumB), repaid: Math.round(cumR), outstanding: Math.round(Math.max(0, cumB - cumR)) };
   });
-}
-
-/* Build sparkline trend ending at `final` over 7 data points */
-function spark(final: number) {
-  const w = [0.55, 0.63, 0.70, 0.77, 0.85, 0.92, 1.0];
-  return w.map(t => ({ v: Math.round(final * t) }));
 }
 
 /* ─── Route config ────────────────────────────────────────────────────────── */
@@ -133,7 +134,6 @@ export default async function AdminOverviewPage() {
   const liveAprPct   = chain ? chain.aprBps / 100 : null;
   const baseAprPct   = chain ? chain.baseRateBps / 100 : null;
   const ethSupplyApr = liveAprPct ? supplyApr(liveAprPct, 0.38) : null;
-  const btcBorrowApr = liveAprPct ? dynamicApr(liveAprPct, 0.78, 0) : null;
 
   // Supply interest projections from on-chain state
   const supplyRatePct       = chain ? chain.supplyRateBps / 100 : null;
@@ -147,7 +147,6 @@ export default async function AdminOverviewPage() {
 
   const ETH_COLOR = '#627EEA';
 
-  const chartData = monthlyData(totalBorrowedMYR, totalRepaidMYR);
   const donutData = [
     { name: 'Borrows',     value: stat.borrow_count,   color: C.green   },
     { name: 'Repays',      value: stat.repay_count,     color: ETH_COLOR },
@@ -204,6 +203,8 @@ export default async function AdminOverviewPage() {
     { label: 'User KYC Rate',    value: kycRate,         color: '#9B7DFF', hint: `${kycApproved} of ${users} users` },
   ];
 
+  const chartData = monthlyData(totalBorrowedMYR, totalRepaidMYR);
+
   /* ── Tx type display ─ */
   const TX_META: Record<string, { label: string; color: string }> = {
     Borrowed:               { label: 'Borrow',     color: C.green   },
@@ -234,12 +235,18 @@ export default async function AdminOverviewPage() {
               <Link href="/admin/kyc" style={{ textDecoration: 'none' }}>
                 <Box sx={{
                   px: 1.5, py: 0.6, borderRadius: 2, cursor: 'pointer',
-                  bgcolor: 'rgba(255,178,36,0.08)', border: '1px solid rgba(255,178,36,0.3)',
+                  bgcolor: 'rgba(255,178,36,0.16)', border: `1px solid ${C.amber}`,
+                  boxShadow: `0 0 12px rgba(255,178,36,0.35)`,
                   display: 'flex', alignItems: 'center', gap: 0.75,
-                  '&:hover': { bgcolor: 'rgba(255,178,36,0.14)' },
+                  animation: 'kycPendingGlow 2s ease-in-out infinite',
+                  '@keyframes kycPendingGlow': {
+                    '0%, 100%': { boxShadow: '0 0 6px rgba(255,178,36,0.25)' },
+                    '50%':      { boxShadow: '0 0 16px rgba(255,178,36,0.6)' },
+                  },
+                  '&:hover': { bgcolor: 'rgba(255,178,36,0.24)' },
                 }}>
-                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: C.amber }} />
-                  <Typography sx={{ fontSize: 12, fontWeight: 600, color: C.amber }}>
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: C.amber, boxShadow: `0 0 6px ${C.amber}` }} />
+                  <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.amber }}>
                     {kycPending} KYC pending
                   </Typography>
                 </Box>
@@ -408,11 +415,10 @@ export default async function AdminOverviewPage() {
           <Divider sx={{ borderColor: C.border }} />
 
           {chain ? (
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', sm: 'repeat(4,1fr)', md: 'repeat(7,1fr)' } }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', sm: 'repeat(3,1fr)', md: 'repeat(6,1fr)' } }}>
               {[
                 { label: 'Borrow APR (ETH)',  value: `${liveAprPct!.toFixed(2)}%`,   color: C.green,  sub: `base ${baseAprPct!.toFixed(2)}%`    },
                 { label: 'Supply APR (ETH)',  value: `${ethSupplyApr!.toFixed(2)}%`,  color: '#2BD9A2', sub: '38% of borrow'                     },
-                { label: 'Borrow APR (BTC)',  value: `${btcBorrowApr!.toFixed(2)}%`, color: '#F7931A', sub: '0.78× ETH rate'                    },
                 { label: 'ETH Price',         value: `RM ${chain.ethPriceMYR.toLocaleString('en-MY')}`, color: '#627EEA', sub: 'on-chain'        },
                 { label: 'On-chain Borrowed', value: rm(chain.totalBorrowedMYR),      color: C.ink,    sub: 'contract state'                     },
                 { label: 'Collateral',        value: `${chain.totalCollateralETH.toFixed(2)} ETH`, color: C.ink, sub: 'contract state'           },
