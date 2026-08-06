@@ -57,3 +57,10 @@ web/public/uploads/
 blockchain/artifacts/
 blockchain/cache/
 blockchain/typechain-types/
+
+# Environment files — contain live secrets (DB creds, owner private key, API
+# keys). Never commit these; copy from .env.example instead.
+.env
+.env.*
+!.env.example
+!web/.env.example

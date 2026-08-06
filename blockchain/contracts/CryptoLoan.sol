@@ -391,12 +391,21 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         // Anchored to calendar days at Malaysia midnight (UTC+8 — this is an
         // MYR product, so "today"/"12am" means local time, not UTC), not a
         // rolling 24h window from the last repay: interest is owed for the
-        // borrow/last-repay date itself, and each local calendar date crossed
-        // after that adds one more day's interest.
+        // borrow date itself, and each local calendar date crossed after that
+        // adds one more day's interest.
         uint256 lastDay = (loan.lastRepayTime + MYR_TZ_OFFSET) / ACCRUAL_STEP;
         uint256 curDay  = (block.timestamp + MYR_TZ_OFFSET) / ACCRUAL_STEP;
         uint256 dayDiff = curDay - lastDay;
-        uint256 elapsed = (dayDiff == 0 ? 1 : dayDiff) * ACCRUAL_STEP;
+        // The minimum-one-day floor applies ONLY before this loan's first ever
+        // repay (lastRepayTime == startTime) — a same-day borrow-then-repay
+        // still owes that day. It must NOT apply to a same-day REPEAT repay:
+        // lastRepayTime resets on every repay, so without this guard, two
+        // partial repayments minutes apart would each get charged a full
+        // phantom day of interest on the whole position, silently eating every
+        // partial payment and making the loan impossible to pay off in a
+        // handful of same-day installments.
+        bool firstAccrual = loan.lastRepayTime == loan.startTime;
+        uint256 elapsed = (dayDiff == 0 && firstAccrual ? 1 : dayDiff) * ACCRUAL_STEP;
         return (loan.principal * currentAprBps() * elapsed) / (10_000 * 365 days);
     }
 

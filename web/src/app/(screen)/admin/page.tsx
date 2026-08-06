@@ -235,18 +235,18 @@ export default async function AdminOverviewPage() {
               <Link href="/admin/kyc" style={{ textDecoration: 'none' }}>
                 <Box sx={{
                   px: 1.5, py: 0.6, borderRadius: 2, cursor: 'pointer',
-                  bgcolor: 'rgba(255,178,36,0.16)', border: `1px solid ${C.amber}`,
-                  boxShadow: `0 0 12px rgba(255,178,36,0.35)`,
+                  bgcolor: '#0B3D91', border: '1px solid #0B3D91',
+                  boxShadow: '0 0 12px rgba(11,61,145,0.5)',
                   display: 'flex', alignItems: 'center', gap: 0.75,
                   animation: 'kycPendingGlow 2s ease-in-out infinite',
                   '@keyframes kycPendingGlow': {
-                    '0%, 100%': { boxShadow: '0 0 6px rgba(255,178,36,0.25)' },
-                    '50%':      { boxShadow: '0 0 16px rgba(255,178,36,0.6)' },
+                    '0%, 100%': { boxShadow: '0 0 6px rgba(11,61,145,0.35)' },
+                    '50%':      { boxShadow: '0 0 16px rgba(11,61,145,0.8)' },
                   },
-                  '&:hover': { bgcolor: 'rgba(255,178,36,0.24)' },
+                  '&:hover': { bgcolor: '#0E4CB5' },
                 }}>
-                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: C.amber, boxShadow: `0 0 6px ${C.amber}` }} />
-                  <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.amber }}>
+                  <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#fff', boxShadow: '0 0 6px #fff' }} />
+                  <Typography sx={{ fontSize: 12, fontWeight: 800, color: '#fff' }}>
                     {kycPending} KYC pending
                   </Typography>
                 </Box>

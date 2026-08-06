@@ -828,32 +828,52 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       let units = BigInt(Math.ceil(parseFloat(myrAmt) * 1e6));
       // What the contract will actually pull (before any headroom).
       let due = units;
+      // The REAL current debt, used only for the balance-sufficiency check
+      // below — never padded with the day-boundary safety margin `due` gets,
+      // so a wallet holding exactly enough to cover the actual debt isn't
+      // rejected over interest that hasn't accrued yet and may never will.
+      let realDue = units;
       if (opts?.full) {
         // Full payoff: quote the real payoff, not the stale view. totalDue()
         // is computed against the LAST MINED block's timestamp — frozen
         // between transactions on a local chain — while the repay tx itself
         // mines a fresh block and charges interest up to real wall-clock time
         // at the live dynamic rate. Project the quote forward to now and take
-        // the max, so the approval and balance check cover what the contract
-        // will actually pull. Falls back to the caller's amount on old contracts.
+        // the max, so the approval covers what the contract will actually
+        // pull. Falls back to the caller's amount on old contracts.
         try {
           const [dueView, loanRaw, aprNow] = await Promise.all([
             (c.loan.totalDue as (a: string) => Promise<bigint>)(s.address),
             (c.loan.loans as (a: string) => Promise<bigint[]>)(s.address),
             (c.loan.currentAprBps as () => Promise<bigint>)(),
           ]);
-          const STEP = BigInt(60);              // mirrors ACCRUAL_STEP
-          const YEAR = BigInt(31_536_000);      // mirrors Solidity's `365 days`
+          realDue = dueView;
+          const STEP      = BigInt(86_400);     // mirrors ACCRUAL_STEP (1 day)
+          const TZ_OFFSET  = BigInt(8 * 3600);   // mirrors MYR_TZ_OFFSET (UTC+8)
+          const YEAR       = BigInt(31_536_000); // mirrors Solidity's `365 days`
           const principalU = loanRaw[1];
+          const startTime  = loanRaw[2];
           const lastRepay  = loanRaw[3];
           const nowSec     = BigInt(Math.floor(Date.now() / 1000));
-          const raw        = nowSec > lastRepay ? nowSec - lastRepay : BigInt(0);
-          // Mirror accruedInterest()'s whole-minute floor, then add ONE extra
-          // minute: this tx mines seconds from now and may cross a boundary,
+          // Mirror accruedInterest()'s calendar-day anchoring (Malaysia
+          // midnight, minimum one day before the FIRST repay only — see the
+          // firstAccrual comment in CryptoLoan.sol), then add ONE extra day:
+          // this tx mines seconds from now and may cross a day boundary,
           // ticking interest up a step after we quoted. repay() caps `paying`
-          // at totalDue, so over-quoting costs nothing — under-quoting is
-          // exactly what leaves sen of principal behind.
-          const elapsed = ((raw / STEP) + BigInt(1)) * STEP;
+          // at totalDue, so over-quoting the APPROVAL costs nothing —
+          // under-quoting is exactly what leaves sen of principal behind and
+          // forces a repeat repay attempt. This padded `due` must NOT be used
+          // as the minimum balance required (see realDue above) — a full day
+          // of phantom interest on a large position can be a real amount of
+          // money the user was never actually going to owe.
+          let elapsed = BigInt(0);
+          if (lastRepay > BigInt(0)) {
+            const lastDay       = (lastRepay + TZ_OFFSET) / STEP;
+            const curDay        = (nowSec + TZ_OFFSET) / STEP;
+            const dayDiff       = curDay > lastDay ? curDay - lastDay : BigInt(0);
+            const firstAccrual  = lastRepay === startTime;
+            elapsed = ((dayDiff === BigInt(0) && firstAccrual ? BigInt(1) : dayDiff) + BigInt(1)) * STEP;
+          }
           const projected = lastRepay > BigInt(0)
             ? principalU + (principalU * aprNow * elapsed) / (BigInt(10_000) * YEAR)
             : dueView;
@@ -867,9 +887,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // balance from the chain — the s.myrBalance state copy is a stale
       // closure capture here (this callback's deps don't track it) and once
       // reported a shortfall against a balance from a previous session.
+      // Checked against realDue (the actual current debt), not the padded
+      // `due` — see the comment on realDue above.
       const myrBalUnits = (await c.myr.balanceOf(s.address)) as bigint;
-      if (due > myrBalUnits) {
-        const shortfall = Number(due - myrBalUnits) / 1e6;
+      if (realDue > myrBalUnits) {
+        const shortfall = Number(realDue - myrBalUnits) / 1e6;
         // "Auto top-up" only exists in the UI for a FULL payoff (it's gated on
         // repayFull there) — pointing a partial/custom-amount repay at a button
         // that isn't on screen just strands the user. Tell them what's actually

@@ -72,16 +72,20 @@ const LOAN_TERMS = [
 const DAY_MS = 86_400_000;
 const MYR_TZ_OFFSET_MS = 8 * 60 * 60 * 1000; // UTC+8 — see CryptoLoan.MYR_TZ_OFFSET
 // Mirrors accruedInterest()'s calendar-day anchoring: interest is owed for
-// the borrow/last-repay date itself (Malaysia midnight boundaries — "today"
-// means local time for an MYR product, not UTC), and each local calendar
-// date crossed since then adds one more day's interest — not a rolling 24h
-// window from the borrow timestamp.
-const daysSince = (sinceMs: number, now: number) => {
+// the borrow date itself (Malaysia midnight boundaries — "today" means local
+// time for an MYR product, not UTC), and each local calendar date crossed
+// since then adds one more day's interest — not a rolling 24h window from
+// the borrow timestamp. The minimum-one-day floor applies ONLY before this
+// loan's first ever repay (firstAccrual) — see the matching guard in
+// CryptoLoan.sol's accruedInterest(). Without it, repeated same-day partial
+// repayments would each get charged a fresh phantom day of interest, since
+// the interest clock (lastRepayTime) resets on every repay.
+const daysSince = (sinceMs: number, now: number, firstAccrual: boolean) => {
   if (sinceMs <= 0) return 0;
   const lastDay = Math.floor((sinceMs + MYR_TZ_OFFSET_MS) / DAY_MS);
   const curDay  = Math.floor((now + MYR_TZ_OFFSET_MS) / DAY_MS);
   const diff    = curDay - lastDay;
-  return diff === 0 ? 1 : diff;
+  return diff === 0 && firstAccrual ? 1 : diff;
 };
 
 /// ETH the MAX buttons hold back for gas. A depositCollateral() costs about
@@ -484,6 +488,8 @@ function Dashboard() {
     // borrowedAt stays untouched as the installment plan's month anchor
     // (resetting it on settle used to freeze every plan at "Month 1" forever).
     const lastRepayMs = Number(wallet.loanInfo.lastRepayTime || 0) * 1000;
+    // True only before this position's first ever repay — see daysSince().
+    const firstAccrual = Number(wallet.loanInfo.lastRepayTime) === Number(wallet.loanInfo.startTime);
     // ONE rate for every row. The contract charges currentAprBps() against the
     // whole position, so pricing each tranche at its own recorded rate produced
     // a total that could never equal what repay() would pull — the ledger came
@@ -494,7 +500,7 @@ function Dashboard() {
       const principalMYR  = Number(r.principal) / 1e6;
       const originalMYR   = Number(r.originalPrincipal || r.principal) / 1e6;
       const borrowedAtMs  = new Date(r.borrowedAt).getTime();
-      const days          = daysSince(Math.max(borrowedAtMs, lastRepayMs), now);
+      const days          = daysSince(Math.max(borrowedAtMs, lastRepayMs), now, firstAccrual);
       const interest      = principalMYR * (effAprBps / 10_000) * (days / 365);
       return {
         id: r.id, principalMYR, aprBps: r.aprBps, baseAprBps: r.baseAprBps, interest,
@@ -512,7 +518,7 @@ function Dashboard() {
     const remainder = chainPrincipal - covered;
     if (remainder > 0.01) {
       const sinceMs = Number(wallet.loanInfo.lastRepayTime || wallet.loanInfo.startTime) * 1000;
-      const days = daysSince(sinceMs, now);
+      const days = daysSince(sinceMs, now, firstAccrual);
       const interest = remainder * (effAprBps / 10_000) * (days / 365);
       rows.unshift({
         id: LEGACY_ID, principalMYR: remainder, aprBps: effAprBps, baseAprBps: wallet.borrowAprBps, interest,
@@ -2293,12 +2299,14 @@ function Dashboard() {
                 const repayAmtNum  = parseFloat(repayAmtEffective || '0');
                 // What the CONTRACT will actually pull on a full settlement,
                 // over the same whole-day window it accrues on (ACCRUAL_STEP),
-                // with the same minimum-one-day floor — borrow and repay the
-                // same day still owes that day's interest.
+                // with the same minimum-one-day floor that applies only before
+                // this loan's first ever repay — a repeat same-day repay must
+                // NOT re-charge a phantom day (see daysSince()).
                 const contractIntNow = (() => {
                   if (!wallet.loanInfo || principal <= 0) return 0;
                   const since = Number(wallet.loanInfo.lastRepayTime || wallet.loanInfo.startTime) * 1000;
-                  const days = daysSince(since, wallet.lastRefreshAt || Date.now());
+                  const firstAccrual = Number(wallet.loanInfo.lastRepayTime) === Number(wallet.loanInfo.startTime);
+                  const days = daysSince(since, wallet.lastRefreshAt || Date.now(), firstAccrual);
                   return principal * (contractAprPct / 100) * (days / 365);
                 })();
                 // Full payoff must be funded to the contract's cost, whatever the

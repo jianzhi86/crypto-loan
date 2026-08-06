@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireUser } from '@/lib/authz';
+import { sendEmail } from '@/lib/email/resend';
+import { buildReceiptEmail, RECEIPT_TX_TYPES, type ReceiptTxType } from '@/lib/email/receipt';
+
+function isReceiptTxType(type: string): type is ReceiptTxType {
+  return (RECEIPT_TX_TYPES as readonly string[]).includes(type);
+}
 
 // POST /api/loan-tx — save a transaction after it's confirmed on-chain
 export async function POST(req: NextRequest) {
@@ -16,11 +22,21 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const isNewRow = (await prisma.loanTransaction.findUnique({ where: { txHash }, select: { id: true } })) === null;
     const tx = await prisma.loanTransaction.upsert({
       where:  { txHash },
       update: {},
       create: { wallet: wallet.toLowerCase(), type, amount: String(amount), txHash, blockNumber },
     });
+    // Receipt email — only for the "I just moved money" tx types, only on the
+    // first time this txHash is recorded (an upsert retry must not re-send),
+    // and only when the signed-in user has an email on file. Never blocks or
+    // fails the response: a stuck email provider must not make a confirmed
+    // on-chain transaction look like it failed to save.
+    if (isNewRow && guard.user.email && isReceiptTxType(type)) {
+      const { subject, html } = buildReceiptEmail({ type, wallet, amount: String(amount), txHash, blockNumber });
+      sendEmail(guard.user.email, subject, html);
+    }
     return NextResponse.json({ ok: true, id: tx.id });
   } catch (err) {
     // Postgres upsert isn't atomic against a true concurrent duplicate: two

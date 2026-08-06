@@ -75,17 +75,43 @@ export default function PortfolioPage() {
   const startTime    = loan?.startTime ?? BigInt(0);
   const borrowDate   = startTime > BigInt(0) ? new Date(Number(startTime) * 1000) : null;
   const today        = new Date();
+  // Loan LIFETIME clock (for the timeline/progress bar): plain calendar days
+  // since the original borrow, unrelated to the interest clock below.
   const daysElapsed  = borrowDate ? Math.max(0, Math.floor((today.getTime() - borrowDate.getTime()) / 86400000)) : 0;
   const daysLeft     = Math.max(0, LOAN_TERM - daysElapsed);
   const maturityDate = borrowDate ? addDays(borrowDate, LOAN_TERM) : null;
   const progressPct  = LOAN_TERM > 0 ? Math.min((daysElapsed / LOAN_TERM) * 100, 100) : 0;
 
+  // INTEREST clock (for "Accrued Interest × N days" and the daily/projected
+  // figures): mirrors CryptoLoan.accruedInterest() exactly — Malaysia-midnight
+  // (UTC+8) calendar days since the last repay (not the original borrow date,
+  // since every repay resets the clock), with a minimum of one day BEFORE the
+  // loan's first ever repay only (firstAccrual) — see dashboard/page.tsx's
+  // daysSince() for the same logic and why the firstAccrual guard exists (a
+  // same-day repeat repay must not get charged a phantom extra day).
+  const DAY_MS = 86_400_000;
+  const TZ_OFFSET_MS = 8 * 60 * 60 * 1000;
+  const lastRepaySec = loan ? Number(loan.lastRepayTime) : 0;
+  const sinceMs       = lastRepaySec > 0 ? lastRepaySec * 1000 : 0;
+  const firstAccrual  = loan ? Number(loan.lastRepayTime) === Number(loan.startTime) : true;
+  const interestDays  = (() => {
+    if (sinceMs <= 0) return 0;
+    const lastDay = Math.floor((sinceMs + TZ_OFFSET_MS) / DAY_MS);
+    const curDay  = Math.floor((Date.now() + TZ_OFFSET_MS) / DAY_MS);
+    const diff    = curDay - lastDay;
+    return diff === 0 && firstAccrual ? 1 : diff;
+  })();
+
   const origFee      = borMYR * ORIG_FEE;
   const accruedInt   = loan ? Number(loan.accruedInterest) / 1e6 : 0;
-  const projTotalInt = borMYR * (APR / 100) * (LOAN_TERM / 365);
+  // effAPR (base + utilization premium) — the same rate accruedInterest()
+  // actually charges. Using the flat base rate here used to under-quote the
+  // daily/projected figures against what the dashboard (and the contract)
+  // show for the same position.
+  const projTotalInt = borMYR * (effAPR / 100) * (LOAN_TERM / 365);
   const totalRepay   = borMYR + accruedInt;
   const fullRepay    = borMYR + projTotalInt;
-  const dailyInt     = borMYR * (APR / 100) / 365;
+  const dailyInt     = borMYR * (effAPR / 100) / 365;
 
   const cardSx = { p: 3, bgcolor: '#111B38', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 3 };
   const rowSx  = { p: 2, bgcolor: '#0B1226', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2 };
@@ -173,7 +199,7 @@ export default function PortfolioPage() {
             [
               { label: 'ETH Collateral',  value: `${colEth.toFixed(4)} ETH`,              sub: rm(colMYR),               sc: '#2BD9A2' },
               { label: 'Total Borrowed',  value: rm(borMYR, 2),                            sub: `${pct(ltvUsed)} LTV used`, sc: '#FFB224' },
-              { label: 'Accrued Interest',value: borMYR > 0 ? rm(accruedInt, 2) : '—',    sub: `${APR}% APR · ${daysElapsed}d elapsed`, sc: '#FFB224' },
+              { label: 'Accrued Interest',value: borMYR > 0 ? rm(accruedInt, 2) : '—',    sub: `${effAPR.toFixed(2)}% APR · ${interestDays}d this cycle`, sc: '#FFB224' },
               { label: 'Health Factor',   value: isFinite(hf) ? hf.toFixed(2) : '∞',      sub: hLabel(hf),               sc: hc },
             ].map(s => (
               <Paper key={s.label} sx={{ p: 2.5, bgcolor: '#111B38', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2 }}>
@@ -344,8 +370,8 @@ export default function PortfolioPage() {
                   {[
                     { label: 'Principal Borrowed',       value: rm(borMYR, 2),               sub: 'Original loan amount',              vc: '#F2F5FF' },
                     { label: 'Origination Fee (0.1%)',   value: rm(origFee, 2),               sub: 'Charged at disbursement',           vc: 'rgba(255,255,255,0.65)' },
-                    { label: 'Accrued Interest',         value: rm(accruedInt, 2),            sub: `${APR}% APR × ${daysElapsed} days`, vc: '#FFB224' },
-                    { label: 'Daily Interest Rate',      value: rm(dailyInt, 2) + '/day',     sub: 'Accruing continuously',             vc: 'rgba(255,255,255,0.65)' },
+                    { label: 'Accrued Interest',         value: rm(accruedInt, 2),            sub: `${effAPR.toFixed(2)}% APR × ${interestDays} day${interestDays === 1 ? '' : 's'} since last repay`, vc: '#FFB224' },
+                    { label: 'Daily Interest Rate',      value: rm(dailyInt, 2) + '/day',     sub: 'Steps once per calendar day',       vc: 'rgba(255,255,255,0.65)' },
                     { label: 'Projected Total Interest', value: rm(projTotalInt, 2),          sub: `If held full ${LOAN_TERM} days`,    vc: 'rgba(255,255,255,0.65)' },
                   ].map(r => (
                     <Box key={r.label} sx={{ ...rowSx, display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5 }}>

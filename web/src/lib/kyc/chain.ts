@@ -15,13 +15,36 @@ function readContract() {
   return new ethers.Contract(LOAN_ADDR, LOAN_ABI, provider);
 }
 
-/** Flip a wallet's KYC flag on the CryptoLoan contract (owner-signed). */
+/**
+ * Flip a wallet's KYC flag on the CryptoLoan contract (owner-signed).
+ *
+ * The owner key also signs price-sync transactions (see price-sync.ts), and
+ * ethers fetches the "pending" nonce fresh per send — two owner-signed calls
+ * firing close together (e.g. an admin price sync and a KYC resync landing
+ * in the same request window) can both read the same nonce and race, so
+ * whichever mines second gets rejected as "Nonce too low". Retry a few times
+ * on that specific, recoverable race instead of surfacing it as a failure.
+ */
 export async function setKycOnChain(wallet: string, approved = true): Promise<void> {
   const provider = new ethers.JsonRpcProvider(RPC_URL);
   const signer   = new ethers.Wallet(process.env.OWNER_PRIVATE_KEY!, provider);
   const contract = new ethers.Contract(LOAN_ADDR, LOAN_ABI, signer);
-  const tx = await (contract.setKYC as (u: string, a: boolean) => Promise<ethers.TransactionResponse>)(wallet, approved);
-  await tx.wait();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const tx = await (contract.setKYC as (u: string, a: boolean) => Promise<ethers.TransactionResponse>)(wallet, approved);
+      await tx.wait();
+      return;
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      const recoverable = code === 'NONCE_EXPIRED' || code === 'REPLACEMENT_UNDERPRICED'
+        || String((e as Error).message ?? '').includes('Nonce too low');
+      if (recoverable && attempt < 5) {
+        await new Promise(r => setTimeout(r, 300));
+        continue;
+      }
+      throw e;
+    }
+  }
 }
 
 /** Whether the contract currently has this wallet flagged as KYC-approved. */
