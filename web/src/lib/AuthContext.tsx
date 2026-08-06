@@ -8,7 +8,11 @@ export interface AuthUser {
   name?: string | null;
   walletAddress?: string | null;
   isAdmin?: boolean;
-  /** 'ACTIVE' | 'RESTRICTED' — read live from the DB, not from the JWT. */
+  /**
+   * 'ACTIVE' | 'RESTRICTED' — read live from the DB, not from the JWT.
+   * 'SUSPENDED' never reaches here: getSessionUser() returns null for it, so a
+   * suspended account resolves to no user at all rather than a flagged one.
+   */
   status?: string;
   statusReason?: string | null;
 }

@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/db/prisma';
 import { createToken, setAuthCookie } from '@/lib/auth-jwt';
 import { featureBlocked } from '@/lib/features-server';
+import { STATUS_SUSPENDED, suspendedMessage } from '@/lib/authz';
 
 export async function POST(req: Request) {
   try {
@@ -22,6 +23,17 @@ export async function POST(req: Request) {
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+
+    // Placed after the password check for the same reason as the feature gate
+    // below: an unauthenticated prober must not be able to discover which
+    // emails exist by reading a distinct status code. Admins are NOT exempt —
+    // unlike a paused login, a suspension is aimed at a specific account.
+    if (user.status === STATUS_SUSPENDED) {
+      return NextResponse.json(
+        { error: suspendedMessage(user.statusReason), code: 'ACCOUNT_SUSPENDED' },
+        { status: 403 },
+      );
+    }
 
     // Sign-in can be paused from the admin feature panel — but only after the
     // password is verified, and never for admins. Checking it here rather than

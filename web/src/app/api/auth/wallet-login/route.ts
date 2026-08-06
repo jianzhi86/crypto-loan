@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { createToken, setAuthCookie } from '@/lib/auth-jwt';
 import { consumeNonce } from '@/lib/nonce-store';
 import { featureBlocked } from '@/lib/features-server';
+import { STATUS_SUSPENDED, suspendedMessage } from '@/lib/authz';
 
 export async function POST(req: Request) {
   const { address, signature, nonce } = await req.json();
@@ -47,6 +48,15 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error('[wallet-login] DB error:', err);
     return NextResponse.json({ error: 'Database error' }, { status: 500 });
+  }
+
+  // No enumeration concern on this path — the signature already proved control
+  // of the wallet, so telling them why they are refused costs nothing.
+  if (user.status === STATUS_SUSPENDED) {
+    return NextResponse.json(
+      { error: suspendedMessage(user.statusReason), code: 'ACCOUNT_SUSPENDED' },
+      { status: 403 },
+    );
   }
 
   if (!user.isAdmin) {

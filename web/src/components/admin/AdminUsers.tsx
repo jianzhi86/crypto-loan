@@ -40,7 +40,9 @@ interface AdminUser {
   kyc: { status: string; fullName: string; submittedAt: string } | null;
 }
 
-const STATUS_TONE = { ACTIVE: 'green', RESTRICTED: 'red' } as const;
+// RESTRICTED is amber rather than red so SUSPENDED — which actually locks the
+// account out — reads as the harder of the two at a glance.
+const STATUS_TONE = { ACTIVE: 'green', RESTRICTED: 'amber', SUSPENDED: 'red' } as const;
 const KYC_TONE: Record<string, 'green' | 'amber' | 'red'> = {
   approved: 'green', pending: 'amber', rejected: 'red',
 };
@@ -130,6 +132,7 @@ export default function AdminUsers() {
               <MenuItem value="">All statuses</MenuItem>
               <MenuItem value="ACTIVE">Active</MenuItem>
               <MenuItem value="RESTRICTED">Restricted</MenuItem>
+              <MenuItem value="SUSPENDED">Suspended</MenuItem>
             </TextField>
             <TextField select size="small" label="Role" value={role} onChange={onFilter(setRole)} sx={fieldSx}>
               <MenuItem value="">All roles</MenuItem>
@@ -223,6 +226,7 @@ function UserRow({ user, striped, onEdit, onDone }: {
   const [confirm, setConfirm] = useState<null | { action: string; title: string; body: string; danger?: boolean }>(null);
 
   const restricted = user.status === 'RESTRICTED';
+  const suspended  = user.status === 'SUSPENDED';
 
   const run = async (action: string, reason?: string) => {
     setBusy(true);
@@ -254,15 +258,32 @@ function UserRow({ user, striped, onEdit, onDone }: {
   };
 
   const items: { key: string; label: string; danger?: boolean; disabled?: boolean; hint?: string }[] = [
+    suspended
+      ? { key: 'unsuspend', label: 'Lift suspension' }
+      : { key: 'suspend', label: 'Suspend (blocks sign-in)', danger: true },
     restricted
       ? { key: 'unrestrict', label: 'Lift restriction' }
-      : { key: 'restrict', label: 'Restrict (read-only)', danger: true },
+      : {
+          key: 'restrict', label: 'Restrict (read-only)', danger: true,
+          // Restricting a suspended account changes nothing they can reach.
+          disabled: suspended,
+          hint: suspended ? 'Already suspended — they cannot sign in at all' : undefined,
+        },
     { key: 'reset-password', label: 'Reset password', disabled: !user.email, hint: !user.email ? 'Wallet-only account' : undefined },
     { key: 'reset-kyc',      label: 'Reset KYC to pending', disabled: !user.kyc, hint: !user.kyc ? 'No KYC submission' : undefined },
     { key: 'unlink-wallet',  label: 'Unlink wallet', disabled: !user.walletAddress || !user.email, hint: !user.walletAddress ? 'No wallet linked' : !user.email ? 'Would leave no way to sign in' : undefined },
   ];
 
   const CONFIRMS: Record<string, { title: string; body: string; danger?: boolean }> = {
+    suspend: {
+      title: 'Suspend this account?',
+      body: 'They are signed out of every device immediately and refused at sign-in from then on. The sign-in page tells them to contact admin@cryptolend.com and shows the reason below. This does not stop their wallet from calling the loan contract directly.',
+      danger: true,
+    },
+    unsuspend: {
+      title: 'Lift this suspension?',
+      body: 'They can sign in again straight away. Their password is unchanged, but they must sign in fresh — suspending ended every session they had.',
+    },
     restrict: {
       title: 'Restrict this account?',
       body: 'They will still be able to sign in and view their dashboard, but every write — borrowing, repaying, transfers, KYC and settings — will be refused. This does not affect what their wallet can do on-chain.',
@@ -301,7 +322,7 @@ function UserRow({ user, striped, onEdit, onDone }: {
         </TableCell>
         <TableCell sx={cellSx}>
           <Badge
-            label={restricted ? 'restricted' : 'active'}
+            label={suspended ? 'suspended' : restricted ? 'restricted' : 'active'}
             tone={STATUS_TONE[user.status as keyof typeof STATUS_TONE] ?? 'neutral'}
             title={user.statusReason ?? undefined}
           />
@@ -345,7 +366,7 @@ function UserRow({ user, striped, onEdit, onDone }: {
           title={confirm.title}
           body={confirm.body}
           danger={confirm.danger}
-          needsReason={confirm.action === 'restrict'}
+          needsReason={confirm.action === 'restrict' || confirm.action === 'suspend'}
           onCancel={() => setConfirm(null)}
           onConfirm={reason => run(confirm.action, reason)}
         />

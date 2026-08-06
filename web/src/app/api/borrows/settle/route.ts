@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireUser } from '@/lib/authz';
+import { getOnChainPosition } from '@/lib/kyc/chain';
+
+/// Sub-sen residue is not a debt. Interest is charged before principal and the
+/// payoff quote is rounded up, so what a full payoff can leave on a row is a
+/// handful of 1e6-units. A row left OPEN holding principal "1" (RM 0.000001) is
+/// dust no user will ever repay, and it keeps the loan looking active forever.
+/// Anything at or under this closes the row.
+const DUST_UNITS = BigInt(10_000);   // RM 0.01 in MYR 1e6 units
 
 // POST /api/borrows/settle — apply a confirmed on-chain repayment to the
 // itemized ledger tranches it was meant to cover, after the repay tx confirmed.
@@ -24,12 +32,44 @@ export async function POST(req: NextRequest) {
   const guard = await requireUser();
   if (!guard.ok) return guard.response;
 
-  const { ids, principalPaid, repayTxHash, allocations } = await req.json() as {
+  const { ids, principalPaid, repayTxHash, allocations, closeAll, wallet } = await req.json() as {
     ids?: string[];
     principalPaid?: string;
     repayTxHash?: string | null;
     allocations?: { id?: string; principal?: string }[];
+    closeAll?: boolean;
+    wallet?: string;
   };
+
+  // Escape hatch for a full payoff: when the chain says the position is clear,
+  // every OPEN row for that wallet is settled regardless of what the allocation
+  // arithmetic worked out to. Verified here with a server-side RPC read — the
+  // client's claim is never taken on its own word, so this cannot be used to
+  // wipe a ledger that still has real debt behind it.
+  if (closeAll && typeof wallet === 'string' && wallet) {
+    const walletKey = wallet.toLowerCase();
+    try {
+      const pos = await getOnChainPosition(walletKey);
+      if (pos.principal !== BigInt(0)) {
+        return NextResponse.json({ ok: false, reason: 'chain still shows debt' });
+      }
+    } catch (err) {
+      // Fail closed: an unreadable chain is not evidence the loan is clear.
+      console.error('[POST /api/borrows/settle] closeAll chain read failed:', err);
+      return NextResponse.json({ error: 'Could not verify the on-chain position' }, { status: 502 });
+    }
+    try {
+      const res = await prisma.borrowPosition.updateMany({
+        where: { wallet: walletKey, status: 'OPEN' },
+        data: { status: 'REPAID', repaidAt: new Date(), repayTxHash: repayTxHash ?? null },
+      });
+      return NextResponse.json({ ok: true, closedAll: true, closed: res.count });
+    } catch (err) {
+      console.error('[POST /api/borrows/settle] closeAll', err);
+      return NextResponse.json({ error: 'DB error' }, { status: 500 });
+    }
+  }
+
   if (!Array.isArray(ids) || ids.length === 0 || ids.some(id => typeof id !== 'string')) {
     return NextResponse.json({ error: 'ids required' }, { status: 400 });
   }
@@ -64,7 +104,10 @@ export async function POST(req: NextRequest) {
     const byId = new Map(rows.map(r => [r.id, r]));
     const now = new Date();
 
-    const ops = [];
+    const spent = new Map<string, bigint>();
+
+    // Pass 1 — allocation caps respected, so an installment payment spreads
+    // across the selected plans instead of draining the oldest one.
     for (const id of ids) {
       if (remaining <= BigInt(0)) break;
       const row = byId.get(id);
@@ -76,7 +119,32 @@ export async function POST(req: NextRequest) {
       if (cap < pay) pay = cap;
       if (pay <= BigInt(0)) continue;
       remaining -= pay;
-      if (pay >= rowPrincipal) {
+      spent.set(id, pay);
+    }
+
+    // Pass 2 — the caps are a fairness device, not a refund. Whatever they left
+    // unspent is money the contract has already taken; dropping it (as this
+    // loop used to) made the ledger drift permanently above the chain's real
+    // principal, which is the other half of the leftover-cents bug. Apply it
+    // oldest-first across whatever capacity remains.
+    if (remaining > BigInt(0)) {
+      for (const id of ids) {
+        if (remaining <= BigInt(0)) break;
+        const row = byId.get(id);
+        if (!row) continue;
+        const left = BigInt(row.principal) - (spent.get(id) ?? BigInt(0));
+        if (left <= BigInt(0)) continue;
+        const pay = remaining < left ? remaining : left;
+        remaining -= pay;
+        spent.set(id, (spent.get(id) ?? BigInt(0)) + pay);
+      }
+    }
+
+    const ops = [];
+    for (const [id, pay] of spent) {
+      const rowPrincipal = BigInt(byId.get(id)!.principal);
+      // `+ DUST_UNITS` rather than an exact `>=`: see DUST_UNITS above.
+      if (pay + DUST_UNITS >= rowPrincipal) {
         ops.push(prisma.borrowPosition.updateMany({
           where: { id, status: 'OPEN' },
           data: { status: 'REPAID', repaidAt: now, repayTxHash: repayTxHash ?? null },

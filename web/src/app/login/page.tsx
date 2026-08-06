@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Tooltip from '@mui/material/Tooltip';
 import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
@@ -19,7 +19,8 @@ import { BoltIcon, EyeIcon, EyeOffIcon, LockIcon, ShieldIcon, TrendUpIcon } from
 const FEATURES = [
   { icon: <LockIcon size={18} />, text: 'Non-custodial — your keys, your crypto' },
   { icon: <BoltIcon size={18} />, text: 'Instant MYR loans against crypto collateral' },
-  { icon: <TrendUpIcon size={18} />, text: 'Up to 75% LTV with competitive APR' },
+  // 70% mirrors CryptoLoan.sol's MAX_LTV — the contract is what actually caps a borrow.
+  { icon: <TrendUpIcon size={18} />, text: 'Up to 70% LTV with competitive APR' },
   { icon: <ShieldIcon size={18} />, text: 'KYC-verified and compliance-ready' },
 ];
 
@@ -32,6 +33,16 @@ function LoginForm() {
   const [loading,  setLoading]  = useState(false);
   const [walletLoading, setWalletLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Set by the (screen) layout when a cookie is present but resolves to nobody
+  // — i.e. the account was suspended (or its sessions were revoked) while the
+  // JWT was still cryptographically valid.
+  const suspended = searchParams.get('suspended') === '1';
+  useEffect(() => {
+    // Clear the dead cookie. Left in place it keeps proxy.ts treating this
+    // browser as authenticated, so nobody else could sign in on it either.
+    if (suspended) void fetch('/api/auth/logout', { method: 'POST' });
+  }, [suspended]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -163,6 +174,19 @@ function LoginForm() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3.5 }}>
             Sign in to your account to continue
           </Typography>
+
+          {/* Suppressed once they try to sign in: the 403 from the API carries
+              the suspension reason, which is strictly more informative. */}
+          {suspended && !error && (
+            <Alert severity="error" sx={{ mb: 2.5, bgcolor: '#FEF2F2', color: '#B42318',
+              border: '1px solid #FECDCA', '& .MuiAlert-icon': { color: '#E5484D' } }}>
+              Your account has been suspended. Please contact{' '}
+              <Box component="a" href="mailto:admin@cryptolend.com"
+                sx={{ color: '#B42318', fontWeight: 700 }}>
+                admin@cryptolend.com
+              </Box>{' '}to resolve this.
+            </Alert>
+          )}
 
           {error && (
             <Alert severity="error" sx={{ mb: 2.5, bgcolor: '#FEF2F2', color: '#B42318',

@@ -92,15 +92,23 @@ export const MOCK_MYR_ABI = ${JSON.stringify(myrArtifact.abi, null, 2)} as const
   fs.writeFileSync(outputPath, content);
   console.log("Contract config written to:", outputPath);
 
-  console.log("\n── First 3 Hardhat test accounts ─────────────────────────────");
+  console.log("\n── Accounts ──────────────────────────────────────────────────");
   const signers = await ethers.getSigners();
-  for (let i = 0; i < Math.min(3, signers.length); i++) {
-    console.log(`Account #${i}: ${signers[i].address}`);
+  console.log(`Account #0: ${signers[0].address}   ← PROTOCOL OWNER — do NOT import into MetaMask`);
+  for (let i = 1; i < Math.min(4, signers.length); i++) {
+    console.log(`Account #${i}: ${signers[i].address}   ← safe to import`);
   }
+  console.log(
+    "\n! Account #0 is OWNER_PRIVATE_KEY. The web server signs setEthPrice,\n" +
+    "  setKYC and withdrawProtocolFees with it in the background. If you also\n" +
+    "  import it into MetaMask, the server advances that account's nonce\n" +
+    "  between your own transactions and you get 'Nonce too low' — and its ETH\n" +
+    "  drains as the keeper pays gas. Use account #1 or later for the app.\n"
+  );
   console.log("Private keys are printed when you run 'npm run chain'.\n");
   console.log("Next steps:");
   console.log("  1. Add Hardhat network to MetaMask (RPC: http://127.0.0.1:8545, Chain ID: 31337)");
-  console.log("  2. Import an account using a private key from 'npm run chain' output");
+  console.log("  2. Import account #1 (or later) using its private key from 'npm run chain'");
   console.log("  3. Open http://localhost:3000 and click 'Connect Wallet'");
 }
 

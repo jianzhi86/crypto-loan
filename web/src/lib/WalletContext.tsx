@@ -102,13 +102,33 @@ export interface WalletState {
   txTotalSteps: number;
   lastReceipt: TxReceipt | null;
   // Yield system (requires redeployed contract)
+  /**
+   * The contract's baseRateBps. Display it *labelled* "base rate" and nothing
+   * else — never compute money from it. See currentAprBps.
+   */
   borrowAprBps: number;
-  // Current dynamic rate = base + utilization slope + volatility premium.
-  // Use this (not borrowAprBps) for interest projections — it's what the
-  // contract's accruedInterest() actually charges.
+  /**
+   * THE rate: currentAprBps() = base + utilization premium, clamped. Every
+   * interest projection, ledger accrual and payoff quote must come from this,
+   * because it is exactly what accruedInterest() charges. Quoting anything else
+   * is what used to leave sen of principal behind on a "full" repayment.
+   */
   currentAprBps: number;
   supplyAprBps: number;
+  /**
+   * totalBorrowed ÷ supplyCap, 0–1 — read from the contract's utilizationBps().
+   * Formerly borrowed ÷ collateral, which is a collateralisation ratio and had
+   * no bearing on the rate.
+   */
   utilizationRate: number;
+  /** Pool ceiling in MYR (contract supplyCap). */
+  supplyCapMYR: number;
+  /** MYR still lendable before borrow() refuses. */
+  poolAvailableMYR: number;
+  /** Protocol-wide outstanding debt in MYR. */
+  protocolBorrowedMYR: number;
+  /** Protocol-wide collateral in ETH. */
+  protocolCollateralETH: number;
   pendingYieldMYR: number;
 }
 
@@ -136,7 +156,9 @@ const INIT: WalletState = {
   txStatus: 'idle', txMessage: '',
   txStep: 1, txTotalSteps: 1,
   lastReceipt: null,
-  borrowAprBps: 300, currentAprBps: 300, supplyAprBps: 0, utilizationRate: 0, pendingYieldMYR: 0,
+  borrowAprBps: 300, currentAprBps: 300, supplyAprBps: 0, utilizationRate: 0,
+  supplyCapMYR: 0, poolAvailableMYR: 0, protocolBorrowedMYR: 0, protocolCollateralETH: 0,
+  pendingYieldMYR: 0,
 };
 
 const HN_PARAMS = {
@@ -268,7 +290,25 @@ function revertReason(err: unknown): string | null {
   // fixed-depth field, so the fix only shows when we've actually found that
   // signal — not merely because the top-level message happened to be vague.
   const all = collectErrorStrings(e).join(' | ');
-  if (/nonce too (high|low)|could not coalesce/i.test(all)) {
+  // "Too HIGH" and "too LOW" are opposite faults with opposite remedies, and
+  // collapsing them into one message sent people down the wrong path.
+  //
+  //   too HIGH → MetaMask is AHEAD of the node: the chain was restarted and
+  //              reset every nonce, but MetaMask kept its cached counter.
+  //   too LOW  → MetaMask is BEHIND the node: something else already sent a
+  //              transaction from this same account. On this project that
+  //              "something else" is the server keeper, which signs
+  //              setEthPrice/setKYC/withdrawProtocolFees with OWNER_PRIVATE_KEY
+  //              — Hardhat account #0. If you imported that same account into
+  //              MetaMask, the server silently advances the nonce underneath
+  //              you and clearing the cache only helps until the next keeper
+  //              tick. The durable fix is to use a different account.
+  if (/nonce too low/i.test(all)) {
+    return 'MetaMask is behind this account\'s on-chain nonce — another signer already sent a transaction from it. '
+      + 'The server keeper signs with Hardhat account #0 (OWNER_PRIVATE_KEY), so if that is the account you imported, '
+      + 'switch MetaMask to a different account (#1 or later). To recover now: Settings → Advanced → "Clear activity tab data"';
+  }
+  if (/nonce too high|could not coalesce/i.test(all)) {
     return 'the local chain was restarted. In MetaMask: Settings → Advanced → "Clear activity tab data", then retry';
   }
   // Strip ethers' "execution reverted: " / "...: reverted: " prefixes.
@@ -418,11 +458,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const ethPriceMYR = Number(price as bigint);
       // Optional calls — only exist on the current contract version.
       // Promise.allSettled so a missing function never crashes the whole refresh.
-      const [aprLiveResult, dynAprResult, protStatsResult, supplyIntResult] = await Promise.allSettled([
+      const [aprLiveResult, dynAprResult, protStatsResult, supplyIntResult, poolResult] = await Promise.allSettled([
         Promise.resolve().then(() => c.loan.baseRateBps()),
         Promise.resolve().then(() => c.loan.currentAprBps()),
         Promise.resolve().then(() => c.loan.getProtocolStats()),
         Promise.resolve().then(() => c.loan.accruedSupplyInterest(address)),
+        Promise.resolve().then(() => c.loan.getPoolStats()),
       ]);
       const aprBps    = aprLiveResult.status   === 'fulfilled' ? aprLiveResult.value : BigInt(300);
       const dynApr    = dynAprResult.status    === 'fulfilled' ? dynAprResult.value  : aprBps;
@@ -430,9 +471,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const borrowAprBps  = Number(aprBps as bigint);
       const currentAprBps = Number(dynApr as bigint);
       const ps = protStats as [bigint, bigint, bigint, bigint, bigint];
-      const totalBorrowedMYR   = Number(ps[0]) / 1e6;
-      const totalCollateralMYR = (Number(ps[1]) / 1e18) * ethPriceMYR;
-      const utilizationRate    = totalCollateralMYR > 0 ? Math.min(totalBorrowedMYR / totalCollateralMYR, 1) : 0;
+      // Utilization is borrowed ÷ POOL CAP — the same quantity currentAprBps()
+      // prices off. It used to be borrowed ÷ collateral value, which is a
+      // collateralisation ratio and never moved the rate at all.
+      const pool = poolResult.status === 'fulfilled'
+        ? poolResult.value as [bigint, bigint, bigint, bigint, bigint, bigint]
+        : null;
+      const supplyCapMYR          = pool ? Number(pool[0]) / 1e6   : 0;
+      const poolAvailableMYR      = pool ? Number(pool[2]) / 1e6   : 0;
+      const utilizationRate       = pool ? Number(pool[3]) / 10000 : 0;
+      const protocolBorrowedMYR   = Number(ps[0]) / 1e6;
+      const protocolCollateralETH = Number(ps[1]) / 1e18;
+      // Mirrors the contract's supplyInterestRate() = baseRateBps * 38 / 100.
+      // Deliberately off the BASE rate: depositors are not paid the borrower's
+      // utilization premium.
       const supplyAprBps       = Math.round(borrowAprBps * 38 / 100);
       const pendingYieldMYR    = supplyIntResult.status === 'fulfilled' ? Number(supplyIntResult.value as bigint) / 1e6 : 0;
       // Remember this position so it survives a disconnect / reload.
@@ -447,6 +499,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         currentAprBps,
         supplyAprBps,
         utilizationRate,
+        supplyCapMYR,
+        poolAvailableMYR,
+        protocolBorrowedMYR,
+        protocolCollateralETH,
         pendingYieldMYR,
         // Verification stays account-based: the on-chain flag is recorded for
         // resync detection but never upgrades the badge. The connected wallet
@@ -634,15 +690,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const tx = await c.loan.borrow(units);
       const receipt = await tx.wait();
       if (receipt) saveTxToDB(addr, 'Borrowed', units.toString(), receipt);
-      // The rate this borrow locks: baseRateBps — the market-driven rate the
-      // hourly keeper maintains and the SAME number the Borrow tab quotes.
-      // Deliberately NOT currentAprBps(): that adds a live utilization premium
-      // which jumps with every borrow, so three borrows in a minute would lock
-      // three different rates — nothing like the hourly market rate the user
-      // was shown. Re-read fresh from the contract (state can be a minute stale).
-      let aprBps = s.borrowAprBps;
+      // The rate this borrow is recorded at: currentAprBps() — the SAME call
+      // accruedInterest() charges against, and the same number the Borrow tab
+      // quotes. Recording baseRateBps here was the divergence: the ledger then
+      // accrued at base while the contract charged base + utilization premium,
+      // so a "full" repayment computed from the ledger always came up short and
+      // left a residual sen of principal behind. Three borrows in a minute can
+      // now record three different rates — that is honest, and it changes
+      // nothing about the charge, which is uniform across the whole position.
+      // Re-read fresh from the contract (state can be a minute stale).
+      let aprBps = s.currentAprBps;
       try {
-        aprBps = Number(await (c.loan.baseRateBps as () => Promise<bigint>)());
+        aprBps = Number(await (c.loan.currentAprBps as () => Promise<bigint>)());
       } catch { /* pre-redeploy contract — keep the state value */ }
       if (receipt) {
         // Tranche ledger row — lets the Repay tab itemize borrows, settle them
@@ -703,7 +762,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setTx('error', reason ? `Borrow failed: ${reason}` : 'Borrow failed — check LTV or collateral');
       return false;
     }
-  }, [getContracts, s.address, s.borrowAprBps, refresh, resyncKyc, guardTx]);
+  }, [getContracts, s.address, s.currentAprBps, refresh, resyncKyc, guardTx]);
 
   const buyMYR = useCallback(async (myrAmt: string): Promise<boolean> => {
     if (!guardTx()) return false;
@@ -755,7 +814,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (!c || !s.address) return;
     setTx('pending', 'Approving MYR spend…', 1, 2);
     try {
-      let units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
+      // Round the sen amount UP into 1e6 units. myrAmt arrives as a .toFixed(2)
+      // string, so flooring here could under-fund the payment by a fraction of
+      // a sen and leave residual principal; repay() caps what it pulls at
+      // totalDue anyway, so rounding up can never overcharge.
+      let units = BigInt(Math.ceil(parseFloat(myrAmt) * 1e6));
       // What the contract will actually pull (before any headroom).
       let due = units;
       if (opts?.full) {
@@ -772,11 +835,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             (c.loan.loans as (a: string) => Promise<bigint[]>)(s.address),
             (c.loan.currentAprBps as () => Promise<bigint>)(),
           ]);
+          const STEP = BigInt(60);              // mirrors ACCRUAL_STEP
+          const YEAR = BigInt(31_536_000);      // mirrors Solidity's `365 days`
           const principalU = loanRaw[1];
-          const lastRepay  = Number(loanRaw[3]);
-          const elapsed    = Math.max(0, Math.floor(Date.now() / 1000) - lastRepay);
-          const projected  = lastRepay > 0
-            ? principalU + (principalU * aprNow * BigInt(elapsed)) / BigInt(10_000 * 31_536_000)
+          const lastRepay  = loanRaw[3];
+          const nowSec     = BigInt(Math.floor(Date.now() / 1000));
+          const raw        = nowSec > lastRepay ? nowSec - lastRepay : BigInt(0);
+          // Mirror accruedInterest()'s whole-minute floor, then add ONE extra
+          // minute: this tx mines seconds from now and may cross a boundary,
+          // ticking interest up a step after we quoted. repay() caps `paying`
+          // at totalDue, so over-quoting costs nothing — under-quoting is
+          // exactly what leaves sen of principal behind.
+          const elapsed = ((raw / STEP) + BigInt(1)) * STEP;
+          const projected = lastRepay > BigInt(0)
+            ? principalU + (principalU * aprNow * elapsed) / (BigInt(10_000) * YEAR)
             : dueView;
           due = projected > dueView ? projected : dueView;
         } catch { /* totalDue unavailable: trust the caller's amount */ }
@@ -811,22 +883,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // Collateral is never auto-returned by repay() (see CryptoLoan.sol) —
       // it stays deposited so the same collateral can back a new borrow
       // without redepositing; withdraw it separately whenever you want it.
-      let principalPaid = 0, interestPaid = 0, evtDecoded = false;
+      let principalUnits = BigInt(0), interestUnits = BigInt(0), evtDecoded = false;
       try {
         const repaidEvt = (repayReceipt?.logs ?? [])
           .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } })
           .find(p => p?.name === 'Repaid');
         if (repaidEvt) {
-          evtDecoded    = true;
-          principalPaid = Number(repaidEvt.args[1] as bigint) / 1e6;
-          interestPaid  = Number(repaidEvt.args[2] as bigint) / 1e6;
+          evtDecoded     = true;
+          principalUnits = repaidEvt.args[1] as bigint;
+          interestUnits  = repaidEvt.args[2] as bigint;
         }
       } catch { /* event decode is best-effort */ }
+      // Floats are for the receipt lines only, never for the settle payload.
+      // Going Number(bigint)/1e6 and back through BigInt(Math.round(x * 1e6))
+      // could land a unit short, which left the last ledger row OPEN holding
+      // principal "1" — RM 0.000001 of phantom debt that never went away.
+      const principalPaid = Number(principalUnits) / 1e6;
+      const interestPaid  = Number(interestUnits)  / 1e6;
       const totalPaid = principalPaid + interestPaid;
       const paidLabel = totalPaid > 0 ? totalPaid.toFixed(2) : parseFloat(myrAmt).toFixed(2);
       if (repayReceipt && s.address) {
         saveTxToDB(s.address, 'Repaid',
-          totalPaid > 0 ? BigInt(Math.round(principalPaid * 1e6)).toString() : units.toString(),
+          totalPaid > 0 ? principalUnits.toString() : units.toString(),
           repayReceipt);
       }
       setTx('success', opts?.full
@@ -859,9 +937,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         // The event's principal split is authoritative — an interest-only
         // payment (principalPaid = 0) settles nothing. Only when the event
         // couldn't be decoded at all do we fall back to the requested amount.
-        const paidUnits = evtDecoded
-          ? BigInt(Math.round(principalPaid * 1e6))
-          : units;
+        const paidUnits = evtDecoded ? principalUnits : units;
         // Scale per-plan allocations to the principal actually charged —
         // interest is always paid first, so it differs slightly from the
         // intent. Proportional split; the last plan absorbs rounding dust.
@@ -909,6 +985,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         }));
       }
       await refresh(s.address);
+      // Belt and braces for a full payoff: if the chain now says the position
+      // is clear, close every remaining OPEN row regardless of what the
+      // allocation arithmetic worked out to. The route re-reads the chain
+      // server-side and ignores this claim unless it agrees, so a client can't
+      // wipe its own ledger by asserting it. refresh() above has just re-read
+      // getLoanInfo, so this fires only when the loan is genuinely settled.
+      if (opts?.full && repayReceipt) {
+        await fetch('/api/borrows/settle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            closeAll: true,
+            wallet: s.address,
+            repayTxHash: repayReceipt.hash,
+          }),
+        }).catch(() => {});
+      }
     } catch (e) {
       const reason = revertReason(e);
       setTx('error', reason ? `Repay failed: ${reason}` : 'Repay failed — check MYR balance or approve amount', 1, 2);

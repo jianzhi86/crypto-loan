@@ -396,6 +396,130 @@ describe("CryptoLoan", function () {
     });
   });
 
+  // ── Supply cap / utilization ──────────────────────────────────────────────
+  describe("supplyCap / utilization", () => {
+    it("initialises supplyCap to RM 100,000,000", async () => {
+      expect(await loan.supplyCap()).to.equal(100_000_000n * MYR_6);
+      expect(await loan.availableToBorrowPool()).to.equal(100_000_000n * MYR_6);
+      expect(await loan.utilizationBps()).to.equal(0n);
+    });
+
+    it("reverts a borrow that would exceed the pool cap", async () => {
+      await loan.connect(owner).setSupplyCap(1_000n * MYR_6);
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await expect(loan.connect(user).borrow(1_001n * MYR_6))
+        .to.be.revertedWith("Pool cap reached");
+      await expect(loan.connect(user).borrow(1_000n * MYR_6)).to.emit(loan, "Borrowed");
+    });
+
+    it("setSupplyCap cannot drop below outstanding debt", async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(5_000n * MYR_6);
+      await expect(loan.connect(owner).setSupplyCap(4_999n * MYR_6))
+        .to.be.revertedWith("Cap below outstanding debt");
+      await expect(loan.connect(owner).setSupplyCap(5_000n * MYR_6))
+        .to.emit(loan, "SupplyCapUpdated");
+    });
+
+    it("setSupplyCap is owner-only", async () => {
+      await expect(loan.connect(user).setSupplyCap(1n * MYR_6)).to.be.reverted;
+    });
+
+    it("currentAprBps = base + utilization slope, clamped at MAX_BASE_RATE_BPS", async () => {
+      await loan.connect(owner).setSupplyCap(10_000n * MYR_6);
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(5_000n * MYR_6);          // 50% utilization
+
+      expect(await loan.utilizationBps()).to.equal(5_000n);
+      expect(await loan.utilPremiumBps()).to.equal(200n);        // UTIL_SLOPE_BPS * 0.5
+      expect(await loan.currentAprBps()).to.equal(500n);         // 300 base + 200
+
+      await loan.connect(owner).setBaseRate(1_400n);
+      expect(await loan.currentAprBps()).to.equal(1_500n);       // clamped, not 1600
+    });
+
+    it("utilizationBps clamps at 100% when the cap is lowered onto the debt", async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(5_000n * MYR_6);
+      await loan.connect(owner).setSupplyCap(5_000n * MYR_6);
+      expect(await loan.utilizationBps()).to.equal(10_000n);
+      expect(await loan.availableToBorrowPool()).to.equal(0n);
+      expect(await loan.utilPremiumBps()).to.equal(400n);        // the full slope
+    });
+
+    it("getPoolStats reports remaining capacity", async () => {
+      await loan.connect(owner).setSupplyCap(10_000n * MYR_6);
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(4_000n * MYR_6);
+
+      const [cap, borrowed, avail, util, premium, apr] = await loan.getPoolStats();
+      expect(cap).to.equal(10_000n * MYR_6);
+      expect(borrowed).to.equal(4_000n * MYR_6);
+      expect(avail).to.equal(6_000n * MYR_6);
+      expect(util).to.equal(4_000n);
+      expect(premium).to.equal(160n);
+      expect(apr).to.equal(await loan.currentAprBps());
+    });
+  });
+
+  // ── Per-minute accrual ────────────────────────────────────────────────────
+  describe("per-minute accrual (ACCRUAL_STEP)", () => {
+    it("floors borrow interest to whole minutes", async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(5_000n * MYR_6);
+
+      expect(await loan.accruedInterest(user.address)).to.equal(0n);
+      await time.increase(30);
+      expect(await loan.accruedInterest(user.address)).to.equal(0n);
+      await time.increase(31);                                   // crosses 60s
+      expect(await loan.accruedInterest(user.address)).to.be.gt(0n);
+    });
+
+    it("floors supply interest to whole minutes", async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+
+      expect(await loan.accruedSupplyInterest(user.address)).to.equal(0n);
+      await time.increase(30);
+      expect(await loan.accruedSupplyInterest(user.address)).to.equal(0n);
+      await time.increase(31);
+      expect(await loan.accruedSupplyInterest(user.address)).to.be.gt(0n);
+    });
+
+    it("holds interest flat between minute boundaries", async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(5_000n * MYR_6);
+      await time.increase(120);
+      const at2min = await loan.accruedInterest(user.address);
+      await time.increase(30);                                   // still minute 2
+      expect(await loan.accruedInterest(user.address)).to.equal(at2min);
+      await time.increase(30);                                   // now minute 3
+      expect(await loan.accruedInterest(user.address)).to.be.gt(at2min);
+    });
+
+    // The dust bug expressed on-chain: paying exactly totalDue() must clear the
+    // principal to zero, not leave a few sen behind.
+    it("repaying exactly totalDue() clears the principal to zero", async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(5_000n * MYR_6);
+      await time.increase(600);                                  // 10 minutes
+
+      const due = await loan.totalDue(user.address);
+      // Fund the interest portion from the owner, then repay the exact quote.
+      await loan.connect(owner).setKYC(owner.address, true);
+      await loan.connect(owner).depositCollateral({ value: ONE_ETH * 10n });
+      await loan.connect(owner).borrow(1_000n * MYR_6);
+      await myr.connect(owner).transfer(user.address, 1_000n * MYR_6);
+
+      await myr.connect(user).approve(await loan.getAddress(), due);
+      await loan.connect(user).repay(due);
+
+      const info = await loan.loans(user.address);
+      expect(info.principal).to.equal(0n);
+      expect(info.startTime).to.equal(0n);
+      expect(info.lastRepayTime).to.equal(0n);
+    });
+  });
+
   // ── getLoanInfo ────────────────────────────────────────────────────────────
   describe("getLoanInfo", () => {
     it("returns all fields correctly", async () => {

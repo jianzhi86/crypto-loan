@@ -23,13 +23,14 @@ import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
-import { useWallet, type LoanInfo } from '@/lib/WalletContext';
+import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 import { useSparklines } from '@/hooks/useSparklines';
+import { useProtocolStats } from '@/hooks/useProtocolStats';
 import Sparkline from '@/components/Sparkline';
 import { dynamicApr, supplyApr } from '@/lib/rates';
 import AccountSetupBanner from '@/components/AccountSetupBanner';
-import { AlertIcon, BankIcon, CardIcon, CartIcon, CashIcon, CheckIcon, ChipGlyph, ClockIcon, CoinIcon, IdCardIcon, LiveDot, LockIcon, SolanaIcon, WalletIcon } from '@/components/Icons';
+import { AlertIcon, BankIcon, CartIcon, CashIcon, CheckIcon, ChipGlyph, ClockIcon, CoinIcon, IdCardIcon, LiveDot, LockIcon, SolanaIcon, WalletIcon } from '@/components/Icons';
 
 // ── Color tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -48,15 +49,15 @@ const C = {
 // riskMul: borrow-rate multiplier relative to ETH (all assets move with the live ETH rate)
 // supplyRatio: fraction of the borrow spread passed to lenders (higher for illiquid assets)
 const ASSETS = [
-  { symbol: 'BTC',  name: 'Bitcoin',   color: '#F7931A', maxLTV: 70, riskMul: 0.78, supplyRatio: 0.40, liquidity: 'RM 11.2B', icon: '₿' },
-  { symbol: 'ETH',  name: 'Ethereum',  color: '#627EEA', maxLTV: 70, riskMul: 1.00, supplyRatio: 0.38, liquidity: 'RM 8.5B',  icon: 'Ξ' },
-  { symbol: 'SOL',  name: 'Solana',    color: '#9945FF', maxLTV: 65, riskMul: 0.96, supplyRatio: 0.49, liquidity: 'RM 1.9B',  icon: <SolanaIcon size={18} /> },
-  { symbol: 'BNB',  name: 'BNB Chain', color: '#F3BA2F', maxLTV: 65, riskMul: 0.88, supplyRatio: 0.41, liquidity: 'RM 3.1B',  icon: 'B' },
-  { symbol: 'XRP',  name: 'XRP',       color: '#00AAE4', maxLTV: 55, riskMul: 1.13, supplyRatio: 0.62, liquidity: 'RM 720M',  icon: 'X' },
-  { symbol: 'AVAX', name: 'Avalanche', color: '#E84142', maxLTV: 60, riskMul: 1.16, supplyRatio: 0.57, liquidity: 'RM 840M',  icon: 'A' },
-  { symbol: 'LINK', name: 'Chainlink', color: '#2A5ADA', maxLTV: 60, riskMul: 1.12, supplyRatio: 0.60, liquidity: 'RM 520M',  icon: 'L' },
-  { symbol: 'DOT',  name: 'Polkadot',  color: '#E6007A', maxLTV: 55, riskMul: 1.27, supplyRatio: 0.63, liquidity: 'RM 310M',  icon: 'D' },
-  { symbol: 'ADA',  name: 'Cardano',   color: '#0033AD', maxLTV: 50, riskMul: 1.30, supplyRatio: 0.65, liquidity: 'RM 280M',  icon: '₳' },
+  { symbol: 'BTC',  name: 'Bitcoin',   color: '#F7931A', maxLTV: 70, riskMul: 0.78, supplyRatio: 0.40, icon: '₿' },
+  { symbol: 'ETH',  name: 'Ethereum',  color: '#627EEA', maxLTV: 70, riskMul: 1.00, supplyRatio: 0.38, icon: 'Ξ' },
+  { symbol: 'SOL',  name: 'Solana',    color: '#9945FF', maxLTV: 65, riskMul: 0.96, supplyRatio: 0.49, icon: <SolanaIcon size={18} /> },
+  { symbol: 'BNB',  name: 'BNB Chain', color: '#F3BA2F', maxLTV: 65, riskMul: 0.88, supplyRatio: 0.41, icon: 'B' },
+  { symbol: 'XRP',  name: 'XRP',       color: '#00AAE4', maxLTV: 55, riskMul: 1.13, supplyRatio: 0.62, icon: 'X' },
+  { symbol: 'AVAX', name: 'Avalanche', color: '#E84142', maxLTV: 60, riskMul: 1.16, supplyRatio: 0.57, icon: 'A' },
+  { symbol: 'LINK', name: 'Chainlink', color: '#2A5ADA', maxLTV: 60, riskMul: 1.12, supplyRatio: 0.60, icon: 'L' },
+  { symbol: 'DOT',  name: 'Polkadot',  color: '#E6007A', maxLTV: 55, riskMul: 1.27, supplyRatio: 0.63, icon: 'D' },
+  { symbol: 'ADA',  name: 'Cardano',   color: '#0033AD', maxLTV: 50, riskMul: 1.30, supplyRatio: 0.65, icon: '₳' },
 ];
 
 const LOAN_TERMS = [
@@ -66,10 +67,21 @@ const LOAN_TERMS = [
   { days: 365, months: 12, label: '1 Year'   },
 ];
 
-const DEMO_LOANS = [
-  { id: '1', collateral: 'BTC', colAmt: 0.5, colVal: 157500, borrowed: 98000, hf: 1.82, apr: 5.2, days: 142 },
-  { id: '2', collateral: 'ETH', colAmt: 4.2, colVal: 76440,  borrowed: 42000, hf: 1.34, apr: 4.8, days: 67  },
-];
+/// Interest ticks once per minute on-chain (CryptoLoan.ACCRUAL_STEP), so every
+/// accrual here is expressed in whole minutes over a 365-day year to match.
+const MINUTES_PER_YEAR = 525_600;
+
+/// ETH the MAX buttons hold back for gas. A depositCollateral() costs about
+/// 0.00008 ETH on this chain, so this covers roughly a hundred more actions —
+/// enough that withdrawing or repaying afterwards is never blocked.
+const GAS_RESERVE_ETH = 0.01;
+
+/// Larger reserve for the contract owner's own wallet. The server keeper signs
+/// setEthPrice, setKYC and withdrawProtocolFees with OWNER_PRIVATE_KEY, paying
+/// gas out of this same account — so depositing it down to a normal user's
+/// reserve quietly starves price syncs and KYC approvals within a couple of
+/// hours. This is why the owner account "must leave at least 1 ETH".
+const OWNER_GAS_RESERVE_ETH = 1;
 
 function hColor(hf: number) {
   return !isFinite(hf) || hf >= 2 ? C.teal : hf >= 1.5 ? C.gold : C.red;
@@ -171,6 +183,17 @@ function Dashboard() {
   const searchParams  = useSearchParams();
   const { prices, loading, flash } = usePrices();
   const sparklines = useSparklines();
+  // Protocol-wide truth for the banner. Works with no wallet connected, which
+  // useWallet() cannot — that gap is why the banner used to be invented.
+  const { stats: pStats } = useProtocolStats();
+  const pChain = pStats?.chain ?? null;
+  const chainSubOffline = 'Local chain unreachable';
+  // True when the connected wallet IS the account the server signs with. That
+  // collision is the cause of "Nonce too low": the keeper advances the nonce
+  // between MetaMask's own transactions, and it also drains this account's gas.
+  const isOwnerWallet = !!wallet.address && !!pChain?.ownerAddress
+    && wallet.address.toLowerCase() === pChain.ownerAddress.toLowerCase();
+  const ethReserve = isOwnerWallet ? OWNER_GAS_RESERVE_ETH : GAS_RESERVE_ETH;
 
   const [calcAssetIdx, setCalcAssetIdx] = useState(1);
   const [collAmt,          setCollAmt]          = useState('1');
@@ -318,13 +341,20 @@ function Dashboard() {
   const ltvPct     = ltv / calcAsset.maxLTV;
   const calcHF     = ltv > 0 ? calcAsset.maxLTV / ltv : Infinity;
 
-  // Live variable rate from the contract (falls back to 4.8% pre-redeploy);
-  // demo assets get the display-side formula so every APR moves with market
+  // THE invariant for this file: `baseAprPct` may only ever be *labelled*
+  // ("base rate"). Every number a borrower is charged against — projections,
+  // ledger accrual, payoff quotes — comes from `effAprPct`, which mirrors the
+  // contract's currentAprBps() (base + utilization premium, clamped). Quoting
+  // one while the contract charged the other is what left sen of principal
+  // behind on a "full" repayment.
+  const baseAprPct = wallet.borrowAprBps / 100;
+  const effAprPct  = wallet.currentAprBps / 100;
+  const utilPremiumPct = Math.max(0, effAprPct - baseAprPct);
+  // Demo assets get the display-side formula so every APR moves with market
   // conditions instead of sitting frozen.
-  const liveAprPct = wallet.borrowAprBps / 100;
   const calcApr    = calcAsset.symbol === 'ETH'
-    ? liveAprPct
-    : dynamicApr(liveAprPct, calcAsset.riskMul, prices[SYMBOL_TO_ID[calcAsset.symbol]]?.change24h ?? 0);
+    ? effAprPct
+    : dynamicApr(effAprPct, calcAsset.riskMul, prices[SYMBOL_TO_ID[calcAsset.symbol]]?.change24h ?? 0);
 
   const calcInterest   = (borrowable * calcApr / 100) * (loanTermDays / 365);
   const calcMonthly    = (borrowable * calcApr / 100) / 12;
@@ -411,7 +441,6 @@ function Dashboard() {
     // Pinned to the 60s refresh stamp so interest advances each time the
     // wallet re-reads the chain, not on every render.
     const now = wallet.lastRefreshAt || Date.now();
-    const YEAR_MS  = 31_536_000_000;
     const MONTH_MS = 30 * 86_400_000; // matches LOAN_TERMS' own 30-day "1 month"
     // "Months elapsed" advances two ways, whichever is FURTHER along: real
     // calendar time passing (30-day cycles since borrow — falling behind
@@ -442,12 +471,19 @@ function Dashboard() {
     // borrowedAt stays untouched as the installment plan's month anchor
     // (resetting it on settle used to freeze every plan at "Month 1" forever).
     const lastRepayMs = Number(wallet.loanInfo.lastRepayTime || 0) * 1000;
+    // ONE rate for every row. The contract charges currentAprBps() against the
+    // whole position, so pricing each tranche at its own recorded rate produced
+    // a total that could never equal what repay() would pull — the ledger came
+    // up short and left residual principal. r.aprBps survives as a historical
+    // label only (the row's "rate at borrow" caption).
+    const effAprBps = wallet.currentAprBps;
     const rows: LedgerRow[] = borrowRows.map(r => {
       const principalMYR  = Number(r.principal) / 1e6;
       const originalMYR   = Number(r.originalPrincipal || r.principal) / 1e6;
       const borrowedAtMs  = new Date(r.borrowedAt).getTime();
-      const years         = Math.max(0, now - Math.max(borrowedAtMs, lastRepayMs)) / YEAR_MS;
-      const interest       = principalMYR * (r.aprBps / 10_000) * years;
+      // Whole minutes, exactly like accruedInterest()'s ACCRUAL_STEP floor.
+      const minutes       = Math.floor(Math.max(0, now - Math.max(borrowedAtMs, lastRepayMs)) / 60_000);
+      const interest      = principalMYR * (effAprBps / 10_000) * (minutes / MINUTES_PER_YEAR);
       return {
         id: r.id, principalMYR, aprBps: r.aprBps, interest,
         label: new Date(r.borrowedAt).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
@@ -464,10 +500,10 @@ function Dashboard() {
     const remainder = chainPrincipal - covered;
     if (remainder > 0.01) {
       const sinceMs = Number(wallet.loanInfo.lastRepayTime || wallet.loanInfo.startTime) * 1000;
-      const years = sinceMs > 0 ? Math.max(0, now - sinceMs) / YEAR_MS : 0;
-      const interest = remainder * (wallet.borrowAprBps / 10_000) * years;
+      const minutes = sinceMs > 0 ? Math.floor(Math.max(0, now - sinceMs) / 60_000) : 0;
+      const interest = remainder * (effAprBps / 10_000) * (minutes / MINUTES_PER_YEAR);
       rows.unshift({
-        id: LEGACY_ID, principalMYR: remainder, aprBps: wallet.borrowAprBps, interest,
+        id: LEGACY_ID, principalMYR: remainder, aprBps: effAprBps, interest,
         label: 'Earlier borrows (before itemized ledger)',
         ...installment(remainder, remainder, interest, 1, sinceMs || now),
       });
@@ -492,7 +528,12 @@ function Dashboard() {
   // on-chain total due (principal + contract's accruedInterest). Bill mode
   // follows the ticked plans' combined installment. A partial tranche
   // selection sums chosen borrows at locked rates. Otherwise the typed amount.
-  const repayAmtEffective = ledger && (repayFull || (allSelected && !repayAmtEdited && !repayBillMode))
+  // The single place that decides "this payment is meant to clear the loan".
+  // The displayed amount, the settle plan and the on-chain re-quote all read
+  // THIS, so the amount shown, the amount approved and the amount the contract
+  // pulls can no longer be derived from three different interest figures.
+  const isFullPayoffIntent = repayFull || (allSelected && !repayAmtEdited && !repayBillMode);
+  const repayAmtEffective = ledger && isFullPayoffIntent
     ? (ledger.totalPrincipal + liveChainInt).toFixed(2)
     : selectedRows.length > 0 && !repayAmtEdited
       ? (repayBillMode ? selectedBill : selectedTotal).toFixed(2)
@@ -637,8 +678,8 @@ function Dashboard() {
   }, [isLive]);
 
   const borrowMYR    = parseFloat(borrowAmt || '0');
-  const panelMonthly = (borrowMYR * liveAprPct / 100) / 12;
-  const panelInterest = (borrowMYR * liveAprPct / 100) * (loanTermDays / 365);
+  const panelMonthly = (borrowMYR * effAprPct / 100) / 12;
+  const panelInterest = (borrowMYR * effAprPct / 100) * (loanTermDays / 365);
   const panelTotal   = borrowMYR + panelInterest;
   const borrowAvail  = isLive && wallet.loanInfo ? Number(wallet.loanInfo.available) / 1e6 : 0;
 
@@ -713,10 +754,32 @@ function Dashboard() {
             background: 'radial-gradient(circle, rgba(110,139,255,0.1) 0%, transparent 70%)',
             pointerEvents: 'none',
           }} />
+          {/* Every tile here is on-chain or ledger truth. When the node is
+              unreachable they read "—" rather than a plausible-looking number:
+              a stale figure a user might act on is worse than a visible gap. */}
           {[
-            { label: 'Total Value Locked', value: 'RM 892M',   sub: '+3.2% this week',        color: C.teal },
-            { label: 'Active Loans',       value: '2,847',     sub: 'Across all assets',       color: C.blue },
-            { label: 'Total Borrowed',     value: 'RM 534M',   sub: '59.9% utilisation',       color: C.gold },
+            {
+              label: 'Total Value Locked',
+              value: pChain ? rm(pChain.totalCollateralETH * pChain.ethPriceMYR) : '—',
+              sub: pChain ? `${pChain.totalCollateralETH.toFixed(3)} ETH locked · on-chain` : chainSubOffline,
+              color: C.teal,
+            },
+            {
+              label: 'Active Loans',
+              value: pStats ? String(pStats.openBorrows) : '—',
+              sub: pStats
+                ? `${pStats.borrowers} wallet${pStats.borrowers === 1 ? '' : 's'} with debt`
+                : chainSubOffline,
+              color: C.blue,
+            },
+            {
+              label: 'Total Borrowed',
+              value: pChain ? rm(pChain.totalBorrowedMYR) : '—',
+              sub: pChain
+                ? `${(pChain.utilizationBps / 100).toFixed(1)}% of the ${rm(pChain.supplyCapMYR)} pool`
+                : chainSubOffline,
+              color: C.gold,
+            },
             {
               label: 'ETH / MYR Price',
               value: loading ? '…' : `RM ${prices.ethereum.myr.toLocaleString()}`,
@@ -743,8 +806,8 @@ function Dashboard() {
                 <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #2BD9A2, transparent)' }} />
                 <InfoBlock
                   label="My Collateral"
-                  value={isLive && liveColMktMYR !== null ? rm(liveColMktMYR) : 'RM 233,838'}
-                  sub={isLive ? `${colEth.toFixed(4)} ETH · live market` : 'Demo data'}
+                  value={isLive && liveColMktMYR !== null ? rm(liveColMktMYR) : '—'}
+                  sub={isLive ? `${colEth.toFixed(4)} ETH · live market` : 'Connect your wallet'}
                   color={C.tp}
                 />
                 {isLive && liveColMYR !== null && hasPriceMismatch && (
@@ -763,10 +826,10 @@ function Dashboard() {
                 <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #FFB224, transparent)' }} />
                 <InfoBlock
                   label="Outstanding Debt"
-                  value={isLive && liveBorMYR !== null ? rm(liveBorMYR, 2) : 'RM 129,000'}
+                  value={isLive && liveBorMYR !== null ? rm(liveBorMYR, 2) : '—'}
                   sub={isLive && wallet.loanInfo
                     ? `+ RM ${(Number(wallet.loanInfo.accruedInterest) / 1e6).toFixed(4)} interest · Wallet: ${wallet.myrBalance} MYR`
-                    : isLive ? `Wallet: ${wallet.myrBalance} MYR` : '55.2% utilisation'}
+                    : isLive ? `Wallet: ${wallet.myrBalance} MYR` : 'Connect your wallet'}
                   color={C.tp}
                 />
                 {isLive && !wallet.myrTokenAdded && (
@@ -803,24 +866,28 @@ function Dashboard() {
                 <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #6E8BFF, transparent)' }} />
                 <InfoBlock
                   label="Net Position"
-                  value={isLive && mktNetPos !== null ? rm(mktNetPos) : 'RM 104,838'}
-                  sub={isLive ? 'Market collateral − Debt' : 'Demo data'}
+                  value={isLive && mktNetPos !== null ? rm(mktNetPos) : '—'}
+                  sub={isLive ? 'Market collateral − Debt' : 'Connect your wallet'}
                   color={mktNetPos !== null && mktNetPos >= 0 ? C.teal : C.red}
                 />
               </Paper>
 
               {/* Health Factor */}
               {(() => {
+                // The 1.58 fallback exists only to keep hColor/fmtHF total; it is
+                // never rendered. Showing an invented health factor — with the
+                // amber "moderate risk" border that came with it — implied this
+                // visitor had a position at risk when they have no position.
                 const hf = isLive && mktHF !== null ? mktHF : isLive && liveHF !== null ? liveHF : 1.58;
-                const hc = isLive ? hColor(hf) : C.gold;
-                const hv = isLive ? fmtHF(hf) : hf.toFixed(2);
+                const hc = isLive ? hColor(hf) : C.ts;
+                const hv = isLive ? fmtHF(hf) : '—';
                 // Translate the ratio into something concrete: the ETH price
                 // at which liquidation starts, and how far away that is.
                 const debtNow  = totalDebtMYR ?? 0;
                 const liqPrice = isLive && debtNow > 0 && colEth > 0 ? debtNow / (0.8 * colEth) : null;
                 const refPrice = mktEthPrice > 0 ? mktEthPrice : ethPriceMYR;
                 const dropPct  = liqPrice !== null && refPrice > 0 ? (1 - liqPrice / refPrice) * 100 : null;
-                const hl = !isLive ? 'Moderate risk'
+                const hl = !isLive ? 'Connect your wallet'
                   : debtNow <= 0 ? 'No debt — nothing to liquidate'
                   : liqPrice !== null && dropPct !== null
                     ? `${hLabel(hf)} — liquidates if ETH ≤ ${rm(liqPrice)} (${dropPct >= 0 ? `−${dropPct.toFixed(0)}%` : 'now'})`
@@ -844,6 +911,31 @@ function Dashboard() {
             </>
           )}
         </Box>
+
+        {/* ── Shared-account warning ────────────────────────────────────── */}
+        {isOwnerWallet && (
+          <Alert
+            severity="warning"
+            icon={<AlertIcon size={17} />}
+            sx={{
+              mb: 3, bgcolor: 'rgba(255,178,36,0.08)', color: C.gold,
+              border: '1px solid rgba(255,178,36,0.25)',
+              '& .MuiAlert-icon': { color: C.gold }, borderRadius: 2,
+            }}
+          >
+            <Typography variant="body2" sx={{ fontWeight: 700, color: C.gold }}>
+              This wallet is the protocol owner — the server signs with it too
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,178,36,0.75)', display: 'block', mt: 0.5 }}>
+              Price syncs, KYC approvals and fee withdrawals are signed server-side with this
+              same account (Hardhat #0, <code>OWNER_PRIVATE_KEY</code>). Each one advances the
+              nonce without MetaMask knowing, which is what causes
+              <b style={{ color: C.gold }}> &quot;Nonce too low&quot;</b> on your next transaction, and
+              it spends this account&apos;s ETH on gas. Switch MetaMask to a different Hardhat
+              account (#1 or later) to use the app normally.
+            </Typography>
+          </Alert>
+        )}
 
         {/* ── Price Mismatch Warning ────────────────────────────────────── */}
         {hasPriceMismatch && (
@@ -942,7 +1034,7 @@ function Dashboard() {
                 <Table size="small" sx={{ minWidth: 640 }}>
                   <TableHead>
                     <TableRow>
-                      {['Asset', '24h Chart', 'Price (MYR)', 'Max LTV', 'Borrow APR', 'Supply APR', 'Liquidity'].map(h => (
+                      {['Asset', '24h Chart', 'Price (MYR)', 'Max LTV', 'Borrow APR', 'Supply APR', 'Liquidity (on-chain)'].map(h => (
                         <TableCell key={h} sx={{ color: C.ts, bgcolor: 'transparent', fontSize: 11, fontWeight: 600, border: 'none', borderBottom: `1px solid ${C.border}`, pb: 1.5 }}>{h}</TableCell>
                       ))}
                     </TableRow>
@@ -952,7 +1044,7 @@ function Dashboard() {
                       const p      = prices[SYMBOL_TO_ID[a.symbol]];
                       const change = p?.change24h ?? 0;
                       const sel    = calcAssetIdx === i;
-                      const bApr   = a.symbol === 'ETH' ? liveAprPct : dynamicApr(liveAprPct, a.riskMul, change);
+                      const bApr   = a.symbol === 'ETH' ? effAprPct : dynamicApr(effAprPct, a.riskMul, change);
                       const sApr   = supplyApr(bApr, a.supplyRatio);
                       return (
                         <TableRow key={a.symbol}
@@ -1012,7 +1104,15 @@ function Dashboard() {
                                 '&:hover': { bgcolor: `${C.teal}30` } }} />
                           </TableCell>
                           <TableCell sx={{ borderColor: i < ASSETS.length - 1 ? C.border : 'transparent', py: 1.5 }}>
-                            <Typography variant="caption" sx={{ color: C.ts }}>{a.liquidity}</Typography>
+                            {/* ETH is the only market deployed on this chain, so
+                                it is the only row with a real liquidity figure.
+                                The others held invented "RM 11.2B" strings. */}
+                            <Typography variant="caption" sx={{ color: C.ts }}
+                              title={a.symbol === 'ETH' ? 'Total ETH collateral held by the contract' : 'Not live — ETH is the only market deployed on this chain'}>
+                              {a.symbol === 'ETH' && pChain
+                                ? rm(pChain.totalCollateralETH * pChain.ethPriceMYR)
+                                : '—'}
+                            </Typography>
                           </TableCell>
                         </TableRow>
                       );
@@ -1027,7 +1127,7 @@ function Dashboard() {
                   const p      = prices[SYMBOL_TO_ID[a.symbol]];
                   const change = p?.change24h ?? 0;
                   const sel    = calcAssetIdx === i;
-                  const bApr   = a.symbol === 'ETH' ? liveAprPct : dynamicApr(liveAprPct, a.riskMul, change);
+                  const bApr   = a.symbol === 'ETH' ? effAprPct : dynamicApr(effAprPct, a.riskMul, change);
                   const sApr   = supplyApr(bApr, a.supplyRatio);
                   return (
                     <Box key={a.symbol}
@@ -1342,204 +1442,6 @@ function Dashboard() {
             </Paper>
 
           {/* (right column removed — actions accessible via sidebar Actions menu) */}
-          {false && <Paper sx={cardSx}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-                <Typography variant="h6" sx={{ color: C.tp, fontWeight: 700 }}>My Credit Line</Typography>
-                <Chip
-                  icon={isLive ? <ChipGlyph><LiveDot color={C.teal} /></ChipGlyph> : undefined}
-                  label={isLive ? 'Live' : 'Demo'}
-                  size="small"
-                  sx={{
-                    bgcolor: isLive ? `${C.teal}15` : 'rgba(0,0,0,0.04)',
-                    color: isLive ? C.teal : C.ts,
-                    border: `1px solid ${isLive ? C.teal + '40' : C.border}`,
-                    fontSize: 11, fontWeight: 700,
-                  }}
-                />
-              </Box>
-
-              {isLive && wallet.loanInfo && (() => {
-                // Annotated rather than inferred: this component is large
-                // enough that TypeScript abandons control-flow analysis inside
-                // it, so neither the `wallet.loanInfo &&` guard above nor a
-                // local null check narrows the type here. The branch only
-                // renders when loanInfo is non-null, so the annotation holds.
-                const li: LoanInfo = wallet.loanInfo!;
-                const { collateral, borrowed, healthFactor: hf, available } = li;
-                const hc       = hColor(hf);
-                const colEthFmt = parseFloat(ethers.formatEther(collateral)).toFixed(4);
-                const borMYR   = (Number(borrowed) / 1e6).toFixed(2);
-                const avMYR    = (Number(available) / 1e6).toFixed(2);
-                const ltvNow   = li.collateralValueMYR > 0
-                  ? ((Number(borrowed) / 1e6) / li.collateralValueMYR * 100).toFixed(1)
-                  : '0.0';
-                const hasLoan  = collateral > BigInt(0);
-                return hasLoan ? (
-                  <Box sx={{ ...innerSx }}>
-                    {/* Loan header */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                        <Box sx={{
-                          width: 32, height: 32, borderRadius: '50%', bgcolor: '#627EEA18', color: '#627EEA',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800,
-                          border: '1px solid rgba(98,126,234,0.3)',
-                        }}>Ξ</Box>
-                        <Box>
-                          <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700 }}>ETH → MYR Loan</Typography>
-                          <Typography variant="caption" sx={{ color: C.ts }}>4.80% APR · {ltvNow}% LTV</Typography>
-                        </Box>
-                      </Box>
-                      <Chip label={hLabel(hf)} size="small"
-                        sx={{ bgcolor: `${hc}18`, color: hc, border: `1px solid ${hc}40`, fontWeight: 700, fontSize: 11 }} />
-                    </Box>
-
-                    {/* Stats row */}
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2.5 }}>
-                      <Box>
-                        <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>Collateral Locked</Typography>
-                        <Typography variant="body1" sx={{ color: C.tp, fontWeight: 700 }}>{colEthFmt} ETH</Typography>
-                        <Typography variant="caption" sx={{ color: C.ts }}>{rm(li.collateralValueMYR)}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>Outstanding Debt</Typography>
-                        <Typography variant="body1" sx={{ color: C.tp, fontWeight: 700 }}>RM {borMYR}</Typography>
-                        <Typography variant="caption" sx={{ color: C.gold }}>
-                          + RM {(Number(li.accruedInterest) / 1e6).toFixed(4)} interest
-                        </Typography>
-                      </Box>
-                    </Box>
-
-                    {/* Health Factor bar */}
-                    {Number(borrowed) > 0 && (
-                      <Box sx={{ mb: 2.5 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                          <Typography variant="caption" sx={{ color: C.ts }}>Health Factor</Typography>
-                          <Typography variant="caption" sx={{ color: hc, fontWeight: 700 }}>{isFinite(hf) ? hf.toFixed(2) : '∞'}</Typography>
-                        </Box>
-                        <LinearProgress
-                          variant="determinate"
-                          value={Math.min((isFinite(hf) ? hf : 3) / 3 * 100, 100)}
-                          sx={{
-                            height: 8, borderRadius: 999,
-                            bgcolor: 'rgba(255,255,255,0.12)',
-                            '& .MuiLinearProgress-bar': { bgcolor: hc, borderRadius: 999, boxShadow: `0 0 8px ${hc}60` },
-                          }}
-                        />
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.75 }}>
-                          <Typography variant="caption" sx={{ color: C.ts, fontSize: 10 }}>Liquidation (1.0)</Typography>
-                          <Typography variant="caption" sx={{ color: C.ts, fontSize: 10 }}>Safe (2.0+)</Typography>
-                        </Box>
-                        {hf < 1.5 && isFinite(hf) && (
-                          <Box sx={{ mt: 1.5, p: 1.5, bgcolor: `${C.red}10`, border: `1px solid ${C.red}30`, borderRadius: 2 }}>
-                            <Typography variant="caption" sx={{ color: C.red }}>
-                              Risk alert — health factor below 1.5. Consider repaying or adding collateral.
-                            </Typography>
-                          </Box>
-                        )}
-                      </Box>
-                    )}
-
-                    {/* Available credit */}
-                    <Box sx={{ pt: 2, borderTop: `1px solid ${C.border}` }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.75 }}>
-                        <Typography variant="caption" sx={{ color: C.ts }}>Available credit</Typography>
-                        <Typography variant="caption" sx={{ color: C.teal, fontWeight: 700 }}>RM {avMYR}</Typography>
-                      </Box>
-                      {Number(borrowed) > 0 && (
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                          <Typography variant="caption" sx={{ color: C.ts }}>Total due now</Typography>
-                          <Typography variant="caption" sx={{ color: C.gold, fontWeight: 700 }}>
-                            RM {((Number(borrowed) + Number(li.accruedInterest)) / 1e6).toFixed(2)}
-                          </Typography>
-                        </Box>
-                      )}
-                      {Number(borrowed) === 0 && <Box sx={{ mb: 2 }} />}
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button fullWidth size="small" onClick={() => setActiveTab('deposit')}
-                          sx={{ bgcolor: `rgba(0,0,0,0.04)`, color: C.tp, border: `1px solid ${C.border}`, fontSize: 12, borderRadius: 2,
-                                '&:hover': { bgcolor: 'rgba(0,0,0,0.07)' } }}>
-                          + Collateral
-                        </Button>
-                        <Button fullWidth size="small" variant="contained" onClick={() => setActiveTab('repay')}
-                          sx={{ fontSize: 12, borderRadius: 2 }}>
-                          Repay Loan
-                        </Button>
-                      </Box>
-                    </Box>
-                  </Box>
-                ) : (
-                  <Box sx={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, textAlign: 'center',
-                    bgcolor: `${C.teal}05`, border: `2px dashed ${C.teal}25`, borderRadius: 2.5,
-                  }}>
-                    <Box sx={{
-                      width: 56, height: 56, borderRadius: '50%', bgcolor: `${C.teal}12`, color: C.teal,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2,
-                      border: `1px solid ${C.teal}25`,
-                    }}><CardIcon size={25} /></Box>
-                    <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700, mb: 0.5 }}>No Active Credit Line</Typography>
-                    <Typography variant="caption" sx={{ color: C.ts, mb: 0.5, lineHeight: 1.6, display: 'block' }}>
-                      Deposit ETH to open your crypto credit line
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: C.ts, mb: 2.5, lineHeight: 1.6, display: 'block' }}>
-                      Up to <Box component="span" sx={{ color: C.teal, fontWeight: 700 }}>70% LTV</Box> · 4.80% APR
-                    </Typography>
-                    <Button size="small" variant="contained" onClick={() => setActiveTab('deposit')}
-                      sx={{ borderRadius: 2, px: 2.5 }}>
-                      Deposit Collateral
-                    </Button>
-                  </Box>
-                );
-              })()}
-
-              {!isLive && (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {DEMO_LOANS.map(loan => {
-                    const meta = ASSETS.find(a => a.symbol === loan.collateral)!;
-                    const hc   = hColor(loan.hf);
-                    return (
-                      <Box key={loan.id} sx={{ ...innerSx }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                            <Box sx={{
-                              width: 32, height: 32, borderRadius: '50%', bgcolor: `${meta.color}18`, color: meta.color,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800,
-                              border: `1px solid ${meta.color}30`,
-                            }}>
-                              {meta.icon}
-                            </Box>
-                            <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700 }}>{loan.collateral} → MYR</Typography>
-                          </Box>
-                          <Chip label={hLabel(loan.hf)} size="small"
-                            sx={{ bgcolor: `${hc}18`, color: hc, border: `1px solid ${hc}40`, fontWeight: 700, fontSize: 11 }} />
-                        </Box>
-                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 1.5 }}>
-                          <Box>
-                            <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 0.5 }}>Collateral</Typography>
-                            <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700 }}>{loan.colAmt} {loan.collateral}</Typography>
-                            <Typography variant="caption" sx={{ color: C.ts }}>{rm(loan.colVal)}</Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" sx={{ color: C.ts, display: 'block', mb: 0.5 }}>Outstanding</Typography>
-                            <Typography variant="body2" sx={{ color: C.tp, fontWeight: 700 }}>{rm(loan.borrowed)}</Typography>
-                            <Typography variant="caption" sx={{ color: C.ts }}>{loan.apr}% APR · {loan.days}d</Typography>
-                          </Box>
-                        </Box>
-                        <Box sx={{ pt: 1.5, borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between' }}>
-                          <Typography variant="caption" sx={{ color: C.ts }}>Accrued interest</Typography>
-                          <Typography variant="caption" sx={{ color: C.gold, fontWeight: 600 }}>
-                            RM {((loan.borrowed * loan.apr / 100) * (loan.days / 365)).toFixed(2)}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    );
-                  })}
-                  <Typography variant="caption" sx={{ color: C.ts, textAlign: 'center' }}>
-                    Connect MetaMask to interact with real contracts
-                  </Typography>
-                </Box>
-              )}
-            </Paper>}
 
         </Box>
       </Box>
@@ -1753,13 +1655,13 @@ function Dashboard() {
                 const hfLabel      = hfPos < 1.2 ? 'At Risk' : hfPos < 1.5 ? 'Moderate' : 'Healthy';
                 const hfBarPct     = Math.min((isFinite(hfPos) ? hfPos : 3) / 3 * 100, 100);
                 const earnedMYR    = wallet.pendingYieldMYR;
-                const stripSupApr  = supplyApr(liveAprPct, 0.38);
+                const stripSupApr  = supplyApr(baseAprPct, 0.38);
                 return (
                   <Box sx={{ mb: 2, borderRadius: 2, overflow: 'hidden', border: `1px solid ${C.border}`, bgcolor: '#111B38' }}>
                     <Box sx={{ display: 'flex' }}>
                       {[
                         { label: 'Collateral', value: `${colEthPos.toFixed(3)} ETH`, color: C.tp,   sub: `≈ ${rm(colEthPos * wallet.ethPriceMYR)}` },
-                        { label: 'Borrowed',   value: borMYRPos > 0 ? `RM ${borMYRPos.toFixed(2)}` : '—', color: borMYRPos > 0 ? C.gold : C.ts, sub: borMYRPos > 0 ? `${liveAprPct.toFixed(2)}% base · ${(wallet.currentAprBps / 100).toFixed(2)}% eff. APR` : 'No debt' },
+                        { label: 'Borrowed',   value: borMYRPos > 0 ? `RM ${borMYRPos.toFixed(2)}` : '—', color: borMYRPos > 0 ? C.gold : C.ts, sub: borMYRPos > 0 ? `${baseAprPct.toFixed(2)}% base · ${effAprPct.toFixed(2)}% eff. APR` : 'No debt' },
                         { label: 'Earning',    value: `RM ${earnedMYR.toFixed(4)}`, color: C.teal, sub: `${stripSupApr.toFixed(2)}% Supply APR` },
                         { label: 'Health',     value: borMYRPos > 0 ? fmtHF(hfPos) : '—', color: hfColor, sub: borMYRPos > 0 ? hfLabel : '—' },
                       ].map((item, i) => (
@@ -1846,7 +1748,7 @@ function Dashboard() {
                       <Box sx={{ display: 'flex', gap: 0.75, mt: 1 }}>
                         {[25, 50, 75].map(pct => {
                           const bal = parseFloat(wallet.ethBalance || '0');
-                          const val = Math.max(0, bal * pct / 100 - 0.001);
+                          const val = Math.max(0, bal * pct / 100 - GAS_RESERVE_ETH);
                           return (
                             <Box key={pct} onClick={() => setDepositAmt(val.toFixed(4))}
                               sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: C.inner, borderRadius: 1.5,
@@ -1856,13 +1758,19 @@ function Dashboard() {
                             </Box>
                           );
                         })}
-                        <Box onClick={() => setDepositAmt(Math.max(0, parseFloat(wallet.ethBalance || '0') - 0.01).toFixed(4))}
+                        <Box onClick={() => setDepositAmt(Math.max(0, parseFloat(wallet.ethBalance || '0') - ethReserve).toFixed(4))}
                           sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: `${C.teal}10`, borderRadius: 1.5,
                             cursor: 'pointer', border: `1px solid ${C.teal}30`,
                             '&:hover': { bgcolor: `${C.teal}18` } }}>
                           <Typography sx={{ fontSize: 11, fontWeight: 700, color: C.teal }}>MAX</Typography>
                         </Box>
                       </Box>
+                    )}
+                    {isOwnerWallet && (
+                      <Typography sx={{ fontSize: 10.5, color: C.gold, mt: 0.75, display: 'block' }}>
+                        MAX keeps {OWNER_GAS_RESERVE_ETH} ETH back — this account is the protocol owner and the
+                        server pays for price syncs and KYC approvals out of it.
+                      </Typography>
                     )}
                   </Box>
 
@@ -1902,7 +1810,7 @@ function Dashboard() {
                   {/* Earn-rate estimate — read-only preview of what this deposit would
                       earn; live claim balance lives on the Portfolio page instead. */}
                   {(() => {
-                    const ethSupplyApr = supplyApr(liveAprPct, 0.38);
+                    const ethSupplyApr = supplyApr(baseAprPct, 0.38);
                     const depEth       = parseFloat(depositAmt || '0');
                     const price        = isLive ? wallet.ethPriceMYR : ethPriceMYR;
                     const hourlyEarn   = depEth > 0 ? depEth * price * (ethSupplyApr / 100) / 8760 : 0;
@@ -1925,7 +1833,7 @@ function Dashboard() {
                             </Box>
                           </Typography>
                           <Typography sx={{ fontSize: 10, color: C.ts, mt: 0.5, lineHeight: 1.4, opacity: 0.7 }}>
-                            Rate = {liveAprPct.toFixed(2)}% borrow APR × 38% — auto-updates with market
+                            Rate = {baseAprPct.toFixed(2)}% base borrow APR × 38% — auto-updates with market
                           </Typography>
                           <Typography sx={{ fontSize: 10, color: C.ts, mt: 0.25, lineHeight: 1.4, opacity: 0.7 }}>
                             = {(ethSupplyApr / 8760).toFixed(6)}% APR / hr
@@ -1939,7 +1847,9 @@ function Dashboard() {
                   {(() => {
                     const depEth = parseFloat(depositAmt || '0');
                     const price  = isLive ? wallet.ethPriceMYR : ethPriceMYR;
-                    const gasEth = 0.010;
+                    // Measured on this chain: depositCollateral ≈ 82k gas at
+                    // ~1 gwei. The old 0.010 placeholder overstated it ~120×.
+                    const gasEth = 0.0001;
                     return depEth > 0 ? (
                       <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
                         <Typography variant="caption" sx={{ color: C.ts, textTransform: 'uppercase', fontSize: 10, letterSpacing: 0.75, mb: 0.25 }}>
@@ -2073,7 +1983,7 @@ function Dashboard() {
                   </Box>
 
                   {(() => {
-                    const ethSupplyApr   = supplyApr(liveAprPct, 0.38);
+                    const ethSupplyApr   = supplyApr(baseAprPct, 0.38);
                     const hourlyNow      = colEth  * price * (ethSupplyApr / 100) / 8760;
                     const hourlyAfter    = colAfter * price * (ethSupplyApr / 100) / 8760;
                     const gasEth         = 0.010;
@@ -2251,14 +2161,15 @@ function Dashboard() {
 
                       <Box sx={{ ...innerSx, display: 'flex', flexDirection: 'column', gap: 1 }}>
                         <Row label="Principal"                               value={borrowMYR > 0 ? rm(borrowMYR, 2) : '—'} />
-                        {/* Rate breakdown — the base rate is what this borrow LOCKS
-                            (market-driven, revised hourly); the premiums show what
-                            the protocol's live effective rate adds on top. */}
-                        <Row label="Base Rate (p.a.) — locked at borrow"     value={`${liveAprPct.toFixed(2)}%`} />
-                        <Row label="Market Premium (utilisation + volatility)"
-                          value={`+${(Math.max(0, wallet.currentAprBps - wallet.borrowAprBps) / 100).toFixed(2)}%`} />
-                        <Row label="Effective APR (p.a.)"                    value={`${(wallet.currentAprBps / 100).toFixed(2)}%`} vc={C.gold} />
-                        <Row label={`Interest (${loanTermDays}d · at ${liveAprPct.toFixed(2)}% base)`}  value={borrowMYR > 0 ? rm(panelInterest, 2) : '—'} vc={C.gold} />
+                        {/* Rate breakdown. Nothing is "locked" any more: the
+                            contract charges currentAprBps() across the whole
+                            position, so the base rate is shown for provenance
+                            and the effective rate is what the money is on. */}
+                        <Row label="Base Rate (p.a.)"                        value={`${baseAprPct.toFixed(2)}%`} />
+                        <Row label="Utilisation Premium"
+                          value={`+${utilPremiumPct.toFixed(2)}%`} />
+                        <Row label="Effective APR (p.a.)"                    value={`${effAprPct.toFixed(2)}%`} vc={C.gold} />
+                        <Row label={`Interest (${loanTermDays}d · at ${effAprPct.toFixed(2)}% effective)`}  value={borrowMYR > 0 ? rm(panelInterest, 2) : '—'} vc={C.gold} />
                         <Row label="Monthly Payment (est.)"                 value={borrowMYR > 0 ? rm(panelMonthly, 2) : '—'} vc={C.blue} />
                         <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
                           <Row label="Total to Repay"                       value={borrowMYR > 0 ? rm(panelTotal, 2) : '—'} vc={C.teal} bold />
@@ -2360,35 +2271,29 @@ function Dashboard() {
               {activeTab === 'repay' && (() => {
                 const principal    = isLive && wallet.loanInfo ? Number(wallet.loanInfo.borrowed) / 1e6 : 0;
                 const myrBal       = parseFloat(wallet.myrBalance || '0');
-                // Weighted-average APR from the locked rates of each borrow row.
-                // If borrow 1 = RM 100k at 3.00% and borrow 2 = RM 26.5M at 3.20%,
-                // the effective rate reflects each borrow's actual locked rate.
-                // Falls back to the current market rate if no ledger rows exist.
-                const lockedAprPct = ledger && ledger.totalPrincipal > 0
-                  ? ledger.rows.reduce((s, r) => s + r.principalMYR * (r.aprBps / 100), 0) / ledger.totalPrincipal
-                  : liveAprPct;
-                const perDay       = principal > 0 ? principal * (lockedAprPct / 100) / 365 : 0;
-                const repayAmtNum  = parseFloat(repayAmtEffective || '0');
-                // What the CONTRACT will actually pull on a full settlement:
-                // interest at the live dynamic rate (base + premiums) over real
-                // elapsed time since its clock last reset. That is more than the
-                // itemized ledger figure (locked base rates), and shortage math
-                // that chased the ledger number kept users "still short" after
-                // topping up exactly what was listed.
+                // ONE rate, everywhere. This used to be a principal-weighted
+                // average of each row's locked aprBps, which is not what the
+                // contract charges — accruedInterest() applies currentAprBps()
+                // to the whole position. The gap between the two is what made a
+                // "full" repay land short and leave sen of principal behind.
                 const contractAprPct = wallet.currentAprBps / 100;
+                const perDay       = principal > 0 ? principal * (contractAprPct / 100) / 365 : 0;
+                const repayAmtNum  = parseFloat(repayAmtEffective || '0');
+                // What the CONTRACT will actually pull on a full settlement,
+                // over the same whole-minute window it accrues on (ACCRUAL_STEP).
                 const contractIntNow = (() => {
                   if (!wallet.loanInfo || principal <= 0) return 0;
                   const since = Number(wallet.loanInfo.lastRepayTime || wallet.loanInfo.startTime) * 1000;
                   if (since <= 0) return 0;
-                  const years = Math.max(0, (wallet.lastRefreshAt || Date.now()) - since) / 31_536_000_000;
-                  return principal * (contractAprPct / 100) * years;
+                  const minutes = Math.floor(Math.max(0, (wallet.lastRefreshAt || Date.now()) - since) / 60_000);
+                  return principal * (contractAprPct / 100) * (minutes / MINUTES_PER_YEAR);
                 })();
-                const contractPerMin = principal * (contractAprPct / 100) / 525_600;
+                const contractPerMin = principal * (contractAprPct / 100) / MINUTES_PER_YEAR;
                 // Full payoff must be funded to the contract's cost, whatever the
                 // input shows; partial repays only need the typed amount.
                 const requiredBal  = repayFull ? Math.max(repayAmtNum, principal + contractIntNow) : repayAmtNum;
                 const shortage     = repayAmtNum > 0 ? Math.max(0, requiredBal - myrBal) : 0;
-                const perMin       = principal * (lockedAprPct / 100) / 525_600;
+                const perMin       = contractPerMin;
                 // Buffer: 30 min of growth at the contract rate (min RM 1), so the
                 // suggested top-up survives signing time and the next few refreshes.
                 const topUpAmt     = shortage > 0 ? Math.ceil((shortage + Math.max(contractPerMin * 30, 1)) * 100) / 100 : 0;
@@ -2418,7 +2323,7 @@ function Dashboard() {
                         </Typography>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                           <LiveDot color={C.gold} />
-                          <Chip label={`${lockedAprPct.toFixed(2)}% APR`} size="small"
+                          <Chip label={`${contractAprPct.toFixed(2)}% APR`} size="small"
                             sx={{ bgcolor: `${C.gold}18`, color: C.gold, border: `1px solid ${C.gold}45`, fontSize: 11, fontWeight: 700, height: 22 }} />
                         </Box>
                       </Box>
@@ -2591,7 +2496,16 @@ function Dashboard() {
                             <Typography sx={{ fontSize: 11, fontWeight: 600, color: C.ts }}>{pct}%</Typography>
                           </Box>
                         ))}
-                        <Box onClick={() => { setRepayAmt(''); setRepayAmtEdited(false); setRepayBillMode(false); setRepayFull(allSelected); }}
+                        {/* Pressing FULL means "pay it all off", so it ticks every
+                            plan rather than requiring the user to have ticked them
+                            first. setRepayFull(allSelected) made this chip silently
+                            do nothing whenever the selection was partial, which then
+                            skipped the on-chain re-quote and stranded sen of principal. */}
+                        <Box onClick={() => {
+                          setRepayAmt(''); setRepayAmtEdited(false); setRepayBillMode(false);
+                          setSelectedBorrowIds(ledger ? ledger.rows.map(r => r.id) : []);
+                          setRepayFull(true);
+                        }}
                           sx={{ flex: 1, py: 0.6, textAlign: 'center', bgcolor: fullActive ? `${C.teal}25` : C.inner, borderRadius: 1.5,
                             cursor: 'pointer', border: `1px solid ${fullActive ? C.teal : C.border}`,
                             '&:hover': { borderColor: C.teal, bgcolor: `${C.teal}08` } }}>
@@ -2729,14 +2643,20 @@ function Dashboard() {
                         fullWidth variant="contained"
                         disabled={canAutoRepay ? false : !canSubmit}
                         onClick={canAutoRepay ? doAutoTopUp : () => {
-                          const rawDue = wallet.loanInfo
+                          // A typed amount can also happen to cover everything.
+                          // Compare against the LARGER of the two due figures
+                          // (the contract's view and the ledger's) with a 1-sen
+                          // epsilon, so a rounding difference between them can
+                          // never demote a genuine payoff to a partial one and
+                          // strand sen of principal that then keeps accruing.
+                          // `full` is what routes into the on-chain re-quote —
+                          // the path that always worked; the bug was never
+                          // reaching it.
+                          const chainDue = wallet.loanInfo
                             ? (Number(wallet.loanInfo.borrowed) + Number(wallet.loanInfo.accruedInterest)) / 1e6 : 0;
-                          // Ticking every row (allSelected) only picks which ledger
-                          // tranches this payment settles — it must never override an
-                          // explicitly typed amount into a full payoff. "full" is only
-                          // true when the user chose FULL, or their typed amount
-                          // actually covers the whole due.
-                          const full = repayFull || (rawDue > 0 && repayAmtNum >= rawDue - 0.005);
+                          const ledgerDue = (ledger?.totalPrincipal ?? 0) + liveChainInt;
+                          const dueMax = Math.max(chainDue, ledgerDue);
+                          const full = isFullPayoffIntent || (dueMax > 0 && repayAmtNum >= dueMax - 0.01);
                           void wallet.repay(repayAmtEffective, { full, settle: settleForRepay(full) })
                             .then(() => { setRepayAmt(''); setRepayFull(false); setSelectedBorrowIds([]); });
                         }}
@@ -2941,7 +2861,7 @@ function Dashboard() {
           <Box sx={{ p: 2, mb: 2, bgcolor: C.inner, border: `1px solid ${C.border}`, borderRadius: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Row label="Borrow amount" value={rm(borrowMYR, 2)} bold />
             <Row label="Receive as" value="MYR tokens to wallet" />
-            <Row label="Interest rate" value={`${liveAprPct.toFixed(2)}% APR · variable`} />
+            <Row label="Interest rate" value={`${effAprPct.toFixed(2)}% APR · variable`} />
             <Row label={`Est. interest (${loanTermDays}d)`} value={rm(panelInterest, 2)} vc={C.gold} />
             <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
               <Row label="Total to repay (est.)" value={rm(panelTotal, 2)} vc={C.teal} bold />

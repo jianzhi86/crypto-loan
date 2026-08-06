@@ -18,7 +18,9 @@ model User {
   walletAddress String?       @unique
   isAdmin       Boolean       @default(false)
   /// ACTIVE = normal. RESTRICTED = may sign in and read, but every write is refused.
-  /// Off-chain only: a RESTRICTED user can still call the contract directly from
+  /// SUSPENDED = refused at sign-in entirely; getSessionUser() treats the session
+  /// as absent, and suspending bumps sessionEpoch to kill any live token.
+  /// Off-chain only: any of these users can still call the contract directly from
   /// their own wallet — see lib/authz.ts for the full caveat.
   status        String        @default("ACTIVE")
   statusReason  String?

@@ -192,7 +192,7 @@ function LoanTable({ rows }: { rows: LoanTx[] }) {
             <TableCell sx={cellSx}>
               {t.user
                 ? <Tooltip title={t.user.email ?? t.user.id}>
-                    <span style={{ color: t.user.status === 'RESTRICTED' ? C.red : C.slate }}>
+                    <span style={{ color: t.user.status === 'ACTIVE' ? C.slate : C.red }}>
                       {t.user.email ?? t.user.name ?? t.user.id}
                     </span>
                   </Tooltip>

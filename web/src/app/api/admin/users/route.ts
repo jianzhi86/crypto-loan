@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { requireAdmin, STATUS_ACTIVE, STATUS_RESTRICTED } from '@/lib/authz';
+import { requireAdmin, STATUS_ACTIVE, STATUS_RESTRICTED, STATUS_SUSPENDED } from '@/lib/authz';
 import type { Prisma } from '@prisma/client';
 
 const PAGE_SIZE = 25;
@@ -8,7 +8,8 @@ const PAGE_SIZE = 25;
 /**
  * GET /api/admin/users — paginated, filterable user directory.
  *
- * Query: q, status (ACTIVE|RESTRICTED), role (admin|user), kyc (approved|pending|rejected|none), page
+ * Query: q, status (ACTIVE|RESTRICTED|SUSPENDED), role (admin|user),
+ *        kyc (approved|pending|rejected|none), page
  */
 export async function GET(req: NextRequest) {
   const guard = await requireAdmin();
@@ -30,7 +31,9 @@ export async function GET(req: NextRequest) {
       { id:            q },
     ];
   }
-  if (status === STATUS_ACTIVE || status === STATUS_RESTRICTED) where.status = status;
+  if (status === STATUS_ACTIVE || status === STATUS_RESTRICTED || status === STATUS_SUSPENDED) {
+    where.status = status;
+  }
   if (role === 'admin') where.isAdmin = true;
   if (role === 'user')  where.isAdmin = false;
 

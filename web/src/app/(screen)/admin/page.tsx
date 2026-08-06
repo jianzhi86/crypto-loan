@@ -60,9 +60,10 @@ export const dynamic = 'force-dynamic';
 
 /* ─── Audit tone map ──────────────────────────────────────────────────────── */
 const ACTION_TONE: Record<string, Tone> = {
-  USER_RESTRICT: 'red',   KYC_DELETE: 'red',   KYC_REJECT: 'red',
-  USER_RESET_PASSWORD: 'amber', USER_RESET_KYC: 'amber', USER_UNLINK_WALLET: 'amber',
-  USER_UNRESTRICT: 'green', KYC_APPROVE: 'green',
+  USER_SUSPEND: 'red',    KYC_DELETE: 'red',   KYC_REJECT: 'red',
+  USER_RESTRICT: 'amber', USER_RESET_PASSWORD: 'amber', USER_RESET_KYC: 'amber',
+  USER_UNLINK_WALLET: 'amber',
+  USER_UNSUSPEND: 'green', USER_UNRESTRICT: 'green', KYC_APPROVE: 'green',
   FLAG_UPDATE: 'blue', USER_SET_ADMIN: 'blue',
   PRICE_SYNC: 'neutral', PROTOCOL_FEES_WITHDRAWN: 'amber',
 };
@@ -433,6 +434,71 @@ export default async function AdminOverviewPage() {
               <Typography sx={{ fontSize: 13, color: C.muted }}>
                 APR data unavailable — the local Hardhat node is not reachable at <code>{process.env.NEXT_PUBLIC_RPC_URL ?? 'http://127.0.0.1:8545'}</code>.
                 Start the node with <code>npm run node</code> to see live rates.
+              </Typography>
+            </Box>
+          )}
+        </Card>
+
+        {/* ── Lending Pool (cap / remaining / utilisation) ──────────────── */}
+        <Card sx={{ mb: 3, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 3, boxShadow: 'none', bgcolor: '#0D1628', overflow: 'hidden' }}>
+          <Box sx={{ px: 2.5, pt: 2, pb: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ color: C.blue }}><BankIcon size={15} /></Box>
+              <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Lending Pool</Typography>
+              <Box sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: `${C.blue}15`, border: `1px solid ${C.blue}30` }}>
+                <Typography sx={{ fontSize: 10, fontWeight: 700, color: C.blue }}>ON-CHAIN CAP</Typography>
+              </Box>
+            </Box>
+            <Typography sx={{ fontSize: 11, color: C.muted, fontFamily: 'monospace' }}>
+              {chain ? 'borrow() refuses past the cap · utilisation prices the premium' : 'Cannot reach local node'}
+            </Typography>
+          </Box>
+
+          <Divider sx={{ borderColor: C.border }} />
+
+          {chain ? (() => {
+            const utilPct    = chain.utilizationBps / 100;
+            const premiumPct = chain.utilPremiumBps / 100;
+            // Amber past half the pool, red once it is nearly exhausted — the
+            // point at which "how much is left" stops being a curiosity.
+            const headroomColor = utilPct >= 90 ? C.red : utilPct >= 75 ? C.amber : C.green;
+            return (
+              <>
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', sm: 'repeat(3,1fr)', md: 'repeat(5,1fr)' } }}>
+                  {[
+                    { label: 'Pool Cap',            value: rm(chain.supplyCapMYR),     color: C.ink,        sub: 'owner-settable ceiling' },
+                    { label: 'Borrowed',            value: rm(chain.totalBorrowedMYR), color: C.ink,        sub: `${utilPct.toFixed(2)}% of cap` },
+                    { label: 'Remaining to Lend',   value: rm(chain.poolAvailableMYR), color: headroomColor, sub: 'available before the cap' },
+                    { label: 'Utilisation',         value: `${utilPct.toFixed(2)}%`,   color: headroomColor, sub: 'drives the borrow premium' },
+                    { label: 'Utilisation Premium', value: `+${premiumPct.toFixed(2)}%`, color: C.amber,    sub: `base ${baseAprPct!.toFixed(2)}% → ${liveAprPct!.toFixed(2)}% effective` },
+                  ].map((s, i) => (
+                    <Box key={s.label} sx={{
+                      px: 2.5, py: 1.75,
+                      borderLeft: i > 0 ? `1px solid ${C.border}` : 'none',
+                      borderTop: { xs: i > 1 ? `1px solid ${C.border}` : 'none', sm: i > 2 ? `1px solid ${C.border}` : 'none', md: 'none' },
+                    }}>
+                      <Typography sx={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.6, mb: 0.5 }}>{s.label}</Typography>
+                      <Typography sx={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1.1, letterSpacing: -0.3 }}>{s.value}</Typography>
+                      <Typography sx={{ fontSize: 10.5, color: C.muted, mt: 0.25 }}>{s.sub}</Typography>
+                    </Box>
+                  ))}
+                </Box>
+                <Box sx={{ px: 2.5, py: 1.75, borderTop: `1px solid ${C.border}` }}>
+                  <LinearProgress
+                    variant="determinate" value={Math.min(100, utilPct)}
+                    sx={{ height: 6, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.07)',
+                          '& .MuiLinearProgress-bar': { borderRadius: 3, bgcolor: headroomColor } }} />
+                  <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.75 }}>
+                    {rm(chain.poolAvailableMYR)} of {rm(chain.supplyCapMYR)} still lendable.
+                    Every 25% of the pool consumed adds roughly +1.00% to the borrow APR, capped at 15%.
+                  </Typography>
+                </Box>
+              </>
+            );
+          })() : (
+            <Box sx={{ px: 2.5, py: 2 }}>
+              <Typography sx={{ fontSize: 13, color: C.muted }}>
+                Pool data unavailable — the local Hardhat node is not reachable.
               </Typography>
             </Box>
           )}

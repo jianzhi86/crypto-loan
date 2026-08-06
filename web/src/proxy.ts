@@ -52,7 +52,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  if (authenticated && isAuthPath) {
+  // A suspended (or epoch-revoked) session still carries a JWT that parses
+  // here, so `authenticated` is true even though the database says otherwise.
+  // The (screen) layout bounces such a visitor to /login?suspended=1; without
+  // the flag check below, this redirect would send them straight back, looping
+  // them between the two forever. The flagged sign-in page clears the dead
+  // cookie itself, after which normal behaviour resumes.
+  if (authenticated && isAuthPath && !request.nextUrl.searchParams.has('suspended')) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 

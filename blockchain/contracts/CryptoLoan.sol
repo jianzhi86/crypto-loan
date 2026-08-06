@@ -27,6 +27,19 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     uint256 public constant VOL_SLOPE_BPS    = 300;  // up to +3.0% on a max (20%) ETH/MYR move
     uint256 public constant MAX_BASE_RATE_BPS = 1500; // hard cap: 15%
 
+    /// @notice Ceiling on protocol-wide outstanding debt, in MYR units.
+    ///         MYR is minted on demand, so this is what makes "the pool" a real
+    ///         quantity: it is the denominator of utilizationBps(), which drives
+    ///         the borrow-rate premium, and the thing borrow() refuses to exceed.
+    ///         Owner-settable, so it cannot be `constant` or `immutable`.
+    uint256 public supplyCap = 100_000_000 * MYR_DECIMALS;   // RM 100,000,000
+
+    /// @notice Interest ticks once per minute rather than once per second, so the
+    ///         figure the UI quotes on its 60s refresh is exactly the figure the
+    ///         contract charges — not a per-second value that has already moved
+    ///         by the time the user signs the transaction.
+    uint256 public constant ACCRUAL_STEP = 60;
+
     // ── State ──────────────────────────────────────────────────────────────
     uint256 public ethPrice;       // MYR per ETH (whole number, e.g. 18000)
     uint256 public prevEthPrice;   // price before the last update (volatility input)
@@ -55,6 +68,7 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     event Liquidated(address indexed user, address indexed liquidator, uint256 debtCovered, uint256 collateralSeized);
     event PriceUpdated(uint256 oldPrice, uint256 newPrice, address updatedBy);
     event BaseRateUpdated(uint256 oldRateBps, uint256 newRateBps);
+    event SupplyCapUpdated(uint256 oldCap, uint256 newCap);
     event KYCSet(address indexed user, bool approved);
     event LiquidatorSet(address indexed liquidator, bool approved);
     event ProtocolFeesWithdrawn(address indexed to, uint256 amount);
@@ -117,6 +131,17 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         emit BaseRateUpdated(old, rateBps);
     }
 
+    /// @notice Resize the lending pool (owner only).
+    /// @dev Never below what is already lent out. A cap under the outstanding
+    ///      debt would push utilizationBps() to 100%, instantly pinning every
+    ///      borrower at MAX_BASE_RATE_BPS with no way to repay out of it.
+    function setSupplyCap(uint256 newCap) external onlyOwner {
+        require(newCap >= totalBorrowed, "Cap below outstanding debt");
+        uint256 old = supplyCap;
+        supplyCap = newCap;
+        emit SupplyCapUpdated(old, newCap);
+    }
+
     function pause() external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
@@ -167,6 +192,9 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
 
         uint256 maxBorrow = _maxBorrow(loan.collateral);
         require(loan.principal + myrAmount <= maxBorrow, "Exceeds max LTV");
+        // Checked after the per-user LTV limit so the more common, more
+        // actionable message is the one a borrower normally sees.
+        require(totalBorrowed + myrAmount <= supplyCap, "Pool cap reached");
 
         if (loan.startTime == 0) {
             loan.startTime    = block.timestamp;
@@ -307,14 +335,45 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
 
     // ── Views ───────────────────────────────────────────────────────────────
 
-    /// @notice The live borrow APR in basis points.
-    ///         Returns the admin-controlled base rate (updated hourly to track
-    ///         the market). Utilization and volatility slopes (UTIL_SLOPE_BPS,
-    ///         VOL_SLOPE_BPS) are defined as constants but intentionally not
-    ///         applied here — they made the effective rate diverge from what the
-    ///         UI quotes borrowers, causing confusing repay discrepancies.
+    /// @notice Share of the pool currently lent out, in basis points (0–10,000).
+    function utilizationBps() public view returns (uint256) {
+        if (supplyCap == 0) return 10_000;            // a zero pool is fully used
+        uint256 u = (totalBorrowed * 10_000) / supplyCap;
+        return u > 10_000 ? 10_000 : u;               // clamp: the cap can be lowered
+    }
+
+    /// @notice MYR still lendable before the pool cap is reached.
+    function availableToBorrowPool() public view returns (uint256) {
+        return supplyCap > totalBorrowed ? supplyCap - totalBorrowed : 0;
+    }
+
+    /// @notice The utilization premium alone, in bps — what currentAprBps() adds
+    ///         on top of baseRateBps before the MAX_BASE_RATE_BPS clamp. Exposed
+    ///         so the UI can show the premium as its own line without
+    ///         re-implementing a formula that would then be free to drift.
+    function utilPremiumBps() public view returns (uint256) {
+        return (UTIL_SLOPE_BPS * utilizationBps()) / 10_000;
+    }
+
+    /// @notice The live borrow APR in basis points: the admin-controlled base
+    ///         rate (tracked against the market by the price keeper) plus a
+    ///         utilization premium of up to UTIL_SLOPE_BPS as the pool fills,
+    ///         hard-capped at MAX_BASE_RATE_BPS.
+    ///
+    ///         This is THE rate. Every borrower-facing figure in the web app —
+    ///         the Borrow tab's projections, the Repay tab's ledger interest,
+    ///         the full-payoff quote — is derived from this call and never from
+    ///         baseRateBps, which may only ever be *labelled* "base rate". An
+    ///         earlier revision applied the slope here while the UI still quoted
+    ///         baseRateBps; that mismatch is what produced repay discrepancies,
+    ///         and the fix is one shared source, not a flat rate.
+    ///
+    ///         VOL_SLOPE_BPS stays defined but unapplied: it would move the rate
+    ///         on a price update, which a borrower can neither observe before it
+    ///         happens nor mirror from a single view call.
     function currentAprBps() public view returns (uint256) {
-        return baseRateBps;
+        uint256 rate = baseRateBps + utilPremiumBps();
+        return rate > MAX_BASE_RATE_BPS ? MAX_BASE_RATE_BPS : rate;
     }
 
     /// @dev Interest accrues at the CURRENT rate over the whole elapsed period
@@ -324,7 +383,10 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     function accruedInterest(address user) public view returns (uint256) {
         Loan storage loan = loans[user];
         if (loan.principal == 0 || loan.startTime == 0) return 0;
-        uint256 elapsed = block.timestamp - loan.lastRepayTime;
+        // Floored to whole minutes (ACCRUAL_STEP): the number quoted on the UI's
+        // 60s cycle is then exactly the number charged, so a full repay settles
+        // to zero instead of leaving a few sen of principal behind.
+        uint256 elapsed = ((block.timestamp - loan.lastRepayTime) / ACCRUAL_STEP) * ACCRUAL_STEP;
         return (loan.principal * currentAprBps() * elapsed) / (10_000 * 365 days);
     }
 
@@ -387,7 +449,8 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     function accruedSupplyInterest(address user) public view returns (uint256) {
         Loan storage loan = loans[user];
         if (loan.collateral == 0 || supplyStart[user] == 0) return 0;
-        uint256 elapsed = block.timestamp - supplyStart[user];
+        // Same whole-minute floor as accruedInterest() — see ACCRUAL_STEP.
+        uint256 elapsed = ((block.timestamp - supplyStart[user]) / ACCRUAL_STEP) * ACCRUAL_STEP;
         uint256 colMYR  = (loan.collateral * ethPrice * MYR_DECIMALS) / PRECISION;
         return (colMYR * supplyInterestRate() * elapsed) / (10_000 * 365 days);
     }
@@ -413,6 +476,33 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         )
     {
         return (totalBorrowed, totalCollateral, protocolFees, ethPrice, lastPriceTime);
+    }
+
+    /// @notice Everything the pool card and the rate breakdown need, in one call.
+    /// @dev    Deliberately a NEW view rather than extra returns on
+    ///         getProtocolStats(): several callers decode that one into a
+    ///         hand-written five-tuple, which would silently misdescribe itself
+    ///         if the arity changed.
+    function getPoolStats()
+        external
+        view
+        returns (
+            uint256 _supplyCap,
+            uint256 _totalBorrowed,
+            uint256 _available,
+            uint256 _utilizationBps,
+            uint256 _utilPremiumBps,
+            uint256 _currentAprBps
+        )
+    {
+        return (
+            supplyCap,
+            totalBorrowed,
+            availableToBorrowPool(),
+            utilizationBps(),
+            utilPremiumBps(),
+            currentAprBps()
+        );
     }
 
     // ── Internal ────────────────────────────────────────────────────────────

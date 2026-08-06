@@ -22,21 +22,29 @@ import { useSparklines } from '@/hooks/useSparklines';
 import Sparkline from '@/components/Sparkline';
 import { dynamicApr, supplyApr } from '@/lib/rates';
 import { useWallet } from '@/lib/WalletContext';
+import { useProtocolStats } from '@/hooks/useProtocolStats';
 import { BankIcon, CashIcon, CoinIcon, SolanaIcon, TrendUpIcon } from '@/components/Icons';
 
 // riskMul: borrow-rate multiplier relative to ETH (all rates track the live on-chain rate)
 // supplyRatio: fraction of borrow APR passed to lenders (higher for illiquid/volatile assets)
+// ETH is the only market deployed on this chain. Its maxLTV/liqThresh mirror
+// CryptoLoan.sol's MAX_LTV (70) and LIQ_THRESHOLD (80) — they read 75/85 here
+// until this was reconciled, promising headroom the contract would refuse.
+// Utilisation is per-market and only ETH has any, so every other row carries
+// `null` and renders "—" rather than an invented percentage. The `liquidity`
+// and `totalBorrowed` strings ("RM 11.2B" and friends) are gone for the same
+// reason: the live figures come from getPoolStats().
 const MARKETS = [
-  { symbol: 'BTC',   name: 'Bitcoin',   icon: '₿', color: '#F7931A', id: 'bitcoin',     riskMul: 0.78, supplyRatio: 0.40, maxLTV: 70, liqThresh: 80, liquidity: 'RM 11.2B', totalBorrowed: 'RM 7.8B',  util: 70 },
-  { symbol: 'ETH',   name: 'Ethereum',  icon: 'Ξ', color: '#627EEA', id: 'ethereum',    riskMul: 1.00, supplyRatio: 0.38, maxLTV: 75, liqThresh: 85, liquidity: 'RM 8.5B',  totalBorrowed: 'RM 5.3B',  util: 62 },
-  { symbol: 'SOL',   name: 'Solana',    icon: <SolanaIcon size={18} />, color: '#9945FF', id: 'solana',      riskMul: 0.96, supplyRatio: 0.49, maxLTV: 65, liqThresh: 75, liquidity: 'RM 1.9B',  totalBorrowed: 'RM 1.1B',  util: 58 },
-  { symbol: 'BNB',   name: 'BNB Chain', icon: 'B', color: '#F3BA2F', id: 'binancecoin', riskMul: 0.88, supplyRatio: 0.41, maxLTV: 65, liqThresh: 75, liquidity: 'RM 3.1B',  totalBorrowed: 'RM 1.7B',  util: 55 },
-  { symbol: 'XRP',   name: 'XRP',       icon: 'X', color: '#00AAE4', id: 'ripple',      riskMul: 1.13, supplyRatio: 0.62, maxLTV: 55, liqThresh: 65, liquidity: 'RM 720M',  totalBorrowed: 'RM 288M',  util: 40 },
-  { symbol: 'AVAX',  name: 'Avalanche', icon: 'A', color: '#E84142', id: 'avax',        riskMul: 1.16, supplyRatio: 0.57, maxLTV: 60, liqThresh: 70, liquidity: 'RM 840M',  totalBorrowed: 'RM 420M',  util: 50 },
-  { symbol: 'LINK',  name: 'Chainlink', icon: 'L', color: '#2A5ADA', id: 'chainlink',   riskMul: 1.12, supplyRatio: 0.60, maxLTV: 60, liqThresh: 70, liquidity: 'RM 520M',  totalBorrowed: 'RM 240M',  util: 46 },
-  { symbol: 'DOT',   name: 'Polkadot',  icon: 'D', color: '#E6007A', id: 'polkadot',    riskMul: 1.27, supplyRatio: 0.63, maxLTV: 55, liqThresh: 65, liquidity: 'RM 310M',  totalBorrowed: 'RM 130M',  util: 42 },
-  { symbol: 'ADA',   name: 'Cardano',   icon: '₳', color: '#0033AD', id: 'cardano',     riskMul: 1.30, supplyRatio: 0.65, maxLTV: 50, liqThresh: 60, liquidity: 'RM 280M',  totalBorrowed: 'RM 108M',  util: 38 },
-  { symbol: 'MATIC', name: 'Polygon',   icon: 'M', color: '#8247E5', id: 'polygon',     riskMul: 1.30, supplyRatio: 0.61, maxLTV: 55, liqThresh: 65, liquidity: 'RM 445M',  totalBorrowed: 'RM 196M',  util: 44 },
+  { symbol: 'BTC',   name: 'Bitcoin',   icon: '₿', color: '#F7931A', id: 'bitcoin',     riskMul: 0.78, supplyRatio: 0.40, maxLTV: 70, liqThresh: 80, util: null as number | null },
+  { symbol: 'ETH',   name: 'Ethereum',  icon: 'Ξ', color: '#627EEA', id: 'ethereum',    riskMul: 1.00, supplyRatio: 0.38, maxLTV: 70, liqThresh: 80, util: null as number | null },
+  { symbol: 'SOL',   name: 'Solana',    icon: <SolanaIcon size={18} />, color: '#9945FF', id: 'solana',      riskMul: 0.96, supplyRatio: 0.49, maxLTV: 65, liqThresh: 75, util: null as number | null },
+  { symbol: 'BNB',   name: 'BNB Chain', icon: 'B', color: '#F3BA2F', id: 'binancecoin', riskMul: 0.88, supplyRatio: 0.41, maxLTV: 65, liqThresh: 75, util: null as number | null },
+  { symbol: 'XRP',   name: 'XRP',       icon: 'X', color: '#00AAE4', id: 'ripple',      riskMul: 1.13, supplyRatio: 0.62, maxLTV: 55, liqThresh: 65, util: null as number | null },
+  { symbol: 'AVAX',  name: 'Avalanche', icon: 'A', color: '#E84142', id: 'avax',        riskMul: 1.16, supplyRatio: 0.57, maxLTV: 60, liqThresh: 70, util: null as number | null },
+  { symbol: 'LINK',  name: 'Chainlink', icon: 'L', color: '#2A5ADA', id: 'chainlink',   riskMul: 1.12, supplyRatio: 0.60, maxLTV: 60, liqThresh: 70, util: null as number | null },
+  { symbol: 'DOT',   name: 'Polkadot',  icon: 'D', color: '#E6007A', id: 'polkadot',    riskMul: 1.27, supplyRatio: 0.63, maxLTV: 55, liqThresh: 65, util: null as number | null },
+  { symbol: 'ADA',   name: 'Cardano',   icon: '₳', color: '#0033AD', id: 'cardano',     riskMul: 1.30, supplyRatio: 0.65, maxLTV: 50, liqThresh: 60, util: null as number | null },
+  { symbol: 'MATIC', name: 'Polygon',   icon: 'M', color: '#8247E5', id: 'polygon',     riskMul: 1.30, supplyRatio: 0.61, maxLTV: 55, liqThresh: 65, util: null as number | null },
 ];
 
 type SortKey = 'price' | 'change' | 'maxLTV' | 'borrowAPR' | 'supplyAPR' | 'util' | null;
@@ -50,12 +58,96 @@ const RISK_FILTERS: { id: RiskFilter; label: string; desc: string }[] = [
   { id: 'aggressive',   label: 'High APR',      desc: 'Borrow APR > 7%' },
 ];
 
+/**
+ * The Borrow/Earn action pair for one asset row.
+ *
+ * Identical in the desktop table, the card grid and the mobile list — it lived
+ * three times over, so every fix to it had to be made three times. ETH is the
+ * only market actually deployed on this chain; for every other symbol both
+ * actions are disabled rather than leading to a form that would revert.
+ */
+function AssetActions({ symbol, supplyAprPct, size = 'small', grow = false }: {
+  symbol: string;
+  supplyAprPct: number;
+  size?: 'small' | 'medium';
+  grow?: boolean;
+}) {
+  const isEth = symbol === 'ETH';
+  const fs = size === 'small' ? 11 : 13;
+
+  return (
+    <Box sx={{ display: 'flex', gap: grow ? 1 : 0.75, alignItems: 'center', ...(grow && { width: '100%' }) }}>
+      <Tooltip title={isEth ? 'Borrow MYR against ETH collateral' : 'Borrowing coming soon'} arrow>
+        {/* A disabled MUI Button suppresses pointer events, so the tooltip needs
+            this span to have something to attach to. */}
+        <span style={grow ? { flex: 1, display: 'flex' } : undefined}>
+          <Button
+            // `disabled` is a no-op on an <a>, so a disabled action must not
+            // render as a Link at all.
+            component={isEth ? Link : 'button'}
+            href={isEth ? `/dashboard?tab=borrow&asset=${symbol}` : undefined}
+            disabled={!isEth}
+            size={size} variant="contained"
+            sx={{
+              ...(grow && { flex: 1 }),
+              bgcolor: '#6E8BFF', color: 'white', fontSize: fs, px: 1.5, whiteSpace: 'nowrap',
+              boxShadow: 'none', borderRadius: 1.5, fontWeight: 700,
+              '&:hover': { bgcolor: '#9DB1FF', boxShadow: '0 4px 12px #6E8BFF40' },
+              // theme.ts already greys disabled contained buttons, but the
+              // inline bgcolor above out-specifies that variant style — without
+              // restating it here the button stays indigo while unclickable.
+              '&.Mui-disabled': {
+                bgcolor: 'rgba(255,255,255,0.06)',
+                color: 'rgba(255,255,255,0.25)',
+                boxShadow: 'none',
+              },
+            }}>
+            Borrow
+          </Button>
+        </span>
+      </Tooltip>
+
+      <Tooltip title={isEth ? `Earn ${supplyAprPct.toFixed(2)}% by supplying ETH collateral` : 'Supply coming soon'} arrow>
+        <span>
+          <Button
+            component={isEth ? Link : 'button'}
+            // Depositing collateral is what starts supply-interest accrual, so
+            // the deposit tab IS the earn flow. `?tab=earn` matched nothing in
+            // the dashboard's tab whitelist and silently opened no dialog.
+            href={isEth ? '/dashboard?tab=deposit' : undefined}
+            disabled={!isEth}
+            size={size} variant="outlined"
+            sx={{
+              fontSize: fs, px: 1.5, whiteSpace: 'nowrap', borderRadius: 1.5, fontWeight: 700,
+              borderColor: '#2BD9A2', color: '#2BD9A2',
+              '&:hover': { borderColor: '#2BD9A2', bgcolor: '#2BD9A218' },
+              '&.Mui-disabled': { borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.25)' },
+            }}>
+            Earn
+          </Button>
+        </span>
+      </Tooltip>
+    </Box>
+  );
+}
+
 export default function MarketsPage() {
   const { prices, loading, lastUpdated, flash } = usePrices();
   const sparklines = useSparklines();
   const wallet = useWallet();
-  // Live ETH borrow rate from the contract; fall back to 3% when no wallet/contract
-  const ethRate = wallet.borrowAprBps > 0 ? wallet.borrowAprBps / 100 : 3.0;
+  const { stats: pStats } = useProtocolStats();
+  const chain = pStats?.chain ?? null;
+  // The EFFECTIVE ETH borrow rate — currentAprBps(), i.e. base + utilisation
+  // premium. This tile used to read baseRateBps, which is not what a borrower
+  // is charged. Fall back to 3% when there is no wallet/contract.
+  const ethRate  = wallet.currentAprBps > 0 ? wallet.currentAprBps / 100 : 3.0;
+  const baseRate = wallet.borrowAprBps  > 0 ? wallet.borrowAprBps  / 100 : 3.0;
+  const utilPremiumPct = Math.max(0, ethRate - baseRate);
+  // Utilisation is protocol-wide (borrowed ÷ pool cap) and only ETH is live.
+  const ethUtilPct = chain ? chain.utilizationBps / 100 : null;
+  const utilFor = (m: { symbol: string }) => (m.symbol === 'ETH' ? ethUtilPct : null);
+  const fmtRm = (n: number) =>
+    `RM ${n.toLocaleString('en-MY', { maximumFractionDigits: n >= 1000 ? 0 : 2 })}`;
   const [search,    setSearch]    = useState('');
   const [sortKey,   setSortKey]   = useState<SortKey>(null);
   const [sortDir,   setSortDir]   = useState<SortDir>('desc');
@@ -103,7 +195,9 @@ export default function MarketsPage() {
       if (sortKey === 'maxLTV')    { va = a.maxLTV;    vb = b.maxLTV; }
       if (sortKey === 'borrowAPR') { va = getApr(a);   vb = getApr(b); }
       if (sortKey === 'supplyAPR') { va = getSApr(a);  vb = getSApr(b); }
-      if (sortKey === 'util')      { va = a.util;      vb = b.util; }
+      // Markets with no utilisation figure sort last either way, rather than
+      // being treated as 0% and jumping to the top of an ascending sort.
+      if (sortKey === 'util')      { va = utilFor(a) ?? -1; vb = utilFor(b) ?? -1; }
       return sortDir === 'asc' ? va - vb : vb - va;
     });
   }
@@ -133,7 +227,9 @@ export default function MarketsPage() {
   const fmtUsd = (usd: number) =>
     `$${usd.toLocaleString('en-US', { minimumFractionDigits: usd < 10 ? 3 : 0, maximumFractionDigits: usd < 10 ? 3 : 0 })}`;
 
-  const utilColor = (u: number) => u > 75 ? '#E5484D' : u > 50 ? '#FFB224' : '#2BD9A2';
+  const utilColor = (u: number | null) =>
+    u === null ? 'rgba(255,255,255,0.25)' : u > 75 ? '#E5484D' : u > 50 ? '#FFB224' : '#2BD9A2';
+  const NOT_LIVE = 'Utilisation is tracked only for ETH — the only live market on this deployment';
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#0B1226', color: 'text.primary' }}>
@@ -174,17 +270,34 @@ export default function MarketsPage() {
         {/* Market stats */}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, 1fr)' }, gap: 2, mb: 3 }}>
           {[
-            { label: 'Total Value Locked', value: 'RM 28.3B', sub: 'Across all assets',  icon: <BankIcon size={15} />, c: '#2BD9A2', bc: '#2BD9A2' },
-            { label: 'Total Borrowed',     value: 'RM 17.5B', sub: '61.8% utilisation',   icon: <CashIcon size={15} />, c: '#FFB224', bc: '#FFB224' },
             {
-              label: 'Avg Borrow APR',
-              value: loading ? '…' : `${(MARKETS.reduce((sum, m) => sum + getApr(m), 0) / MARKETS.length).toFixed(1)}%`,
-              sub: 'Variable · live average', icon: <TrendUpIcon size={15} />, c: '#E5484D', bc: '#E5484D',
+              label: 'Total Value Locked',
+              value: chain ? fmtRm(chain.totalCollateralETH * chain.ethPriceMYR) : '—',
+              sub: chain ? 'ETH collateral · on-chain' : 'Local chain unreachable',
+              icon: <BankIcon size={15} />, c: '#2BD9A2', bc: '#2BD9A2',
             },
             {
-              label: 'Avg Supply APR',
-              value: loading ? '…' : `${(MARKETS.reduce((sum, m) => sum + getSApr(m), 0) / MARKETS.length).toFixed(1)}%`,
-              sub: 'Weighted average', icon: <CoinIcon size={15} />, c: '#2BD9A2', bc: '#2BD9A2',
+              label: 'Total Borrowed',
+              value: chain ? fmtRm(chain.totalBorrowedMYR) : '—',
+              sub: chain
+                ? `${(chain.utilizationBps / 100).toFixed(1)}% of the ${fmtRm(chain.supplyCapMYR)} pool`
+                : 'Local chain unreachable',
+              icon: <CashIcon size={15} />, c: '#FFB224', bc: '#FFB224',
+            },
+            // Single-market tiles, not averages: averaging ten rows of which
+            // nine are indicative pricing produced a headline number that
+            // described no market anyone can actually trade.
+            {
+              label: 'Borrow APR (ETH)',
+              value: `${ethRate.toFixed(2)}%`,
+              sub: `base ${baseRate.toFixed(2)}% + ${utilPremiumPct.toFixed(2)}% utilisation`,
+              icon: <TrendUpIcon size={15} />, c: '#E5484D', bc: '#E5484D',
+            },
+            {
+              label: 'Supply APR (ETH)',
+              value: `${(wallet.supplyAprBps / 100).toFixed(2)}%`,
+              sub: '38% of the base rate',
+              icon: <CoinIcon size={15} />, c: '#2BD9A2', bc: '#2BD9A2',
             },
           ].map(s => (
             <Paper key={s.label} sx={{
@@ -387,38 +500,26 @@ export default function MarketsPage() {
                       </TableCell>
 
                       <TableCell sx={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <LinearProgress variant="determinate" value={m.util}
-                            sx={{ flex: 1, minWidth: 52, height: 6, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.1)',
-                                  '& .MuiLinearProgress-bar': { borderRadius: 1, bgcolor: utilColor(m.util) } }} />
-                          <Typography variant="caption" sx={{ color: utilColor(m.util), fontWeight: 600, minWidth: 30 }}>{m.util}%</Typography>
-                        </Box>
+                        {(() => {
+                          const u = utilFor(m);
+                          if (u === null) return (
+                            <Tooltip title={NOT_LIVE} arrow>
+                              <Typography variant="caption" sx={{ color: utilColor(null), fontWeight: 600 }}>—</Typography>
+                            </Tooltip>
+                          );
+                          return (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <LinearProgress variant="determinate" value={Math.min(100, u)}
+                                sx={{ flex: 1, minWidth: 52, height: 6, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.1)',
+                                      '& .MuiLinearProgress-bar': { borderRadius: 1, bgcolor: utilColor(u) } }} />
+                              <Typography variant="caption" sx={{ color: utilColor(u), fontWeight: 600, minWidth: 30 }}>{u.toFixed(1)}%</Typography>
+                            </Box>
+                          );
+                        })()}
                       </TableCell>
 
                       <TableCell sx={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-                        <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
-                          <Button component={Link} href={`/dashboard?tab=borrow&asset=${m.symbol}`} size="small" variant="contained"
-                            sx={{ bgcolor: '#6E8BFF', color: 'white', fontSize: 11, px: 1.5, whiteSpace: 'nowrap',
-                                  boxShadow: 'none', borderRadius: 1.5, fontWeight: 700,
-                                  '&:hover': { bgcolor: '#9DB1FF', boxShadow: '0 4px 12px #6E8BFF40' } }}>
-                            Borrow
-                          </Button>
-                          <Tooltip title={m.symbol === 'ETH' ? `Earn ${getSApr(m).toFixed(2)}% by supplying MYR liquidity` : 'Supply coming soon'} arrow>
-                            <span>
-                              <Button
-                                component={m.symbol === 'ETH' ? Link : 'button'}
-                                href={m.symbol === 'ETH' ? `/dashboard?tab=earn` : undefined}
-                                disabled={m.symbol !== 'ETH'}
-                                size="small" variant="outlined"
-                                sx={{ fontSize: 11, px: 1.5, whiteSpace: 'nowrap', borderRadius: 1.5, fontWeight: 700,
-                                      borderColor: '#2BD9A2', color: '#2BD9A2',
-                                      '&:hover': { borderColor: '#2BD9A2', bgcolor: '#2BD9A218' },
-                                      '&.Mui-disabled': { borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.25)' } }}>
-                                Earn
-                              </Button>
-                            </span>
-                          </Tooltip>
-                        </Box>
+                        <AssetActions symbol={m.symbol} supplyAprPct={getSApr(m)} />
                       </TableCell>
                     </TableRow>
                   );
@@ -491,37 +592,27 @@ export default function MarketsPage() {
                       </Box>
                     ))}
                   </Box>
-                  <Box sx={{ mb: 1.5 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                      <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Utilisation</Typography>
-                      <Typography sx={{ fontSize: 11, fontWeight: 700, color: utilColor(m.util) }}>{m.util}%</Typography>
-                    </Box>
-                    <LinearProgress variant="determinate" value={m.util}
-                      sx={{ height: 5, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.1)',
-                            '& .MuiLinearProgress-bar': { borderRadius: 1, bgcolor: utilColor(m.util) } }} />
-                  </Box>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button component={Link} href={`/dashboard?tab=borrow&asset=${m.symbol}`}
-                      sx={{ flex: 1, bgcolor: '#6E8BFF', color: 'white', fontWeight: 700, fontSize: 13, boxShadow: 'none',
-                            borderRadius: 1.5, '&:hover': { bgcolor: '#9DB1FF', boxShadow: `0 6px 18px #6E8BFF40` } }}>
-                      Borrow
-                    </Button>
-                    <Tooltip title={m.symbol === 'ETH' ? `Earn ${getSApr(m).toFixed(2)}% APR` : 'Supply coming soon'} arrow>
-                      <span>
-                        <Button
-                          component={m.symbol === 'ETH' ? Link : 'button'}
-                          href={m.symbol === 'ETH' ? `/dashboard?tab=earn` : undefined}
-                          disabled={m.symbol !== 'ETH'}
-                          variant="outlined"
-                          sx={{ fontWeight: 700, fontSize: 13, borderRadius: 1.5, px: 2,
-                                borderColor: '#2BD9A2', color: '#2BD9A2',
-                                '&:hover': { borderColor: '#2BD9A2', bgcolor: '#2BD9A218' },
-                                '&.Mui-disabled': { borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.25)' } }}>
-                          Earn
-                        </Button>
-                      </span>
-                    </Tooltip>
-                  </Box>
+                  {(() => {
+                    const u = utilFor(m);
+                    return (
+                      <Box sx={{ mb: 1.5 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Utilisation</Typography>
+                          <Tooltip title={u === null ? NOT_LIVE : ''} arrow>
+                            <Typography sx={{ fontSize: 11, fontWeight: 700, color: utilColor(u) }}>
+                              {u === null ? '—' : `${u.toFixed(1)}%`}
+                            </Typography>
+                          </Tooltip>
+                        </Box>
+                        {u !== null && (
+                          <LinearProgress variant="determinate" value={Math.min(100, u)}
+                            sx={{ height: 5, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.1)',
+                                  '& .MuiLinearProgress-bar': { borderRadius: 1, bgcolor: utilColor(u) } }} />
+                        )}
+                      </Box>
+                    );
+                  })()}
+                  <AssetActions symbol={m.symbol} supplyAprPct={getSApr(m)} size="medium" grow />
                 </Paper>
               );
             })}
@@ -597,36 +688,28 @@ export default function MarketsPage() {
                 </Box>
 
                 {/* Util bar */}
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                  <Typography sx={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Utilisation</Typography>
-                  <Typography sx={{ fontSize: 11, fontWeight: 700, color: utilColor(m.util) }}>{m.util}%</Typography>
-                </Box>
-                <LinearProgress variant="determinate" value={m.util}
-                  sx={{ height: 4, borderRadius: 1, mb: 1.5, bgcolor: 'rgba(255,255,255,0.1)',
-                        '& .MuiLinearProgress-bar': { borderRadius: 1, bgcolor: utilColor(m.util) } }} />
+                {(() => {
+                  const u = utilFor(m);
+                  return (
+                    <>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                        <Typography sx={{ fontSize: 9.5, fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Utilisation</Typography>
+                        <Tooltip title={u === null ? NOT_LIVE : ''} arrow>
+                          <Typography sx={{ fontSize: 11, fontWeight: 700, color: utilColor(u) }}>
+                            {u === null ? '—' : `${u.toFixed(1)}%`}
+                          </Typography>
+                        </Tooltip>
+                      </Box>
+                      {u !== null && (
+                        <LinearProgress variant="determinate" value={Math.min(100, u)}
+                          sx={{ height: 4, borderRadius: 1, mb: 1.5, bgcolor: 'rgba(255,255,255,0.1)',
+                                '& .MuiLinearProgress-bar': { borderRadius: 1, bgcolor: utilColor(u) } }} />
+                      )}
+                    </>
+                  );
+                })()}
 
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button component={Link} href={`/dashboard?tab=borrow&asset=${m.symbol}`}
-                    size="small" variant="contained" sx={{ flex: 1, bgcolor: '#6E8BFF', color: 'white', fontWeight: 700, fontSize: 13, boxShadow: 'none',
-                          borderRadius: 1.5, '&:hover': { bgcolor: '#9DB1FF', boxShadow: 'none' } }}>
-                    Borrow
-                  </Button>
-                  <Tooltip title={m.symbol === 'ETH' ? `Earn ${getSApr(m).toFixed(2)}% APR` : 'Supply coming soon'} arrow>
-                    <span>
-                      <Button
-                        component={m.symbol === 'ETH' ? Link : 'button'}
-                        href={m.symbol === 'ETH' ? `/dashboard?tab=earn` : undefined}
-                        disabled={m.symbol !== 'ETH'}
-                        size="small" variant="outlined"
-                        sx={{ fontWeight: 700, fontSize: 13, borderRadius: 1.5, px: 2,
-                              borderColor: '#2BD9A2', color: '#2BD9A2',
-                              '&:hover': { borderColor: '#2BD9A2', bgcolor: '#2BD9A218' },
-                              '&.Mui-disabled': { borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.25)' } }}>
-                        Earn
-                      </Button>
-                    </span>
-                  </Tooltip>
-                </Box>
+                <AssetActions symbol={m.symbol} supplyAprPct={getSApr(m)} grow />
               </Box>
             );
           })}

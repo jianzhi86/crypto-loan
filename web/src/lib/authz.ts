@@ -19,6 +19,21 @@ import { getAuthUser } from '@/lib/auth-jwt';
 export const STATUS_ACTIVE = 'ACTIVE';
 /** May sign in and read, but every write route refuses. */
 export const STATUS_RESTRICTED = 'RESTRICTED';
+/**
+ * Refused at sign-in entirely — the harder state above RESTRICTED. Suspending
+ * also bumps sessionEpoch, so live tokens die with the suspension rather than
+ * lasting out their seven days.
+ */
+export const STATUS_SUSPENDED = 'SUSPENDED';
+
+/**
+ * One copy string for every entry point a suspended user can reach, so the
+ * email address they are told to contact is written down exactly once.
+ */
+export function suspendedMessage(reason?: string | null): string {
+  return `Your account has been suspended${reason ? ` — ${reason}` : ''}. ` +
+    `Please contact admin@cryptolend.com to resolve this.`;
+}
 
 export interface SessionUser {
   id: string;
@@ -63,6 +78,12 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   // Tokens minted before session revocation existed carry no epoch; treat as 0
   // so existing sessions survive this deploy instead of all logging out at once.
   if ((payload.epoch ?? 0) !== row.sessionEpoch) return null;
+
+  // A suspended account is not a session. Returning null here is what makes
+  // suspension total in one line: requireUser, requireActiveUser, requireAdmin,
+  // /api/auth/me, the root layout's viewer and the admin layout's gate all read
+  // through this function, so every one of them fails closed for free.
+  if (row.status === STATUS_SUSPENDED) return null;
 
   const { sessionEpoch: _epoch, ...user } = row;
   void _epoch;
@@ -115,6 +136,8 @@ export type AuditAction =
   | 'USER_UPDATE'
   | 'USER_RESTRICT'
   | 'USER_UNRESTRICT'
+  | 'USER_SUSPEND'
+  | 'USER_UNSUSPEND'
   | 'USER_RESET_PASSWORD'
   | 'USER_RESET_KYC'
   | 'USER_LINK_WALLET'

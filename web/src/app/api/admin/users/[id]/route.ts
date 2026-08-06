@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { prisma } from '@/lib/db/prisma';
-import { requireAdmin, audit, STATUS_ACTIVE, STATUS_RESTRICTED, type SessionUser } from '@/lib/authz';
+import { requireAdmin, audit, STATUS_ACTIVE, STATUS_RESTRICTED, STATUS_SUSPENDED, type SessionUser } from '@/lib/authz';
 import { setKycOnChain, isKycOnChain, getOnChainPosition } from '@/lib/kyc/chain';
 
 /**
@@ -116,7 +116,8 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
 /**
  * POST /api/admin/users/[id] — run a named action.
- * { action: 'restrict' | 'unrestrict' | 'reset-password' | 'reset-kyc' | 'unlink-wallet' }
+ * { action: 'suspend' | 'unsuspend' | 'restrict' | 'unrestrict' | 'reset-password'
+ *           | 'reset-kyc' | 'unlink-wallet' }
  */
 export async function POST(req: NextRequest, ctx: Ctx) {
   const guard = await requireAdmin();
@@ -132,6 +133,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   switch (action) {
+    case 'suspend':       return suspend(guard.user, target, reason ?? '');
+    case 'unsuspend':     return unsuspend(guard.user, target);
     case 'restrict':      return restrict(guard.user, target, reason ?? '');
     case 'unrestrict':    return unrestrict(guard.user, target);
     case 'reset-password': return resetPassword(guard.user, target);
@@ -143,6 +146,55 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 }
 
 type Target = { id: string; email: string | null; name: string | null; walletAddress: string | null; isAdmin: boolean; status: string };
+
+/**
+ * Block sign-in entirely. The harder half of the pair: RESTRICTED lets someone
+ * in to read, SUSPENDED does not let them in at all.
+ */
+async function suspend(actor: SessionUser, target: Target, reason: string) {
+  // The same two guards as restrict(). A suspension is strictly harsher, so
+  // anything restrict() refuses this must refuse too.
+  if (target.id === actor.id) {
+    return NextResponse.json({ error: 'You cannot suspend your own account' }, { status: 409 });
+  }
+  if (target.isAdmin) {
+    // Counting ACTIVE only is deliberate: a restricted or suspended admin is
+    // not a way back into this panel, so they must not count as the last one.
+    const admins = await prisma.user.count({ where: { isAdmin: true, status: STATUS_ACTIVE } });
+    if (admins <= 1) {
+      return NextResponse.json({ error: 'Cannot suspend the last active admin' }, { status: 409 });
+    }
+  }
+
+  await prisma.user.update({
+    where: { id: target.id },
+    data: {
+      status: STATUS_SUSPENDED,
+      statusReason: reason.trim() || null,
+      statusChangedAt: new Date(),
+      // Unlike restrict(), which deliberately leaves the session alive, a
+      // suspension must END live sessions — the whole point is that they cannot
+      // get back in, and a 7-day JWT would otherwise keep working until it
+      // expired. getSessionUser() rejects the stale epoch on the next request.
+      sessionEpoch: { increment: 1 },
+    },
+  });
+  await audit(actor, 'USER_SUSPEND', 'user', target.id, { reason });
+  return NextResponse.json({ ok: true, status: STATUS_SUSPENDED });
+}
+
+async function unsuspend(actor: SessionUser, target: Target) {
+  await prisma.user.update({
+    where: { id: target.id },
+    data: { status: STATUS_ACTIVE, statusReason: null, statusChangedAt: new Date() },
+  });
+  await audit(actor, 'USER_UNSUSPEND', 'user', target.id);
+  return NextResponse.json({
+    ok: true,
+    status: STATUS_ACTIVE,
+    note: 'Suspension lifted. Their password is unchanged, but they must sign in fresh — suspending ended every session they had.',
+  });
+}
 
 async function restrict(actor: SessionUser, target: Target, reason: string) {
   if (target.id === actor.id) {

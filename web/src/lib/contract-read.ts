@@ -29,6 +29,16 @@ export type ChainStats = {
   myrTotalSupplyMYR: number;
   /// Contract owner address — the wallet protocol fee withdrawals are sent to.
   ownerAddress: string;
+  /// Pool cap in MYR — the ceiling borrow() enforces on protocol-wide debt.
+  supplyCapMYR: number;
+  /// supplyCap − totalBorrowed: MYR still lendable before borrowing is refused.
+  poolAvailableMYR: number;
+  /// totalBorrowed ÷ supplyCap in bps (0–10,000). This is what prices the loan
+  /// book — not the old borrowed÷collateral ratio, which was never utilization.
+  utilizationBps: number;
+  /// The utilization slice of aprBps, in bps. Read from the contract rather than
+  /// subtracted from baseRateBps here so the two can never drift apart.
+  utilPremiumBps: number;
 };
 
 export async function readChainStats(): Promise<ChainStats | null> {
@@ -37,7 +47,7 @@ export async function readChainStats(): Promise<ChainStats | null> {
     const loan = new ethers.Contract(CONTRACT_ADDRESSES.CryptoLoan, CRYPTO_LOAN_ABI, provider);
     const myr  = new ethers.Contract(CONTRACT_ADDRESSES.MockMYR, MOCK_MYR_ABI, provider);
 
-    const [aprBps, baseRateBps, ethPrice, stats, paused, supplyRate, contractEthBalance, myrTotalSupply, owner] = await Promise.all([
+    const [aprBps, baseRateBps, ethPrice, stats, paused, supplyRate, contractEthBalance, myrTotalSupply, owner, pool] = await Promise.all([
       loan.currentAprBps()       as Promise<bigint>,
       loan.baseRateBps()         as Promise<bigint>,
       loan.ethPrice()            as Promise<bigint>,
@@ -47,6 +57,10 @@ export async function readChainStats(): Promise<ChainStats | null> {
       provider.getBalance(CONTRACT_ADDRESSES.CryptoLoan),
       myr.totalSupply()          as Promise<bigint>,
       loan.owner()               as Promise<string>,
+      // Tolerated separately (like supplyInterestRate above) so a contract
+      // deployed before the pool cap existed degrades to zeroed pool figures
+      // instead of nulling the whole stats object and blanking the admin page.
+      loan.getPoolStats().catch(() => null) as Promise<[bigint, bigint, bigint, bigint, bigint, bigint] | null>,
     ]);
 
     return {
@@ -61,6 +75,10 @@ export async function readChainStats(): Promise<ChainStats | null> {
       contractEthBalanceETH: Number(ethers.formatEther(contractEthBalance)),
       myrTotalSupplyMYR:  Number(myrTotalSupply) / 1e6,
       ownerAddress:       owner,
+      supplyCapMYR:       pool ? Number(pool[0]) / 1e6 : 0,
+      poolAvailableMYR:   pool ? Number(pool[2]) / 1e6 : 0,
+      utilizationBps:     pool ? Number(pool[3])       : 0,
+      utilPremiumBps:     pool ? Number(pool[4])       : 0,
     };
   } catch {
     return null;
