@@ -12,6 +12,7 @@ export const TX_TYPES = [
   'Borrowed',
   'Repaid',
   'MYRPurchased',
+  'SupplyInterestClaimed',
 ] as const;
 
 export type TxTypeName = (typeof TX_TYPES)[number];
@@ -22,6 +23,7 @@ export const TX_LABELS: Record<string, string> = {
   Borrowed:            'Borrowed MYR',
   Repaid:              'Repaid MYR',
   MYRPurchased:        'Bought MYR',
+  SupplyInterestClaimed: 'Claimed Supply Interest',
 };
 
 /** Which unit the stored `amount` is denominated in, per event type. */
@@ -31,6 +33,7 @@ export const TX_UNIT: Record<string, 'ETH' | 'MYR'> = {
   Borrowed:            'MYR',
   Repaid:              'MYR',
   MYRPurchased:        'MYR',
+  SupplyInterestClaimed: 'MYR',
 };
 
 /**
@@ -47,6 +50,7 @@ export const TX_DECIMALS: Record<string, number> = {
   Borrowed:            6,
   Repaid:              6,
   MYRPurchased:        6,
+  SupplyInterestClaimed: 6,
 };
 
 /** Format a stored amount using the right scale for its event type. */

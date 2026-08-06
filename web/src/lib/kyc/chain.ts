@@ -7,7 +7,8 @@ const LOAN_ADDR = CONTRACT_ADDRESSES.CryptoLoan;
 const LOAN_ABI = [
   'function setKYC(address user, bool approved) external',
   'function kycApproved(address user) view returns (bool)',
-  'function loans(address user) view returns (uint256 collateral, uint256 principal, uint256 startTime, uint256 lastRepayTime)',
+  'function getPosition(address user) view returns (uint256 collateral, uint256 principal)',
+  'function getUserLoans(address user) view returns (tuple(uint256 principal, uint256 startTime, uint256 dueDate, uint256 lastRepayTime, uint256 termDays, uint256 aprBps, bool active)[] loansOut, uint256[] interests)',
 ];
 
 function readContract() {
@@ -60,6 +61,41 @@ export async function isKycOnChain(wallet: string): Promise<boolean> {
  */
 export async function getOnChainPosition(wallet: string): Promise<{ collateral: bigint; principal: bigint }> {
   const contract = readContract();
-  const loan = await (contract.loans as (u: string) => Promise<[bigint, bigint, bigint, bigint]>)(wallet);
-  return { collateral: loan[0], principal: loan[1] };
+  const pos = await (contract.getPosition as (u: string) => Promise<[bigint, bigint]>)(wallet);
+  return { collateral: pos[0], principal: pos[1] };
+}
+
+export interface OnChainLoan {
+  loanId:        number;
+  principal:     bigint;
+  startTime:     bigint;
+  dueDate:       bigint;
+  lastRepayTime: bigint;
+  termDays:      number;
+  aprBps:        number;
+  active:        boolean;
+  interest:      bigint;
+}
+
+/**
+ * The wallet's full on-chain loan book (index = loanId), including inactive
+ * loans so ids stay aligned with the DB ledger's stored loanId.
+ */
+export async function getOnChainLoans(wallet: string): Promise<OnChainLoan[]> {
+  const contract = readContract();
+  const [loans, interests] = await (contract.getUserLoans as (u: string) => Promise<[
+    { principal: bigint; startTime: bigint; dueDate: bigint; lastRepayTime: bigint; termDays: bigint; aprBps: bigint; active: boolean }[],
+    bigint[],
+  ]>)(wallet);
+  return loans.map((l, i) => ({
+    loanId:        i,
+    principal:     l.principal,
+    startTime:     l.startTime,
+    dueDate:       l.dueDate,
+    lastRepayTime: l.lastRepayTime,
+    termDays:      Number(l.termDays),
+    aprBps:        Number(l.aprBps),
+    active:        l.active,
+    interest:      interests[i] ?? BigInt(0),
+  }));
 }

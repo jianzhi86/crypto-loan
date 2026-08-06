@@ -25,19 +25,20 @@ flowchart LR
 
 ## Smart contracts (`blockchain/contracts/`)
 
-**`CryptoLoan.sol`** — the core protocol. Key parameters: **70% max LTV**, **80% liquidation threshold**, **5% liquidator bonus**, **variable APR** (`currentAprBps()`: 3% base + up to 4% utilization premium + up to 3% volatility premium; accrued linearly since last repayment). It deploys its own `MockMYR` token and holds the ETH/MYR price on-chain (owner-updated, sanity-capped at ±20% per move).
+**`CryptoLoan.sol`** — the core protocol. **Fixed-term, per-loan model**: every borrow is its own on-chain `Loan` (principal, start time, **due date**, term of 30/90/180/365 days, and an **APR locked at borrow time** — `currentAprBps()` = 3% base + up to 4% utilization premium prices new borrows only). Collateral is one shared ETH pot per borrower; LTV/health factor run on the SUM of active principals, while interest and repayment are strictly per-loan (calendar-day accrual anchored to Malaysia midnight). Key parameters: **70% max LTV**, **80% liquidation threshold**, **5% liquidator bonus**, **7-day grace period** after maturity. It deploys its own `MockMYR` token and holds the ETH/MYR price on-chain (owner-updated, sanity-capped at ±20% per move).
 
 | Function | Who | What |
 |---|---|---|
 | `depositCollateral()` | anyone | Send ETH, credited as collateral |
-| `borrow(myr)` | KYC-flagged wallets | Mints MYR up to 70% of collateral value |
-| `repay(myr)` | borrower | Pulls approved MYR; interest first, then principal |
+| `borrow(myr, termDays)` | KYC-flagged wallets | Opens a new fixed-term loan (due date = now + term, APR locked); mints MYR up to 70% aggregate LTV |
+| `repay(loanId, myr)` / `repayMany(ids, amounts)` | borrower | Pulls approved MYR; THIS loan's interest first, then its principal — other loans untouched |
 | `withdrawCollateral(wei)` | borrower | Allowed only if remaining position stays under max LTV |
 | `buyMYR(myr)` | anyone | Swap ETH → MYR at the on-chain price (to top up for repayment) |
-| `liquidate(borrower, debt)` | whitelisted liquidators | When health factor < 1: repay debt, seize collateral + 5% bonus |
+| `liquidate(borrower, loanId, debt)` | whitelisted liquidators | When HF < 1 **or** the loan is past dueDate + grace: repay its debt, seize only the equivalent collateral + 5% bonus |
+| `getUserLoans(user)` | view | The full per-loan book (index = loanId) + live per-loan interest |
 | `setKYC`, `setEthPrice`, `pause`, `withdrawProtocolFees` | owner | Admin/ops |
 
-**Health factor** = (collateral value × 80%) / debt. Below 1.0 the position is liquidatable.
+**Health factor** = (collateral value × 80%) / (total debt). Below 1.0 the position is liquidatable. Independently, any single loan unpaid past its due date + 7-day grace is liquidatable on its own (`LoanLiquidated` event carries the reason: `"collateral unsafe"` or `"loan overdue"`). Liquidation is proportional — only enough collateral to cover the repaid debt + bonus is seized.
 
 Also present: `MockMYR.sol` (6-decimal ERC-20 minted by the loan contract), `ICO.sol` + `RinggitToken.sol`/`MockUSDC.sol` (separate token-sale demo behind the `/ico` page).
 

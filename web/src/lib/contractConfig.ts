@@ -3,7 +3,7 @@
 
 export const HARDHAT_CHAIN_ID = 31337;
 export const HARDHAT_RPC_URL  = "http://127.0.0.1:8545";
-export const ETH_PRICE_MYR    = 7760;
+export const ETH_PRICE_MYR    = 7813;
 
 export const CONTRACT_ADDRESSES = {
   CryptoLoan: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
@@ -235,6 +235,99 @@ export const CRYPTO_LOAN_ABI = [
       {
         "indexed": true,
         "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      }
+    ],
+    "name": "LoanClosed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "borrower",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "principal",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "dueDate",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "termDays",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "aprBps",
+        "type": "uint256"
+      }
+    ],
+    "name": "LoanCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "borrower",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "collateralAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "reason",
+        "type": "string"
+      }
+    ],
+    "name": "LoanLiquidated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "buyer",
         "type": "address"
       },
@@ -359,6 +452,12 @@ export const CRYPTO_LOAN_ABI = [
         "type": "address"
       },
       {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      },
+      {
         "indexed": false,
         "internalType": "uint256",
         "name": "principal",
@@ -428,6 +527,19 @@ export const CRYPTO_LOAN_ABI = [
   {
     "inputs": [],
     "name": "ACCRUAL_STEP",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GRACE_PERIOD",
     "outputs": [
       {
         "internalType": "uint256",
@@ -613,6 +725,30 @@ export const CRYPTO_LOAN_ABI = [
         "internalType": "address",
         "name": "user",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      }
+    ],
+    "name": "accruedInterestForLoan",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
       }
     ],
     "name": "accruedSupplyInterest",
@@ -677,6 +813,11 @@ export const CRYPTO_LOAN_ABI = [
         "internalType": "uint256",
         "name": "myrAmount",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "termDays",
+        "type": "uint256"
       }
     ],
     "name": "borrow",
@@ -702,6 +843,25 @@ export const CRYPTO_LOAN_ABI = [
     "name": "claimSupplyInterest",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "collateralOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -849,6 +1009,30 @@ export const CRYPTO_LOAN_ABI = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "getPosition",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "collateral",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "principal",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "getProtocolStats",
     "outputs": [
@@ -889,12 +1073,107 @@ export const CRYPTO_LOAN_ABI = [
         "type": "address"
       }
     ],
+    "name": "getUserLoans",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "principal",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "startTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "dueDate",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "lastRepayTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "termDays",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "aprBps",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "active",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct CryptoLoan.Loan[]",
+        "name": "loansOut",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "interests",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
     "name": "healthFactor",
     "outputs": [
       {
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isLoanLiquidatable",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "liquidatable",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "unhealthy",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "overdue",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -941,6 +1220,11 @@ export const CRYPTO_LOAN_ABI = [
       },
       {
         "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
         "name": "debtAmount",
         "type": "uint256"
       }
@@ -973,30 +1257,39 @@ export const CRYPTO_LOAN_ABI = [
     "inputs": [
       {
         "internalType": "address",
-        "name": "",
+        "name": "user",
         "type": "address"
       }
     ],
-    "name": "loans",
+    "name": "loanCount",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "collateral",
+        "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
       },
       {
         "internalType": "uint256",
-        "name": "principal",
+        "name": "loanId",
         "type": "uint256"
-      },
+      }
+    ],
+    "name": "loanDue",
+    "outputs": [
       {
         "internalType": "uint256",
-        "name": "startTime",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "lastRepayTime",
+        "name": "",
         "type": "uint256"
       }
     ],
@@ -1099,11 +1392,34 @@ export const CRYPTO_LOAN_ABI = [
     "inputs": [
       {
         "internalType": "uint256",
+        "name": "loanId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
         "name": "myrAmount",
         "type": "uint256"
       }
     ],
     "name": "repay",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "loanIds",
+        "type": "uint256[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "amounts",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "repayMany",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

@@ -8,17 +8,8 @@ const ETH_PRICE   = 18_000n;          // RM 18,000 per ETH
 const ONE_ETH     = ethers.parseEther("1");
 const MYR_6       = 1_000_000n;       // 1 MYR in 6-decimal units
 const MAX_LTV     = 70n;
-const LIQ_THRESH  = 80n;
-
-async function approveAndRepay(
-  myr: MockMYR,
-  loan: CryptoLoan,
-  signer: HardhatEthersSigner,
-  amount: bigint
-) {
-  await myr.connect(signer).approve(await loan.getAddress(), amount);
-  return loan.connect(signer).repay(amount);
-}
+const DAY         = 24 * 3600;
+const GRACE       = 7 * DAY;
 
 describe("CryptoLoan", function () {
   let loan: CryptoLoan;
@@ -43,6 +34,18 @@ describe("CryptoLoan", function () {
     // Whitelist liquidator
     await loan.connect(owner).setLiquidator(liquidator.address, true);
   });
+
+  // Mint MYR to an account via owner acting as a proxy borrower — used to
+  // fund interest payments and liquidator balances.
+  async function topUp(to: HardhatEthersSigner, amount: bigint) {
+    await loan.connect(owner).setKYC(owner.address, true);
+    const [ownerCollateral] = await loan.getPosition(owner.address);
+    if (ownerCollateral === 0n) {
+      await loan.connect(owner).depositCollateral({ value: ONE_ETH * 100n });
+    }
+    await loan.connect(owner).borrow(amount, 30n);
+    await myr.connect(owner).transfer(to.address, amount);
+  }
 
   // ── Deployment ────────────────────────────────────────────────────────────
   describe("Deployment", () => {
@@ -83,7 +86,7 @@ describe("CryptoLoan", function () {
     it("non-KYC user cannot borrow", async () => {
       await loan.connect(other).depositCollateral({ value: ONE_ETH });
       await expect(
-        loan.connect(other).borrow(1000n * MYR_6)
+        loan.connect(other).borrow(1000n * MYR_6, 30n)
       ).to.be.revertedWith("KYC required");
     });
   });
@@ -117,8 +120,7 @@ describe("CryptoLoan", function () {
         .withArgs(user.address, ONE_ETH);
 
       expect(await loan.totalCollateral()).to.equal(ONE_ETH);
-      const info = await loan.loans(user.address);
-      expect(info.collateral).to.equal(ONE_ETH);
+      expect(await loan.collateralOf(user.address)).to.equal(ONE_ETH);
     });
 
     it("allows full withdrawal when no debt", async () => {
@@ -132,12 +134,23 @@ describe("CryptoLoan", function () {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
       // 1 ETH @ 18000 MYR → max borrow = 18000 * 0.70 = 12600 MYR
       const borrow = 12_600n * MYR_6;
-      await loan.connect(user).borrow(borrow);
+      await loan.connect(user).borrow(borrow, 90n);
 
       // Trying to withdraw any collateral would push LTV over 70%
       await expect(
         loan.connect(user).withdrawCollateral(ONE_ETH / 2n)
       ).to.be.revertedWith("Would violate LTV");
+    });
+
+    it("unlocks collateral after every loan is repaid", async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(5_000n * MYR_6, 30n);
+      await topUp(user, 1_000n * MYR_6);   // interest headroom
+      await myr.connect(user).approve(await loan.getAddress(), 6_000n * MYR_6);
+      await loan.connect(user).repay(0n, 6_000n * MYR_6);
+
+      await expect(loan.connect(user).withdrawCollateral(ONE_ETH))
+        .to.emit(loan, "CollateralWithdrawn");
     });
 
     it("reverts sending 0 ETH", async () => {
@@ -147,7 +160,7 @@ describe("CryptoLoan", function () {
     });
   });
 
-  // ── Borrow ────────────────────────────────────────────────────────────────
+  // ── Borrow (fixed-term loans) ─────────────────────────────────────────────
   describe("borrow", () => {
     beforeEach(async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
@@ -155,87 +168,174 @@ describe("CryptoLoan", function () {
 
     it("mints MYR up to max LTV", async () => {
       const maxBorrow = (ONE_ETH * ETH_PRICE * MAX_LTV * MYR_6) / (10n ** 18n * 100n);
-      await expect(loan.connect(user).borrow(maxBorrow))
+      await expect(loan.connect(user).borrow(maxBorrow, 90n))
         .to.emit(loan, "Borrowed")
         .withArgs(user.address, maxBorrow, maxBorrow);
       expect(await myr.balanceOf(user.address)).to.equal(maxBorrow);
     });
 
-    it("reverts if exceeds LTV", async () => {
-      const tooMuch = (ONE_ETH * ETH_PRICE * MAX_LTV * MYR_6) / (10n ** 18n * 100n) + 1n;
-      await expect(loan.connect(user).borrow(tooMuch)).to.be.revertedWith("Exceeds max LTV");
+    it("records startTime, dueDate, term and locked APR on the loan", async () => {
+      const apr = await loan.currentAprBps();
+      await loan.connect(user).borrow(5_000n * MYR_6, 90n);
+      const now = BigInt(await time.latest());
+
+      const [loans, interests] = await loan.getUserLoans(user.address);
+      expect(loans.length).to.equal(1);
+      expect(interests.length).to.equal(1);
+      expect(loans[0].principal).to.equal(5_000n * MYR_6);
+      expect(loans[0].startTime).to.equal(now);
+      expect(loans[0].dueDate).to.equal(now + 90n * BigInt(DAY));
+      expect(loans[0].termDays).to.equal(90n);
+      expect(loans[0].aprBps).to.equal(apr);
+      expect(loans[0].active).to.be.true;
+    });
+
+    it("emits LoanCreated with loanId and dueDate", async () => {
+      const tx = await loan.connect(user).borrow(5_000n * MYR_6, 180n);
+      const now = BigInt(await time.latest());
+      await expect(tx)
+        .to.emit(loan, "LoanCreated")
+        .withArgs(user.address, 0n, 5_000n * MYR_6, now + 180n * BigInt(DAY), 180n, await loan.currentAprBps());
+    });
+
+    it("accepts only the 30/90/180/365 day terms", async () => {
+      await expect(loan.connect(user).borrow(1_000n * MYR_6, 45n))
+        .to.be.revertedWith("Invalid term");
+      for (const term of [30n, 90n, 180n, 365n]) {
+        await expect(loan.connect(user).borrow(100n * MYR_6, term)).to.emit(loan, "LoanCreated");
+      }
+    });
+
+    it("each borrow is its own loan; LTV is enforced on the aggregate", async () => {
+      const maxBorrow = (ONE_ETH * ETH_PRICE * MAX_LTV * MYR_6) / (10n ** 18n * 100n);
+      await loan.connect(user).borrow(maxBorrow / 2n, 30n);
+      await loan.connect(user).borrow(maxBorrow / 2n, 365n);
+      await expect(loan.connect(user).borrow(1n, 30n)).to.be.revertedWith("Exceeds max LTV");
+
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans.length).to.equal(2);
+      const [, principal] = await loan.getPosition(user.address);
+      expect(principal).to.equal(maxBorrow);
     });
 
     it("tracks totalBorrowed", async () => {
       const amt = 5_000n * MYR_6;
-      await loan.connect(user).borrow(amt);
+      await loan.connect(user).borrow(amt, 30n);
       expect(await loan.totalBorrowed()).to.equal(amt);
     });
   });
 
-  // ── Repay ─────────────────────────────────────────────────────────────────
+  // ── Repay (per-loan) ──────────────────────────────────────────────────────
   describe("repay", () => {
     const borrowed = 5_000n * MYR_6;
 
-    // Mint extra MYR to an account via owner acting as a proxy borrower
-    async function topUp(to: HardhatEthersSigner, amount: bigint) {
-      await loan.connect(owner).setKYC(owner.address, true);
-      const ownerLoan = await loan.loans(owner.address);
-      if (ownerLoan.collateral === 0n) {
-        await loan.connect(owner).depositCollateral({ value: ONE_ETH * 10n });
-      }
-      await loan.connect(owner).borrow(amount);
-      await myr.connect(owner).transfer(to.address, amount);
-    }
-
     beforeEach(async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(borrowed);
+      await loan.connect(user).borrow(borrowed, 90n);
     });
 
-    it("repays principal in full, clears loan", async () => {
-      // Pass 2x borrowed — contract caps to actual totalDue at execution time.
-      // This ensures tiny inter-block interest doesn't leave a residual principal.
+    it("repays a loan in full and marks it inactive", async () => {
+      // Pass 2x borrowed — contract caps to the loan's actual due at execution.
       const cap = borrowed * 2n;
-      await topUp(user, borrowed); // ensure user has enough balance
+      await topUp(user, borrowed);
       await myr.connect(user).approve(await loan.getAddress(), cap);
-      await loan.connect(user).repay(cap);
-      const info = await loan.loans(user.address);
-      expect(info.principal).to.equal(0n);
-      expect(info.startTime).to.equal(0n);
+      await expect(loan.connect(user).repay(0n, cap)).to.emit(loan, "LoanClosed").withArgs(user.address, 0n);
+
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans[0].principal).to.equal(0n);
+      expect(loans[0].active).to.be.false;
+      const [, principal] = await loan.getPosition(user.address);
+      expect(principal).to.equal(0n);
     });
 
-    it("accrues interest over 1 year at the live variable rate", async () => {
-      await time.increase(365 * 24 * 3600);
-      const aprBps = await loan.currentAprBps();
-      // Variable rate = 3% base + utilization/volatility premiums; must sit
-      // inside the formula's designed band.
-      expect(aprBps).to.be.gte(300n);
-      expect(aprBps).to.be.lte(1000n);
-      const interest = await loan.accruedInterest(user.address);
-      const expected = (borrowed * aprBps) / 10_000n;
+    it("repaying one loan leaves the other loan untouched", async () => {
+      await loan.connect(user).borrow(2_000n * MYR_6, 30n);   // loanId 1
+      await time.increase(30 * DAY);
+
+      const due0 = await loan.loanDue(user.address, 0n);
+      const int1Before = await loan.accruedInterestForLoan(user.address, 1n);
+      expect(int1Before).to.be.gt(0n);
+
+      await topUp(user, due0);
+      await myr.connect(user).approve(await loan.getAddress(), due0 * 2n);
+      await loan.connect(user).repay(0n, due0 * 2n);
+
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans[0].active).to.be.false;
+      // Loan 1 keeps its full principal AND its own accrued interest — paying
+      // loan 0 must not have consumed loan 1's interest.
+      expect(loans[1].active).to.be.true;
+      expect(loans[1].principal).to.equal(2_000n * MYR_6);
+      expect(await loan.accruedInterestForLoan(user.address, 1n)).to.be.gte(int1Before);
+    });
+
+    it("interest accrues at the LOCKED rate over 1 year", async () => {
+      const [loans] = await loan.getUserLoans(user.address);
+      const lockedApr = loans[0].aprBps;
+      await time.increase(365 * DAY);
+      const interest = await loan.accruedInterestForLoan(user.address, 0n);
+      const expected = (borrowed * lockedApr) / 10_000n;
       expect(interest).to.be.closeTo(expected, expected / 100n);
     });
 
-    it("repays interest + principal after 1 year", async () => {
-      await time.increase(365 * 24 * 3600);
-      const interest = await loan.accruedInterest(user.address);
-      // topUp with interest + buffer; repay 2x so inter-block interest is covered
-      await topUp(user, interest + borrowed);
-      const cap = borrowed * 3n;
-      await myr.connect(user).approve(await loan.getAddress(), cap);
-      await loan.connect(user).repay(cap);
-      const info = await loan.loans(user.address);
-      expect(info.principal).to.equal(0n);
+    it("partial repay pays interest first, then principal", async () => {
+      await time.increase(30 * DAY);
+      const interest = await loan.accruedInterestForLoan(user.address, 0n);
+      expect(interest).to.be.gt(0n);
+
+      const pay = interest + 1_000n * MYR_6;
+      await topUp(user, pay);
+      await myr.connect(user).approve(await loan.getAddress(), pay);
+      await expect(loan.connect(user).repay(0n, pay))
+        .to.emit(loan, "Repaid");
+
+      const [loans] = await loan.getUserLoans(user.address);
+      // Interest may tick up a step between quote and execution; principal
+      // must have dropped by (pay - actual interest) which is <= 1000 MYR.
+      expect(loans[0].principal).to.be.gte(borrowed - 1_000n * MYR_6);
+      expect(loans[0].principal).to.be.lt(borrowed);
+      expect(loans[0].active).to.be.true;
     });
 
-    it("reverts if no active loan", async () => {
-      // Clear the loan with a 2x cap, then confirm second repay reverts
+    it("repayMany settles several loans in one transaction", async () => {
+      await loan.connect(user).borrow(2_000n * MYR_6, 30n);   // loanId 1
+      await time.increase(10 * DAY);
+
+      const due0 = await loan.loanDue(user.address, 0n);
+      const due1 = await loan.loanDue(user.address, 1n);
+      await topUp(user, due0 + due1);
+      await myr.connect(user).approve(await loan.getAddress(), (due0 + due1) * 2n);
+      await loan.connect(user).repayMany([0n, 1n], [due0 * 2n, due1 * 2n]);
+
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans[0].active).to.be.false;
+      expect(loans[1].active).to.be.false;
+      const [, principal] = await loan.getPosition(user.address);
+      expect(principal).to.equal(0n);
+    });
+
+    it("repaying exactly loanDue() clears the loan to zero", async () => {
+      await time.increase(10 * DAY);
+      const due = await loan.loanDue(user.address, 0n);
+      await topUp(user, 1_000n * MYR_6);
+      await myr.connect(user).approve(await loan.getAddress(), due);
+      await loan.connect(user).repay(0n, due);
+
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans[0].principal).to.equal(0n);
+      expect(loans[0].active).to.be.false;
+    });
+
+    it("reverts when the loan is already repaid", async () => {
       await topUp(user, borrowed);
       const cap = borrowed * 2n;
       await myr.connect(user).approve(await loan.getAddress(), cap);
-      await loan.connect(user).repay(cap);
-      await expect(loan.connect(user).repay(1n)).to.be.revertedWith("No active loan");
+      await loan.connect(user).repay(0n, cap);
+      await expect(loan.connect(user).repay(0n, 1n)).to.be.revertedWith("Nothing to repay");
+    });
+
+    it("reverts for an unknown loanId", async () => {
+      await expect(loan.connect(user).repay(9n, 1n)).to.be.revertedWith("No such loan");
     });
   });
 
@@ -248,7 +348,7 @@ describe("CryptoLoan", function () {
     it("is above MIN_HEALTH at 70% LTV", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
       const maxBorrow = (ONE_ETH * ETH_PRICE * MAX_LTV * MYR_6) / (10n ** 18n * 100n);
-      await loan.connect(user).borrow(maxBorrow);
+      await loan.connect(user).borrow(maxBorrow, 90n);
 
       const hf = await loan.healthFactor(user.address);
       const MIN_HEALTH = 10n ** 18n;
@@ -258,18 +358,18 @@ describe("CryptoLoan", function () {
     it("currentLTV reflects borrow correctly", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
       const half = (ONE_ETH * ETH_PRICE * 35n * MYR_6) / (10n ** 18n * 100n); // 35%
-      await loan.connect(user).borrow(half);
+      await loan.connect(user).borrow(half, 30n);
       const ltv = await loan.currentLTV(user.address);
       expect(ltv).to.be.closeTo(35n, 1n);
     });
   });
 
-  // ── Liquidation ───────────────────────────────────────────────────────────
-  describe("liquidate", () => {
+  // ── Liquidation: scenario A — ETH price crash ─────────────────────────────
+  describe("liquidate — collateral risk (HF < 1)", () => {
     it("liquidates an underwater position", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
       const maxBorrowOld = (ONE_ETH * ETH_PRICE * MAX_LTV * MYR_6) / (10n ** 18n * 100n);
-      await loan.connect(user).borrow(maxBorrowOld);
+      await loan.connect(user).borrow(maxBorrowOld, 90n);
 
       // Drop price 20% — user's position is now undercollateralised
       const newPrice = (ETH_PRICE * 80n) / 100n;
@@ -279,7 +379,7 @@ describe("CryptoLoan", function () {
       await loan.connect(owner).setKYC(liquidator.address, true);
       await loan.connect(liquidator).depositCollateral({ value: ONE_ETH * 3n });
       const maxBorrowNew = (ONE_ETH * 3n * newPrice * MAX_LTV * MYR_6) / (10n ** 18n * 100n);
-      await loan.connect(liquidator).borrow(maxBorrowNew);
+      await loan.connect(liquidator).borrow(maxBorrowNew, 30n);
 
       const hf = await loan.healthFactor(user.address);
       expect(hf).to.be.lt(10n ** 18n);
@@ -287,14 +387,51 @@ describe("CryptoLoan", function () {
       const debtToCover = maxBorrowOld / 2n;
       await myr.connect(liquidator).approve(await loan.getAddress(), debtToCover);
       await expect(
-        loan.connect(liquidator).liquidate(user.address, debtToCover)
-      ).to.emit(loan, "Liquidated");
+        loan.connect(liquidator).liquidate(user.address, 0n, debtToCover)
+      ).to.emit(loan, "LoanLiquidated")
+       .withArgs(user.address, 0n, (debtToCover * 10n ** 18n * 105n) / (newPrice * MYR_6 * 100n), "collateral unsafe");
+    });
+
+    it("seizes only enough collateral to cover the debt + bonus — the rest stays the borrower's", async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH * 2n });
+      // Borrow LESS than the max so a 20% price drop leaves plenty of spare
+      // collateral value after covering the debt.
+      const principal = 10_000n * MYR_6;
+      await loan.connect(user).borrow(principal, 90n);
+
+      // Make the position unhealthy by borrowing near max first
+      const maxBorrow = (ONE_ETH * 2n * ETH_PRICE * MAX_LTV * MYR_6) / (10n ** 18n * 100n);
+      await loan.connect(user).borrow(maxBorrow - principal, 90n);   // loanId 1
+      const newPrice = (ETH_PRICE * 80n) / 100n;
+      await loan.connect(owner).setEthPrice(newPrice);
+      expect(await loan.healthFactor(user.address)).to.be.lt(10n ** 18n);
+
+      // Cover loan 0's FULL debt (principal + interest) — over-quote and let
+      // the contract cap at the real due, so the loan actually closes.
+      const due0 = await loan.loanDue(user.address, 0n);
+      await topUp(liquidator, due0 * 2n);
+      await myr.connect(liquidator).approve(await loan.getAddress(), due0 * 2n);
+
+      const collateralBefore = await loan.collateralOf(user.address);
+      await loan.connect(liquidator).liquidate(user.address, 0n, due0 * 2n);
+      const collateralAfter = await loan.collateralOf(user.address);
+
+      // Seized = debt value in ETH at the crashed price + 5% bonus — NOT the
+      // whole pot.
+      const expectedSeize = (due0 * 10n ** 18n * 105n) / (newPrice * MYR_6 * 100n);
+      expect(collateralBefore - collateralAfter).to.be.closeTo(expectedSeize, expectedSeize / 50n);
+      expect(collateralAfter).to.be.gt(0n);
+
+      // Loan 0 fully covered → closed; loan 1 still active.
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans[0].active).to.be.false;
+      expect(loans[1].active).to.be.true;
     });
 
     it("scales down the MYR pulled from the liquidator when collateral can't cover debt + bonus", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
       const principal = (ONE_ETH * ETH_PRICE * MAX_LTV * MYR_6) / (10n ** 18n * 100n);
-      await loan.connect(user).borrow(principal);
+      await loan.connect(user).borrow(principal, 90n);
 
       // Crash the price hard enough that collateralValue + 5% bonus for the
       // full debt would exceed the 1 ETH actually deposited (two successive
@@ -306,7 +443,7 @@ describe("CryptoLoan", function () {
       await loan.connect(owner).setKYC(liquidator.address, true);
       await loan.connect(liquidator).depositCollateral({ value: ONE_ETH * 3n });
       const liquidatorMaxBorrow = (ONE_ETH * 3n * crashedPrice * MAX_LTV * MYR_6) / (10n ** 18n * 100n);
-      await loan.connect(liquidator).borrow(liquidatorMaxBorrow);
+      await loan.connect(liquidator).borrow(liquidatorMaxBorrow, 30n);
 
       expect(await loan.healthFactor(user.address)).to.be.lt(10n ** 18n);
 
@@ -320,13 +457,12 @@ describe("CryptoLoan", function () {
       const liquidatorMyrBefore = await myr.balanceOf(liquidator.address);
       const liquidatorEthBefore = await ethers.provider.getBalance(liquidator.address);
 
-      const tx = await loan.connect(liquidator).liquidate(user.address, principal);
+      const tx = await loan.connect(liquidator).liquidate(user.address, 0n, principal);
       const receipt = await tx.wait();
       const gasCost = receipt!.gasUsed * receipt!.gasPrice;
 
       // All collateral seized (capped), but never more than what's there.
-      const loanAfter = await loan.loans(user.address);
-      expect(loanAfter.collateral).to.equal(0n);
+      expect(await loan.collateralOf(user.address)).to.equal(0n);
 
       // Liquidator received exactly the capped collateral, not the naive
       // (over-bonused) amount.
@@ -342,23 +478,111 @@ describe("CryptoLoan", function () {
       // The shortfall stays on the books as uncovered principal (bad debt)
       // rather than being wiped out for collateral the liquidator didn't
       // actually receive.
-      expect(loanAfter.principal).to.be.gt(0n);
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans[0].principal).to.be.gt(0n);
+      expect(loans[0].active).to.be.true;
     });
 
     it("non-liquidator cannot liquidate", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(1_000n * MYR_6);
+      await loan.connect(user).borrow(1_000n * MYR_6, 30n);
       await expect(
-        loan.connect(other).liquidate(user.address, 1_000n * MYR_6)
+        loan.connect(other).liquidate(user.address, 0n, 1_000n * MYR_6)
       ).to.be.revertedWith("Not liquidator");
     });
 
-    it("cannot liquidate healthy position", async () => {
+    it("cannot liquidate a healthy, on-time position", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(1_000n * MYR_6);
+      await loan.connect(user).borrow(1_000n * MYR_6, 30n);
       await expect(
-        loan.connect(liquidator).liquidate(user.address, 1_000n * MYR_6)
+        loan.connect(liquidator).liquidate(user.address, 0n, 1_000n * MYR_6)
       ).to.be.revertedWith("Not liquidatable");
+    });
+  });
+
+  // ── Liquidation: scenario B — overdue past grace ──────────────────────────
+  describe("liquidate — overdue loan (maturity + grace period)", () => {
+    const principal = 1_000n * MYR_6;
+
+    beforeEach(async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(principal, 30n);   // due in 30 days
+      await topUp(liquidator, principal * 2n);
+      await myr.connect(liquidator).approve(await loan.getAddress(), principal * 2n);
+    });
+
+    it("cannot liquidate before the due date", async () => {
+      await time.increase(29 * DAY);
+      await expect(
+        loan.connect(liquidator).liquidate(user.address, 0n, principal)
+      ).to.be.revertedWith("Not liquidatable");
+    });
+
+    it("cannot liquidate during the grace period", async () => {
+      await time.increase(30 * DAY + GRACE - 3600);   // due + 6d23h — still in grace
+      const [liquidatable, unhealthy, overdue] = await loan.isLoanLiquidatable(user.address, 0n);
+      expect(liquidatable).to.be.false;
+      expect(unhealthy).to.be.false;
+      expect(overdue).to.be.false;
+      await expect(
+        loan.connect(liquidator).liquidate(user.address, 0n, principal)
+      ).to.be.revertedWith("Not liquidatable");
+    });
+
+    it("liquidates once due date + grace period have passed, even with a healthy HF", async () => {
+      await time.increase(30 * DAY + GRACE + 60);
+
+      // The collateral is perfectly healthy — HF far above 1 — yet the loan
+      // is liquidatable purely because it's overdue.
+      expect(await loan.healthFactor(user.address)).to.be.gt(10n ** 18n);
+      const [liquidatable, unhealthy, overdue] = await loan.isLoanLiquidatable(user.address, 0n);
+      expect(liquidatable).to.be.true;
+      expect(unhealthy).to.be.false;
+      expect(overdue).to.be.true;
+
+      await expect(
+        loan.connect(liquidator).liquidate(user.address, 0n, principal * 2n)
+      ).to.emit(loan, "LoanLiquidated");
+
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans[0].active).to.be.false;
+      // Only the debt's worth (+bonus) was seized — most of the 1 ETH remains.
+      expect(await loan.collateralOf(user.address)).to.be.gt((ONE_ETH * 9n) / 10n);
+    });
+
+    it("an overdue loan does not make the account's OTHER loans liquidatable", async () => {
+      await loan.connect(user).borrow(principal, 365n);   // loanId 1 — not due for a year
+      await time.increase(30 * DAY + GRACE + 60);
+
+      const [liq1] = await loan.isLoanLiquidatable(user.address, 1n);
+      expect(liq1).to.be.false;
+      await expect(
+        loan.connect(liquidator).liquidate(user.address, 1n, principal)
+      ).to.be.revertedWith("Not liquidatable");
+
+      // The overdue one is.
+      await expect(
+        loan.connect(liquidator).liquidate(user.address, 0n, principal * 2n)
+      ).to.emit(loan, "LoanLiquidated");
+    });
+
+    it("repaying during the grace period prevents liquidation", async () => {
+      await time.increase(30 * DAY + 2 * DAY);   // 2 days into grace
+      const due = await loan.loanDue(user.address, 0n);
+      await topUp(user, due);
+      await myr.connect(user).approve(await loan.getAddress(), due * 2n);
+      await loan.connect(user).repay(0n, due * 2n);
+
+      await time.increase(GRACE);
+      await expect(
+        loan.connect(liquidator).liquidate(user.address, 0n, principal)
+      ).to.be.revertedWith("Loan not active");
+    });
+
+    it("getLoanInfo flags the account liquidatable when any loan is overdue", async () => {
+      await time.increase(30 * DAY + GRACE + 60);
+      const info = await loan.getLoanInfo(user.address);
+      expect(info.isLiquidatable).to.be.true;
     });
   });
 
@@ -389,7 +613,7 @@ describe("CryptoLoan", function () {
 
     it("updates after borrow and deposit", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(5_000n * MYR_6);
+      await loan.connect(user).borrow(5_000n * MYR_6, 30n);
       const [tb, tc] = await loan.getProtocolStats();
       expect(tb).to.equal(5_000n * MYR_6);
       expect(tc).to.equal(ONE_ETH);
@@ -407,14 +631,14 @@ describe("CryptoLoan", function () {
     it("reverts a borrow that would exceed the pool cap", async () => {
       await loan.connect(owner).setSupplyCap(1_000n * MYR_6);
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await expect(loan.connect(user).borrow(1_001n * MYR_6))
+      await expect(loan.connect(user).borrow(1_001n * MYR_6, 30n))
         .to.be.revertedWith("Pool cap reached");
-      await expect(loan.connect(user).borrow(1_000n * MYR_6)).to.emit(loan, "Borrowed");
+      await expect(loan.connect(user).borrow(1_000n * MYR_6, 30n)).to.emit(loan, "Borrowed");
     });
 
     it("setSupplyCap cannot drop below outstanding debt", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(5_000n * MYR_6);
+      await loan.connect(user).borrow(5_000n * MYR_6, 30n);
       await expect(loan.connect(owner).setSupplyCap(4_999n * MYR_6))
         .to.be.revertedWith("Cap below outstanding debt");
       await expect(loan.connect(owner).setSupplyCap(5_000n * MYR_6))
@@ -428,7 +652,7 @@ describe("CryptoLoan", function () {
     it("currentAprBps = base + utilization slope, clamped at MAX_BASE_RATE_BPS", async () => {
       await loan.connect(owner).setSupplyCap(10_000n * MYR_6);
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(5_000n * MYR_6);          // 50% utilization
+      await loan.connect(user).borrow(5_000n * MYR_6, 30n);      // 50% utilization
 
       expect(await loan.utilizationBps()).to.equal(5_000n);
       expect(await loan.utilPremiumBps()).to.equal(200n);        // UTIL_SLOPE_BPS * 0.5
@@ -438,9 +662,26 @@ describe("CryptoLoan", function () {
       expect(await loan.currentAprBps()).to.equal(1_500n);       // clamped, not 1600
     });
 
+    it("a loan keeps its locked APR even after the live rate moves", async () => {
+      await loan.connect(owner).setSupplyCap(10_000n * MYR_6);
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(5_000n * MYR_6, 90n);
+      const [loansBefore] = await loan.getUserLoans(user.address);
+      const locked = loansBefore[0].aprBps;
+
+      await loan.connect(owner).setBaseRate(1_400n);             // live rate jumps
+      const [loansAfter] = await loan.getUserLoans(user.address);
+      expect(loansAfter[0].aprBps).to.equal(locked);
+
+      await time.increase(365 * DAY);
+      const interest = await loan.accruedInterestForLoan(user.address, 0n);
+      const expected = (5_000n * MYR_6 * locked) / 10_000n;      // NOT the new rate
+      expect(interest).to.be.closeTo(expected, expected / 100n);
+    });
+
     it("utilizationBps clamps at 100% when the cap is lowered onto the debt", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(5_000n * MYR_6);
+      await loan.connect(user).borrow(5_000n * MYR_6, 30n);
       await loan.connect(owner).setSupplyCap(5_000n * MYR_6);
       expect(await loan.utilizationBps()).to.equal(10_000n);
       expect(await loan.availableToBorrowPool()).to.equal(0n);
@@ -450,7 +691,7 @@ describe("CryptoLoan", function () {
     it("getPoolStats reports remaining capacity", async () => {
       await loan.connect(owner).setSupplyCap(10_000n * MYR_6);
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(4_000n * MYR_6);
+      await loan.connect(user).borrow(4_000n * MYR_6, 30n);
 
       const [cap, borrowed, avail, util, premium, apr] = await loan.getPoolStats();
       expect(cap).to.equal(10_000n * MYR_6);
@@ -462,69 +703,51 @@ describe("CryptoLoan", function () {
     });
   });
 
-  // ── Per-minute accrual ────────────────────────────────────────────────────
-  describe("per-minute accrual (ACCRUAL_STEP)", () => {
-    it("floors borrow interest to whole minutes", async () => {
-      await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(5_000n * MYR_6);
-
-      expect(await loan.accruedInterest(user.address)).to.equal(0n);
-      await time.increase(30);
-      expect(await loan.accruedInterest(user.address)).to.equal(0n);
-      await time.increase(31);                                   // crosses 60s
-      expect(await loan.accruedInterest(user.address)).to.be.gt(0n);
-    });
-
-    it("floors supply interest to whole minutes", async () => {
+  // ── Calendar-day accrual ──────────────────────────────────────────────────
+  describe("calendar-day accrual (ACCRUAL_STEP)", () => {
+    it("supply interest floors to whole days", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
 
       expect(await loan.accruedSupplyInterest(user.address)).to.equal(0n);
-      await time.increase(30);
+      await time.increase(DAY / 2);
       expect(await loan.accruedSupplyInterest(user.address)).to.equal(0n);
-      await time.increase(31);
+      await time.increase(DAY / 2 + 60);                          // crosses 1 day
       expect(await loan.accruedSupplyInterest(user.address)).to.be.gt(0n);
     });
 
-    it("holds interest flat between minute boundaries", async () => {
+    it("borrow interest charges the borrow day itself (minimum one day before first repay)", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(5_000n * MYR_6);
-      await time.increase(120);
-      const at2min = await loan.accruedInterest(user.address);
-      await time.increase(30);                                   // still minute 2
-      expect(await loan.accruedInterest(user.address)).to.equal(at2min);
-      await time.increase(30);                                   // now minute 3
-      expect(await loan.accruedInterest(user.address)).to.be.gt(at2min);
+      await loan.connect(user).borrow(5_000n * MYR_6, 30n);
+      // Same block-day, no repay yet → the one-day floor applies.
+      expect(await loan.accruedInterestForLoan(user.address, 0n)).to.be.gt(0n);
     });
 
-    // The dust bug expressed on-chain: paying exactly totalDue() must clear the
-    // principal to zero, not leave a few sen behind.
-    it("repaying exactly totalDue() clears the principal to zero", async () => {
+    it("holds interest flat between day boundaries", async () => {
+      // Accrual days are anchored to Malaysia midnight (UTC+8), not to the
+      // borrow timestamp — pin the clock to just past a boundary first, so
+      // the +1h probe below can't accidentally cross one.
+      const TZ = 8 * 3600;
+      const now = await time.latest();
+      const nextMidnightMY = (Math.floor((now + TZ) / DAY) + 1) * DAY - TZ;
+      await time.increaseTo(nextMidnightMY + 600);               // 00:10 MYT
+
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(5_000n * MYR_6);
-      await time.increase(600);                                  // 10 minutes
-
-      const due = await loan.totalDue(user.address);
-      // Fund the interest portion from the owner, then repay the exact quote.
-      await loan.connect(owner).setKYC(owner.address, true);
-      await loan.connect(owner).depositCollateral({ value: ONE_ETH * 10n });
-      await loan.connect(owner).borrow(1_000n * MYR_6);
-      await myr.connect(owner).transfer(user.address, 1_000n * MYR_6);
-
-      await myr.connect(user).approve(await loan.getAddress(), due);
-      await loan.connect(user).repay(due);
-
-      const info = await loan.loans(user.address);
-      expect(info.principal).to.equal(0n);
-      expect(info.startTime).to.equal(0n);
-      expect(info.lastRepayTime).to.equal(0n);
+      await loan.connect(user).borrow(5_000n * MYR_6, 30n);
+      await time.increase(2 * DAY);
+      const at2d = await loan.accruedInterestForLoan(user.address, 0n);
+      await time.increase(3600);                                 // 01:10 MYT — same day
+      expect(await loan.accruedInterestForLoan(user.address, 0n)).to.equal(at2d);
+      await time.increase(DAY);                                  // next day
+      expect(await loan.accruedInterestForLoan(user.address, 0n)).to.be.gt(at2d);
     });
   });
 
   // ── getLoanInfo ────────────────────────────────────────────────────────────
   describe("getLoanInfo", () => {
-    it("returns all fields correctly", async () => {
+    it("returns aggregate fields correctly", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
-      await loan.connect(user).borrow(5_000n * MYR_6);
+      await loan.connect(user).borrow(3_000n * MYR_6, 30n);
+      await loan.connect(user).borrow(2_000n * MYR_6, 90n);
 
       const info = await loan.getLoanInfo(user.address);
       expect(info.collateral).to.equal(ONE_ETH);

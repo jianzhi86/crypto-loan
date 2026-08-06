@@ -25,6 +25,7 @@ const SECTIONS = [
   { id: 'kyc',         label: 'KYC Verification', icon: <IdCardIcon size={16} />  },
   { id: 'collateral',  label: 'Collateral & LTV', icon: <LockIcon size={16} />    },
   { id: 'health',      label: 'Health Factor',    icon: <PulseIcon size={16} />   },
+  { id: 'maturity',    label: 'Loan Term & Liquidation', icon: <ClockIcon size={16} /> },
   { id: 'buy-myr',     label: 'Buy MYR',          icon: <CartIcon size={16} />    },
   { id: 'interest',    label: 'Interest & Fees',  icon: <TrendUpIcon size={16} /> },
   // { id: 'setup',       label: 'Local Setup'       },
@@ -277,11 +278,11 @@ export default function DocsPage() {
                   </svg>
                 ),
               },
-              { label: 'Annual Interest',      value: '3–10% variable', color: C.gold, grad: GRAD.gold, icon: <TrendUpIcon size={18} /> },
+              { label: 'APR (locked at borrow)', value: '3–15%',        color: C.gold,  grad: GRAD.gold, icon: <TrendUpIcon size={18} /> },
               { label: 'Liq. Threshold',       value: '80% LTV',       color: C.red,   grad: GRAD.red,  icon: <AlertIcon size={18} />     },
-              { label: 'Origination Fee',      value: '0.1%',          color: C.slate, grad: GRAD.teal, icon: <CashIcon size={18} />      },
-              { label: 'Loan Term',            value: '90 days',       color: C.slate, grad: GRAD.blue, icon: <ClockIcon size={18} />     },
-              { label: 'Liq. Penalty',         value: '10%',           color: C.red,   grad: GRAD.red,  icon: <TrendDownIcon size={18} /> },
+              { label: 'Loan Terms',           value: '1–12 months',   color: C.slate, grad: GRAD.blue, icon: <ClockIcon size={18} />     },
+              { label: 'Grace Period',         value: '7 days',        color: C.slate, grad: GRAD.teal, icon: <CashIcon size={18} />      },
+              { label: 'Liquidator Bonus',     value: '5%',            color: C.red,   grad: GRAD.red,  icon: <TrendDownIcon size={18} /> },
             ]} />
             <Alert severity="warning" sx={{ borderRadius: 2, fontSize: 13 }}>
               <strong>Testnet only.</strong> All MYR tokens are mock ERC-20s with no real-world value. Never connect a wallet holding real funds.
@@ -294,10 +295,19 @@ export default function DocsPage() {
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
               <StepCard n="1" title="Complete KYC" desc="Submit identity verification through the KYC page. An admin reviews and approves your submission, setting an on-chain flag that allows you to borrow." />
               <StepCard n="2" title="Deposit ETH Collateral" desc="Send ETH to the CryptoLoan contract. Your ETH is locked and determines your borrowing power. You can top up collateral at any time." />
-              <StepCard n="3" title="Borrow MYR" desc="Request MockMYR tokens up to 70% of your collateral value. The contract mints MYR directly to your MetaMask wallet." sub="Requires an approved KYC on-chain." />
-              <StepCard n="4" title="Repay Loan" desc="Approve the contract to spend your MYR, then repay principal + accrued interest. Repaying does not require KYC." sub="Two MetaMask confirmations: ERC-20 approve → repay." />
+              <StepCard n="3" title="Borrow MYR for a fixed term" desc="Pick a term (1, 3, 6 or 12 months) and borrow up to 70% of your collateral value. Each borrow is its own loan with its own due date, and the APR shown is locked into that loan for its whole life. The contract mints MYR directly to your MetaMask wallet." sub="Requires an approved KYC on-chain." />
+              <StepCard n="4" title="Repay before the due date" desc="Approve the contract to spend your MYR, then repay that loan's principal + its accrued interest. Repay early anytime with no penalty. After the due date a 7-day grace period runs; past it, the loan can be liquidated even if your collateral is healthy." sub="Two MetaMask confirmations: ERC-20 approve → repay." />
               <StepCard n="5" title="Withdraw Collateral" desc="Once your debt is fully cleared, withdraw your ETH collateral back to your wallet. Partial withdrawals are allowed as long as LTV stays within limits." />
             </Box>
+            <CodeBlock>{`Deposit collateral
+      ↓
+Borrow for a fixed term (due date set on-chain)
+      ↓
+Interest accumulates daily at the loan's locked APR
+      ↓
+Repay before the due date (or within the 7-day grace period)
+      ↓
+Collateral unlocked — withdraw or borrow again`}</CodeBlock>
             <Alert severity="info" sx={{ borderRadius: 2, fontSize: 13 }}>
               Need MYR to repay but don&apos;t have enough? Use the <strong>Buy MYR</strong> tab to purchase MockMYR directly with ETH at the current on-chain exchange rate.
             </Alert>
@@ -356,12 +366,22 @@ Health Factor           = (Collateral value × 80%) ÷ Total debt`}</CodeBlock>
               It is calculated from your collateral value, outstanding debt, and the liquidation threshold.
               A position is safe above <Strong>1.5</Strong> and at risk of liquidation below <Strong>1.0</Strong>.
             </P>
-            <CodeBlock>{`Health Factor = (Collateral × ETH price × Liquidation threshold%) ÷ Total debt
+            <CodeBlock>{`Health Factor = (Collateral Value × Liquidation Threshold)
+                ÷ (Total Debt + Accrued Interest)
 
 Example (ETH = RM 18,000, threshold = 80%):
   Deposited  : 1 ETH  →  RM 18,000 collateral value
-  Borrowed   : RM 9,000
-  HF         = (18,000 × 80%) ÷ 9,000 = 14,400 ÷ 9,000 = 1.60  →  Moderate`}</CodeBlock>
+  Borrowed   : RM 9,000 (+ RM 20 accrued interest)
+  HF         = (18,000 × 80%) ÷ 9,020 = 14,400 ÷ 9,020 = 1.60  →  Moderate
+
+HF > 1  : Safe
+HF = 1  : Warning level
+HF < 1  : Liquidatable`}</CodeBlock>
+            <P>
+              Your health factor changes mainly for two reasons: the <Strong>ETH price moves</Strong>{' '}
+              (collateral value falls → HF falls), and <Strong>interest keeps accruing</Strong>{' '}
+              (debt grows → HF falls slowly even if the price never moves).
+            </P>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 1.5 }}>
               {[
                 { range: 'HF ≥ 2.0',   label: 'Safe',     desc: 'Well-collateralised. You can borrow more or withdraw some ETH.',       c: C.teal },
@@ -377,6 +397,61 @@ Example (ETH = RM 18,000, threshold = 80%):
             </Box>
             <Alert severity="error" sx={{ borderRadius: 2, fontSize: 13 }}>
               Keep your health factor above <strong>1.5</strong> at all times. ETH price drops can push your HF below 1.0 without any action on your part.
+            </Alert>
+          </Section>
+
+          {/* ── LOAN TERM & LIQUIDATION ──────────────────────────────────────── */}
+          <Section id="maturity" title="Loan Term &amp; Liquidation">
+            <P>
+              Every borrow is a <Strong>fixed-term loan</Strong>. You choose the term when you borrow
+              (1, 3, 6 or 12 months) and the contract stamps a real on-chain <Strong>due date</Strong> on
+              the loan. After the due date, a <Strong>7-day grace period</Strong> gives you extra time to
+              repay — interest keeps accruing through it — and only once THAT ends does the loan become
+              liquidatable for lateness.
+            </P>
+            <CodeBlock>{`Borrow created
+      ↓
+Loan active                     (repay early anytime, no penalty)
+      ↓
+Due date reached                (loan term ends)
+      ↓
+7-day grace period              (last chance to repay)
+      ↓
+Eligible for liquidation if still unpaid
+
+Example:
+  Borrowed          : 1 August 2026 (2-month term)
+  Due date          : 1 October 2026
+  Grace period until: 8 October 2026
+  Liquidation       : possible after 8 October 2026`}</CodeBlock>
+            <P>There are exactly <Strong>two</Strong> ways a loan can be liquidated:</P>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+              {[
+                {
+                  title: '1 · Collateral unsafe (price crash)',
+                  desc: 'ETH price drops → collateral value drops → health factor falls below 1.0. Example: ETH falls from RM 10,000 to RM 5,000 and your HF goes 1.5 → 0.8. Any of your loans can then be liquidated, at any time — this is the classic DeFi risk and has nothing to do with dates.',
+                },
+                {
+                  title: '2 · Loan overdue (maturity)',
+                  desc: 'The loan reaches its due date, the 7-day grace period passes, and it still isn’t repaid. That one loan becomes liquidatable even if your collateral is perfectly healthy. Your other, on-time loans are not affected.',
+                },
+              ].map(x => (
+                <Paper key={x.title} sx={{ p: 2, bgcolor: '#111B38', border: `1px solid ${C.red}30`, borderRadius: 2 }}>
+                  <Typography variant="body2" sx={{ color: C.red, fontWeight: 700, mb: 0.75 }}>{x.title}</Typography>
+                  <Typography variant="caption" sx={{ color: C.slate, lineHeight: 1.7 }}>{x.desc}</Typography>
+                </Paper>
+              ))}
+            </Box>
+            <P>
+              Liquidation is <Strong>proportional, never total</Strong>: the liquidator repays your debt
+              and takes only enough ETH to cover what they repaid plus a 5% bonus. Whatever collateral is
+              left over stays yours. Example: you owe RM 10,500 against 2 ETH worth RM 20,000 — the
+              liquidator takes ≈ RM 11,025 worth of ETH and the remaining ≈ RM 8,975 worth stays in your
+              account, withdrawable once your remaining debt allows.
+            </P>
+            <Alert severity="info" sx={{ borderRadius: 2, fontSize: 13 }}>
+              Fully repaying a loan marks it inactive on-chain — it can no longer be liquidated for any
+              reason, and its share of your collateral is freed for withdrawal.
             </Alert>
           </Section>
 
@@ -418,23 +493,36 @@ Example (ETH price = RM 18,000):
           {/* ── INTEREST & FEES ──────────────────────────────────────────────── */}
           <Section id="interest" title="Interest &amp; Fees">
             <P>
-              Interest accrues continuously from the moment you borrow. The protocol charges a flat
-              origination fee on new borrows and a variable APR on the outstanding principal.
+              Interest starts accruing from the day you borrow — the borrow day itself is charged — and
+              then steps up once per calendar day (Malaysia midnight, UTC+8), not per second. Each loan
+              is priced individually: the APR quoted at borrow time is <Strong>locked into that loan</Strong>{' '}
+              for its whole life. Later market moves change the rate for <em>new</em> borrows only.
             </P>
             <CodeTable />
-            <CodeBlock>{`Variable APR = 3.0% base
-             + up to 4.0% utilization premium (how full the lending pool is)
-             + up to 3.0% volatility premium  (size of the last ETH/MYR move)
+            <CodeBlock>{`APR for a NEW borrow = 3.0% base rate
+                     + up to 4.0% utilization premium (how full the pool is)
+                     … locked into the loan the moment you borrow (max 15%)
 
-Daily interest   = Principal × (APR ÷ 365)
-Accrued interest = Daily interest × days elapsed
-Repay amount today = Principal + accrued interest
+Accrued Interest = Principal × APR × elapsed time
+                 = Principal × (APR ÷ 365) × whole days since borrow / last repay
 
-Example (RM 10,000 borrowed for 30 days at 4.8% APR):
+  Principal    : what you still owe on THIS loan
+  APR          : the rate locked at borrow — fixed for the loan's life
+  Elapsed time : whole calendar days since this loan's clock last reset
+
+Repay amount today = Principal + accrued interest (per loan)
+
+Example (RM 10,000 borrowed for 30 days at 4.8% locked APR):
   Daily interest   = 10,000 × (0.048 ÷ 365) ≈ RM 1.315 / day
   After 30 days    = 10,000 + (1.315 × 30)   ≈ RM 10,039.45`}</CodeBlock>
+            <P>
+              Your repayment amount grows over time because interest keeps accumulating daily until the
+              moment you repay. Repaying resets that loan&apos;s interest clock; interest is always charged
+              before principal, so a payment smaller than the accrued interest doesn&apos;t reduce your
+              principal at all.
+            </P>
             <Alert severity="info" sx={{ borderRadius: 2, fontSize: 13 }}>
-              You can repay any amount at any time — partial repayments reduce your principal and lower future interest. There is no early repayment penalty.
+              You can repay any amount at any time before (or during) the grace period — partial repayments reduce that loan&apos;s principal and lower its future interest. There is no early repayment penalty.
             </Alert>
           </Section>
 
@@ -523,32 +611,52 @@ Example (RM 10,000 borrowed for 30 days at 4.8% APR):
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
               {[
                 {
+                  q: 'How does CryptoLend work, end to end?',
+                  a: 'Deposit ETH collateral → borrow MYR for a fixed term (1/3/6/12 months) → interest accumulates daily at the APR locked into that loan → repay before the due date (or within the 7-day grace period) → your collateral is unlocked to withdraw or borrow against again. Each borrow is its own on-chain loan with its own principal, rate, due date and interest clock.',
+                },
+                {
+                  q: 'How does interest work? What is APR?',
+                  a: 'APR is the yearly interest rate used to calculate borrowing costs. When you borrow, the current rate (3% base + a utilization premium) is locked into that loan for its whole life. Interest starts on the borrow day itself and steps up once per calendar day: Accrued Interest = Principal × APR × elapsed days ÷ 365. Your repayment amount grows over time because this interest keeps accumulating until the moment you repay.',
+                },
+                {
+                  q: 'Why does my repayment amount change over time?',
+                  a: 'The amount to settle a loan is its remaining principal plus its accrued interest, and the interest part grows every day the loan is open. Repaying resets that loan\'s interest clock. Interest is always charged before principal, so a payment smaller than the accrued interest will not reduce your principal at all.',
+                },
+                {
+                  q: 'What is the Health Factor and why does it change?',
+                  a: 'Health Factor = (Collateral Value × 80% liquidation threshold) ÷ (Total Debt + Accrued Interest). Above 1 is safe, 1 is the warning level, and below 1 your collateral can be liquidated. It changes mainly because the ETH price moves (collateral value falls → HF falls) and because interest keeps growing your debt.',
+                },
+                {
+                  q: 'When can my loan be liquidated?',
+                  a: 'In exactly two scenarios. (1) ETH price crash: your collateral value drops until the health factor falls below 1 — e.g. ETH halves and your HF goes 1.5 → 0.8 — and any of your loans can be liquidated at any time. (2) Loan overdue: a loan passes its due date, the 7-day grace period ends, and it still is not repaid — that loan becomes liquidatable even if your collateral is perfectly healthy.',
+                },
+                {
+                  q: 'What is the grace period?',
+                  a: 'The grace period provides additional repayment time after the loan maturity date before liquidation becomes possible. On CryptoLend it is 7 days, enforced by the smart contract. Interest continues to accrue during it — it is a shield against being liquidated the second your term ends, not a free extension.',
+                },
+                {
+                  q: 'What happens to my collateral during liquidation?',
+                  a: 'Only enough is taken to cover the debt being repaid plus a 5% liquidator bonus — never automatically all of it. Example: RM 10,500 owed against 2 ETH worth RM 20,000 — about RM 11,025 worth of ETH is seized and the rest stays yours. Collateral is required in the first place because MYR is lent against it: it is what guarantees the debt when a borrower walks away.',
+                },
+                {
+                  q: 'What happens when I fully repay a loan?',
+                  a: 'The loan is marked inactive on-chain: it stops accruing interest, can no longer be liquidated for any reason, and its share of your collateral becomes withdrawable. Repayment must cover the loan\'s principal plus all accrued interest — the app re-quotes the exact figure from the contract when you confirm, so nothing is left behind. Collateral stays deposited (earning supply interest) until you withdraw it yourself.',
+                },
+                {
                   q: 'Why does repay require two MetaMask confirmations?',
                   a: 'MockMYR is an ERC-20 token. Before the CryptoLoan contract can pull MYR from your wallet, you must first grant it an allowance (the "approve" step). This is standard ERC-20 behaviour — the same flow used by Uniswap, Aave, and every DeFi protocol.',
                 },
                 {
                   q: 'Can I borrow more than 70% LTV?',
-                  a: 'No. The contract enforces the limit on-chain and will revert with "Exceeds max LTV" if you try. The UI also disables the borrow button when the requested amount would breach 70%.',
-                },
-                {
-                  q: 'What happens if I don\'t repay before maturity?',
-                  a: 'The 90-day loan term is informational — there is no automatic penalty at maturity in the current testnet build. Interest continues to accrue daily until you repay. In a production deployment a liquidation bot would monitor positions and liquidate at-risk loans.',
-                },
-                {
-                  q: 'Why is my KYC dialog appearing even though I\'m already verified?',
-                  a: 'This was a race condition between the on-chain read and the database check. Both happen in parallel when the wallet connects; if the chain read resolved first, kycApproved was momentarily false. This is fixed: the dialog now waits for both the chain read and the DB check to complete.',
+                  a: 'No. The contract enforces the limit on-chain and will revert with "Exceeds max LTV" if you try. The limit applies to the SUM of all your active loans against your one collateral pot. The UI also disables the borrow button when the requested amount would breach 70%.',
                 },
                 {
                   q: 'What is the exchange rate when buying MYR?',
-                  a: 'The rate is set by the on-chain ETH price in the contract (default RM 18,000 / ETH, set at deploy time). The live CoinGecko price in the navbar is for display only. A 0.1% buffer is added to the ETH cost to cover integer rounding.',
+                  a: 'The rate is set by the on-chain ETH price in the contract (set at deploy time and kept in sync with the market by the price keeper). The live CoinGecko price in the navbar is for display only. A 0.1% buffer is added to the ETH cost to cover integer rounding.',
                 },
                 {
                   q: 'Why can\'t I access Portfolio or Settings?',
                   a: 'Those pages require a connected MetaMask wallet. Once you click "Connect Wallet" and MetaMask is on the Hardhat Local network, the sidebar unlocks automatically. Admin-only pages additionally require an admin JWT session.',
-                },
-                {
-                  q: 'How do I update the ETH price used for loan calculations?',
-                  a: 'The contract owner calls setEthPrice(uint256) — for example via the Hardhat console: `npx hardhat console --network localhost`, then `const c = await ethers.getContractAt("CryptoLoan", "<address>"); await c.setEthPrice(20000);` to set RM 20,000 / ETH.',
                 },
               ].map(item => <FaqItem key={item.q} q={item.q} a={item.a} />)}
             </Box>
@@ -573,9 +681,9 @@ function CodeTable() {
         </TableHead>
         <TableBody>
           {[
-            ['Annual Interest (APR)',  '3–10% variable', 'Base 3% + utilization & volatility premiums; accrues continuously'],
-            ['Origination Fee',        '0.1%',     'Charged once when a borrow is issued'],
-            ['Liquidation Penalty',    '10%',      'Applied to collateral seized during liquidation'],
+            ['Annual Interest (APR)',  '3–15%, locked at borrow', 'Base 3% + utilization premium at borrow time; fixed for the loan\'s life, accrues daily'],
+            ['Origination Fee',        'None (0%)', 'Nothing is deducted from a borrow — you receive the full amount'],
+            ['Liquidator Bonus',       '5%',       'Extra collateral a liquidator receives on top of the debt they cover'],
             ['Repayment',             'None',      'No early repayment or prepayment penalty'],
           ].map(([fee, val, when], i) => (
             <TableRow key={i} sx={{ '&:last-child td': { border: 0 } }}>

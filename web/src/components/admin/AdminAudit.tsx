@@ -23,6 +23,7 @@ const ACTIONS = [
   'USER_UPDATE', 'USER_RESTRICT', 'USER_UNRESTRICT', 'USER_RESET_PASSWORD',
   'USER_RESET_KYC', 'USER_UNLINK_WALLET', 'USER_SET_ADMIN',
   'KYC_APPROVE', 'KYC_REJECT', 'KYC_DELETE', 'FLAG_UPDATE', 'PRICE_SYNC',
+  'PROTOCOL_FEES_WITHDRAWN',
 ];
 
 const TONE: Record<string, 'green' | 'amber' | 'red' | 'blue' | 'neutral'> = {
@@ -30,7 +31,7 @@ const TONE: Record<string, 'green' | 'amber' | 'red' | 'blue' | 'neutral'> = {
   USER_RESET_PASSWORD: 'amber', USER_RESET_KYC: 'amber', USER_UNLINK_WALLET: 'amber',
   USER_UNRESTRICT: 'green', KYC_APPROVE: 'green',
   FLAG_UPDATE: 'blue', USER_SET_ADMIN: 'blue',
-  PRICE_SYNC: 'neutral',
+  PRICE_SYNC: 'neutral', PROTOCOL_FEES_WITHDRAWN: 'amber',
 };
 
 const TONE_COLOR: Record<string, string> = {
@@ -158,7 +159,10 @@ export default function AdminAudit() {
                             {e.actorEmail ?? e.actorId.slice(0, 28) + '…'}
                           </Typography>
                         </Box>
-                        <Box sx={{ width: 1, height: 24, bgcolor: C.border }} />
+                        {/* '1px', not 1 — MUI's sx treats bare 1 as 100% width,
+                            which turned these hairline separators into
+                            full-width bars under every field. */}
+                        <Box sx={{ width: '1px', height: 24, bgcolor: C.border }} />
                         <Box>
                           <Typography sx={{ fontSize: 10.5, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4, mb: 0.2 }}>Target</Typography>
                           <Typography sx={{ fontSize: 12, fontFamily: 'monospace', color: C.slate }}>
@@ -167,7 +171,7 @@ export default function AdminAudit() {
                         </Box>
                         {e.detail && (
                           <>
-                            <Box sx={{ width: 1, height: 24, bgcolor: C.border }} />
+                            <Box sx={{ width: '1px', height: 24, bgcolor: C.border }} />
                             <Box sx={{ flex: 1, minWidth: 0 }}>
                               <Typography sx={{ fontSize: 10.5, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.4, mb: 0.2 }}>Detail</Typography>
                               <Detail raw={e.detail} />

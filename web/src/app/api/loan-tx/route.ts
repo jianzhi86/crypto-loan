@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ethers } from 'ethers';
 import { prisma } from '@/lib/db/prisma';
 import { requireUser } from '@/lib/authz';
+import { readContractBirthMs } from '@/lib/contract-read';
+import { HARDHAT_RPC_URL } from '@/lib/contractConfig';
 import { sendEmail } from '@/lib/email/resend';
 import { buildReceiptEmail, RECEIPT_TX_TYPES, type ReceiptTxType } from '@/lib/email/receipt';
+
+// txHash → "exists on the chain this server talks to". The Supabase DB is
+// shared across developers who each run their OWN local chain — and Hardhat's
+// default accounts give everyone the same wallet addresses, so a wallet
+// filter alone still returns other machines' transactions. Existence on OUR
+// chain is the only reliable membership test. Verdicts never change for a
+// given chain instance, so they're cached per (genesis, txHash).
+const txSeen = new Map<string, boolean>();
 
 function isReceiptTxType(type: string): type is ReceiptTxType {
   return (RECEIPT_TX_TYPES as readonly string[]).includes(type);
@@ -53,17 +64,38 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/loan-tx?wallet=0x... — fetch history for a wallet
+// GET /api/loan-tx?wallet=0x... — fetch history for a wallet, restricted to
+// transactions that exist on the chain THIS server is connected to. The
+// mirror table is shared across developers' machines (see txSeen above), so
+// rows are first narrowed to the current deployment's window and then each
+// txHash is verified against the local node. When the node is unreachable
+// the unverified (window-scoped) rows are returned as best effort — the
+// Explorer remains the deliberately unscoped archive.
 export async function GET(req: NextRequest) {
   const wallet = req.nextUrl.searchParams.get('wallet');
   if (!wallet) return NextResponse.json({ error: 'wallet required' }, { status: 400 });
 
   try {
-    const txs = await prisma.loanTransaction.findMany({
-      where:   { wallet: wallet.toLowerCase() },
+    const birthMs = await readContractBirthMs();
+    let txs = await prisma.loanTransaction.findMany({
+      where:   { wallet: wallet.toLowerCase(), createdAt: { gte: new Date(birthMs ?? 0) } },
       orderBy: { blockNumber: 'desc' },
       take:    100,
     });
+    try {
+      const provider = new ethers.JsonRpcProvider(HARDHAT_RPC_URL);
+      const genesis  = await provider.getBlock(0);
+      const prefix   = genesis?.hash ?? '';
+      const verdicts = await Promise.all(txs.map(async t => {
+        const key = `${prefix}:${t.txHash}`;
+        const cached = txSeen.get(key);
+        if (cached !== undefined) return cached;
+        const onChain = (await provider.getTransaction(t.txHash)) !== null;
+        txSeen.set(key, onChain);
+        return onChain;
+      }));
+      txs = txs.filter((_, i) => verdicts[i]);
+    } catch { /* node unreachable — window-scoped rows are the best we have */ }
     return NextResponse.json({ txs });
   } catch (err) {
     console.error('[GET /api/loan-tx]', err);

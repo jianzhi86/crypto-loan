@@ -41,6 +41,120 @@ export type ChainStats = {
   utilPremiumBps: number;
 };
 
+// One entry per (contract address, chain instance): the binary search below
+// costs ~log2(height) RPC calls, and its answer never changes while the same
+// chain is running the same contract.
+let birthCache: { key: string; ms: number } | null = null;
+
+/**
+ * When the CURRENT CryptoLoan contract came into existence — the timestamp of
+ * the block it was deployed in, found by binary-searching for the first block
+ * where its address holds code. Any DB row recorded before this moment
+ * belongs to a previous deployment: its transactions no longer exist on the
+ * chain the app is talking to, and counting them is what used to inflate the
+ * admin dashboard with hundreds of millions of "borrowed" MYR from dead test
+ * runs. The CONTRACT's birth, not the chain's genesis, is the right epoch —
+ * a redeploy mid-chain (FORCE_DEPLOY on a long-running node) starts a new
+ * protocol without a new genesis. Null when the node is unreachable or the
+ * contract isn't deployed.
+ */
+export async function readContractBirthMs(): Promise<number | null> {
+  try {
+    const provider = new ethers.JsonRpcProvider(HARDHAT_RPC_URL);
+    const [genesis, latest] = await Promise.all([provider.getBlock(0), provider.getBlockNumber()]);
+    const key = `${CONTRACT_ADDRESSES.CryptoLoan}:${genesis?.hash ?? ''}`;
+    if (birthCache?.key === key) return birthCache.ms;
+
+    if (await provider.getCode(CONTRACT_ADDRESSES.CryptoLoan, latest) === '0x') return null;
+    let lo = 0, hi = latest;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (await provider.getCode(CONTRACT_ADDRESSES.CryptoLoan, mid) === '0x') lo = mid + 1;
+      else hi = mid;
+    }
+    const block = await provider.getBlock(lo);
+    if (!block) return null;
+    const ms = Number(block.timestamp) * 1000;
+    birthCache = { key, ms };
+    return ms;
+  } catch {
+    return null;
+  }
+}
+
+/** One logical transaction reconstructed from the chain's own event log. */
+export interface ChainTx {
+  txHash:      string;
+  blockNumber: number;
+  timestampMs: number;
+  wallet:      string;
+  type:        'Borrowed' | 'Repaid' | 'CollateralDeposited' | 'CollateralWithdrawn' | 'MYRPurchased' | 'SupplyInterestClaimed';
+  /** Event units: MYR 1e6 for the MYR types, wei for the collateral types. */
+  amount:      bigint;
+}
+
+const ACTIVITY_ABI = [
+  'event Borrowed(address indexed user, uint256 myrAmount, uint256 newTotal)',
+  'event Repaid(address indexed user, uint256 indexed loanId, uint256 principal, uint256 interest)',
+  'event CollateralDeposited(address indexed user, uint256 amount)',
+  'event CollateralWithdrawn(address indexed user, uint256 amount)',
+  'event MYRPurchased(address indexed buyer, uint256 ethSpent, uint256 myrReceived)',
+  'event SupplyInterestClaimed(address indexed user, uint256 amount)',
+];
+
+/**
+ * The current deployment's complete activity, read from the CONTRACT'S OWN
+ * EVENT LOG rather than the DB mirror. This exists because the Supabase DB is
+ * shared across every developer's machine while each developer runs their own
+ * local chain — the mirror therefore contains other chains' transactions
+ * (often under the SAME Hardhat default wallet addresses), and no time- or
+ * wallet-based filter can tell them apart. The chain this app is connected to
+ * is the only ground truth for what happened on it. A repayMany covering
+ * several loans emits several Repaid events in one transaction — they are
+ * merged into one logical row (summed principal), matching how the mirror
+ * records repays. Null when the node is unreachable.
+ */
+export async function readChainActivity(): Promise<ChainTx[] | null> {
+  try {
+    const provider = new ethers.JsonRpcProvider(HARDHAT_RPC_URL);
+    const c = new ethers.Contract(CONTRACT_ADDRESSES.CryptoLoan, ACTIVITY_ABI, provider);
+    const [borrowed, repaid, deposited, withdrawn, purchased, claimed] = await Promise.all([
+      c.queryFilter(c.filters.Borrowed()),
+      c.queryFilter(c.filters.Repaid()),
+      c.queryFilter(c.filters.CollateralDeposited()),
+      c.queryFilter(c.filters.CollateralWithdrawn()),
+      c.queryFilter(c.filters.MYRPurchased()),
+      c.queryFilter(c.filters.SupplyInterestClaimed()),
+    ]);
+
+    const merged = new Map<string, ChainTx>();
+    const add = (e: ethers.EventLog, type: ChainTx['type'], wallet: string, amount: bigint) => {
+      const key = `${e.transactionHash}:${type}`;
+      const prev = merged.get(key);
+      if (prev) prev.amount += amount;
+      else merged.set(key, { txHash: e.transactionHash, blockNumber: e.blockNumber, timestampMs: 0, wallet, type, amount });
+    };
+    for (const e of borrowed  as ethers.EventLog[]) add(e, 'Borrowed',              e.args.user  as string, e.args.myrAmount   as bigint);
+    for (const e of repaid    as ethers.EventLog[]) add(e, 'Repaid',                e.args.user  as string, e.args.principal   as bigint);
+    for (const e of deposited as ethers.EventLog[]) add(e, 'CollateralDeposited',   e.args.user  as string, e.args.amount      as bigint);
+    for (const e of withdrawn as ethers.EventLog[]) add(e, 'CollateralWithdrawn',   e.args.user  as string, e.args.amount      as bigint);
+    for (const e of purchased as ethers.EventLog[]) add(e, 'MYRPurchased',          e.args.buyer as string, e.args.myrReceived as bigint);
+    for (const e of claimed   as ethers.EventLog[]) add(e, 'SupplyInterestClaimed', e.args.user  as string, e.args.amount      as bigint);
+
+    const txs = Array.from(merged.values());
+    const blockNums = Array.from(new Set(txs.map(t => t.blockNumber)));
+    const stamps = new Map(await Promise.all(blockNums.map(async n => {
+      const b = await provider.getBlock(n);
+      return [n, Number(b?.timestamp ?? 0) * 1000] as const;
+    })));
+    for (const t of txs) t.timestampMs = stamps.get(t.blockNumber) ?? 0;
+    txs.sort((a, b) => a.blockNumber - b.blockNumber);
+    return txs;
+  } catch {
+    return null;
+  }
+}
+
 export async function readChainStats(): Promise<ChainStats | null> {
   try {
     const provider = new ethers.JsonRpcProvider(HARDHAT_RPC_URL);

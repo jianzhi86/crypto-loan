@@ -8,7 +8,7 @@ import Typography from '@mui/material/Typography';
 import { prisma } from '@/lib/db/prisma';
 import { getFlags } from '@/lib/features-server';
 import { FLAGS, ON } from '@/lib/features';
-import { readChainStats } from '@/lib/contract-read';
+import { readChainStats, readChainActivity, readContractBirthMs } from '@/lib/contract-read';
 import { supplyApr } from '@/lib/rates';
 import { AdminAutoSync } from '@/components/AdminAutoSync';
 import { AdminWithdrawFees } from '@/components/admin/AdminWithdrawFees';
@@ -17,14 +17,7 @@ import { Badge, C, type Tone } from '@/components/admin/ui';
 import { Sparkline, ProtocolAreaChart, ActivityDonut } from '@/components/admin/AdminCharts';
 
 /* ─── Types ───────────────────────────────────────────────────────────────── */
-type TxAgg = {
-  total_borrowed:       number;  borrow_count:   number;
-  total_repaid:         number;  repay_count:    number;
-  total_deposited:      number;  deposit_count:  number;
-  total_withdrawn:      number;  total_purchased: number;
-  purchase_count:       number;  unique_wallets:  number;
-  total_supply_claimed: number;  claim_count:    number;
-};
+type TxRow = { type: string; amount: string; wallet: string; createdAt: Date };
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 function rm(n: number) {
@@ -37,23 +30,74 @@ function pct(a: number, b: number) {
   return b > 0 ? Math.round((a / b) * 100) : 0;
 }
 
-
-/* Build sparkline trend ending at `final` over 7 data points */
-function spark(final: number) {
-  const w = [0.55, 0.63, 0.70, 0.77, 0.85, 0.92, 1.0];
-  return w.map(t => ({ v: Math.round(final * t) }));
+/* Sum / count one event type over the deployment's real rows. */
+function sumOf(rows: TxRow[], type: string) {
+  let s = 0;
+  for (const r of rows) if (r.type === type) s += Number(r.amount);
+  return s;
+}
+function countOf(rows: TxRow[], type: string) {
+  let c = 0;
+  for (const r of rows) if (r.type === type) c++;
+  return c;
 }
 
-/* Build deterministic monthly cumulative series from a final total */
-function monthlyData(borrowed: number, repaid: number) {
-  const MONTHS  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const WEIGHTS = [0.04, 0.055, 0.065, 0.08, 0.085, 0.095, 0.08, 0.09, 0.095, 0.105, 0.095, 0.075];
-  let cumB = 0, cumR = 0;
-  return MONTHS.map((month, i) => {
-    cumB += borrowed * WEIGHTS[i];
-    cumR += repaid  * WEIGHTS[i] * 0.9;
-    return { month, borrowed: Math.round(cumB), repaid: Math.round(cumR), outstanding: Math.round(Math.max(0, cumB - cumR)) };
-  });
+/**
+ * REAL monthly series from the deployment's transactions — one point per
+ * calendar month from the first recorded transaction to now, cumulative.
+ * Nothing is synthesized: a protocol born this month gets a one-month chart,
+ * not a fabricated January-to-December curve. Also derives the KPI sparklines
+ * from the same cumulative series, so every line on the page traces actual
+ * history.
+ */
+function buildMonthlySeries(rows: TxRow[]) {
+  const chart: { month: string; borrowed: number; repaid: number; outstanding: number }[] = [];
+  const sparks = { borrowed: [] as number[], txs: [] as number[], wallets: [] as number[], eth: [] as number[] };
+  if (rows.length === 0) return { chart, sparks };
+
+  const first = rows[0].createdAt;
+  const end   = new Date();
+  const months: Date[] = [];
+  // Start one month BEFORE the first activity: a zero-point baseline, so the
+  // chart visibly begins settled at RM 0 instead of a floating single dot.
+  // Honest by construction — the protocol genuinely had nothing then.
+  const cursor = new Date(first.getFullYear(), first.getMonth() - 1, 1);
+  while (cursor <= end) { months.push(new Date(cursor)); cursor.setMonth(cursor.getMonth() + 1); }
+  const spansYears = months[0].getFullYear() !== end.getFullYear();
+
+  let cumB = 0, cumR = 0, cumTx = 0, cumEth = 0;
+  const wallets = new Set<string>();
+  let i = 0;
+  for (const m of months) {
+    const next = new Date(m.getFullYear(), m.getMonth() + 1, 1);
+    while (i < rows.length && rows[i].createdAt < next) {
+      const r = rows[i++];
+      cumTx++;
+      wallets.add(r.wallet);
+      if (r.type === 'Borrowed')            cumB   += Number(r.amount) / 1e6;
+      else if (r.type === 'Repaid')         cumR   += Number(r.amount) / 1e6;
+      else if (r.type === 'CollateralDeposited') cumEth += Number(r.amount) / 1e18;
+      else if (r.type === 'CollateralWithdrawn') cumEth -= Number(r.amount) / 1e18;
+    }
+    chart.push({
+      month: m.toLocaleDateString('en-MY', spansYears ? { month: 'short', year: '2-digit' } : { month: 'short' }),
+      borrowed:    Math.round(cumB),
+      repaid:      Math.round(cumR),
+      outstanding: Math.round(Math.max(0, cumB - cumR)),
+    });
+    sparks.borrowed.push(cumB);
+    sparks.txs.push(cumTx);
+    sparks.wallets.push(wallets.size);
+    sparks.eth.push(cumEth);
+  }
+  return { chart, sparks };
+}
+
+/* Sparkline points from a real cumulative series (a lone month gets a flat
+   two-point line rather than an invented trend). */
+function sparkFrom(values: number[]) {
+  const v = values.length === 0 ? [0, 0] : values.length === 1 ? [values[0], values[0]] : values;
+  return v.map(x => ({ v: Math.round(x * 100) / 100 }));
 }
 
 /* ─── Route config ────────────────────────────────────────────────────────── */
@@ -71,58 +115,76 @@ const ACTION_TONE: Record<string, Tone> = {
 
 /* ─── Page ────────────────────────────────────────────────────────────────── */
 export default async function AdminOverviewPage() {
+  // Every transaction figure below comes from the CONNECTED CHAIN'S OWN EVENT
+  // LOG (readChainActivity), never from the LoanTransaction mirror. The
+  // Supabase DB is shared across every developer's machine while each machine
+  // runs its own local chain — the mirror therefore holds other chains'
+  // transactions, frequently under the SAME Hardhat default wallets, and no
+  // time- or wallet-based filter can separate them. Summing the mirror is
+  // what used to show hundreds of millions "borrowed" (and phantom
+  // outstanding debt) on a protocol whose chain says zero. The DB is used
+  // only as a rough fallback when the node is unreachable, scoped to the
+  // current contract's deployment moment.
+  const [chainActivity, chainBirthMs] = await Promise.all([
+    readChainActivity(),
+    readContractBirthMs(),
+  ]);
+
   const [
-    users, restricted, admins,
+    users,
     kycPending, kycApproved, kycRejected,
-    loanTxs, flags,
-    recent, txAgg, recentTxs, chain,
+    flags,
+    recent, dbTxRows, chain,
   ] = await Promise.all([
     prisma.user.count(),
-    prisma.user.count({ where: { status: 'RESTRICTED' } }),
-    prisma.user.count({ where: { isAdmin: true } }),
     prisma.kycSubmission.count({ where: { status: 'pending' } }),
     prisma.kycSubmission.count({ where: { status: 'approved' } }),
     prisma.kycSubmission.count({ where: { status: 'rejected' } }),
-    prisma.loanTransaction.count(),
     getFlags(),
     prisma.adminAuditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 8 }),
-    prisma.$queryRaw<TxAgg[]>`
-      SELECT
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Borrowed'),                0)::float8 AS total_borrowed,
-        COUNT(*) FILTER (WHERE type = 'Borrowed')::int                                                   AS borrow_count,
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'Repaid'),                  0)::float8 AS total_repaid,
-        COUNT(*) FILTER (WHERE type = 'Repaid')::int                                                     AS repay_count,
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralDeposited'),     0)::float8 AS total_deposited,
-        COUNT(*) FILTER (WHERE type = 'CollateralDeposited')::int                                        AS deposit_count,
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'CollateralWithdrawn'),     0)::float8 AS total_withdrawn,
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'MYRPurchased'),            0)::float8 AS total_purchased,
-        COUNT(*) FILTER (WHERE type = 'MYRPurchased')::int                                               AS purchase_count,
-        COALESCE(SUM(CAST(amount AS float8)) FILTER (WHERE type = 'SupplyInterestClaimed'),   0)::float8 AS total_supply_claimed,
-        COUNT(*) FILTER (WHERE type = 'SupplyInterestClaimed')::int                                      AS claim_count,
-        COUNT(DISTINCT wallet)::int                                                                       AS unique_wallets
-      FROM "LoanTransaction"
-    `,
-    prisma.loanTransaction.findMany({ orderBy: { id: 'desc' }, take: 7, select: { id: true, wallet: true, type: true, amount: true, txHash: true } }),
+    chainActivity
+      ? Promise.resolve([])
+      : prisma.loanTransaction.findMany({
+          where:   { createdAt: { gte: new Date(chainBirthMs ?? 0) } },
+          select:  { type: true, amount: true, wallet: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        }),
     readChainStats(),
   ]);
 
-  const stat = txAgg[0] ?? {
-    total_borrowed: 0,        borrow_count: 0,
-    total_repaid:   0,        repay_count:  0,
-    total_deposited: 0,       deposit_count: 0,
-    total_withdrawn: 0,       total_purchased: 0,
-    purchase_count: 0,        unique_wallets: 0,
-    total_supply_claimed: 0,  claim_count: 0,
+  const txRows: TxRow[] = chainActivity
+    ? chainActivity.map(t => ({ type: t.type, amount: t.amount.toString(), wallet: t.wallet.toLowerCase(), createdAt: new Date(t.timestampMs) }))
+    : dbTxRows;
+
+  // Latest 7 logical transactions for the "Recent Transactions" card —
+  // straight off the chain's event log, newest first.
+  const recentTxs = (chainActivity ?? []).slice(-7).reverse()
+    .map(t => ({ id: t.txHash, wallet: t.wallet, type: t.type as string, amount: t.amount.toString() }));
+
+  const stat = {
+    total_borrowed:       sumOf(txRows, 'Borrowed'),
+    borrow_count:         countOf(txRows, 'Borrowed'),
+    total_repaid:         sumOf(txRows, 'Repaid'),
+    repay_count:          countOf(txRows, 'Repaid'),
+    total_deposited:      sumOf(txRows, 'CollateralDeposited'),
+    deposit_count:        countOf(txRows, 'CollateralDeposited'),
+    total_withdrawn:      sumOf(txRows, 'CollateralWithdrawn'),
+    total_purchased:      sumOf(txRows, 'MYRPurchased'),
+    purchase_count:       countOf(txRows, 'MYRPurchased'),
+    total_supply_claimed: sumOf(txRows, 'SupplyInterestClaimed'),
+    claim_count:          countOf(txRows, 'SupplyInterestClaimed'),
+    unique_wallets:       new Set(txRows.map(r => r.wallet)).size,
   };
 
   const totalBorrowedMYR     = stat.total_borrowed  / 1e6;
   const totalRepaidMYR       = stat.total_repaid    / 1e6;
-  const netOutstandingMYR    = totalBorrowedMYR - totalRepaidMYR;
-  const originationFees      = totalBorrowedMYR * 0.001;
+  // Outstanding debt is the CONTRACT's live figure, not DB arithmetic — the
+  // chain is what actually says whether anything is still owed.
+  const netOutstandingMYR    = chain ? chain.totalBorrowedMYR : Math.max(0, totalBorrowedMYR - totalRepaidMYR);
   const totalDepositedEth    = stat.total_deposited / 1e18;
   const totalWithdrawnEth    = stat.total_withdrawn / 1e18;
-  const netLockedEth         = totalDepositedEth - totalWithdrawnEth;
-  const totalTxs             = stat.borrow_count + stat.repay_count + stat.deposit_count + stat.purchase_count + stat.claim_count;
+  const netLockedEth         = chain ? chain.totalCollateralETH : totalDepositedEth - totalWithdrawnEth;
+  const totalTxs             = txRows.length;
   const totalSupplyClaimedMYR = stat.total_supply_claimed / 1e6;
 
   const repaymentRate  = pct(totalRepaidMYR, totalBorrowedMYR);
@@ -155,23 +217,27 @@ export default async function AdminOverviewPage() {
     { name: 'Purchases',   value: stat.purchase_count,  color: '#9B7DFF' },
   ].filter(d => d.value > 0);
 
-  /* ── KPI tiles ─ */
+  /* ── Real cumulative series for the chart + KPI sparklines ─ */
+  const { chart: chartData, sparks } = buildMonthlySeries(txRows);
+
+  /* ── KPI tiles — every figure from this deployment's real rows or the live
+        contract; every sparkline traces the same real cumulative history ─ */
   const kpiCards = [
     {
       label:   'Total MYR Borrowed',
       value:   rm(totalBorrowedMYR),
-      sub:     `Net outstanding: ${rm(netOutstandingMYR)}`,
+      sub:     `Outstanding now (on-chain): ${rm(netOutstandingMYR)}`,
       color:   C.green,
-      spark:   spark(totalBorrowedMYR),
+      spark:   sparkFrom(sparks.borrowed),
       icon:    '₱',
-      href:    '/admin/transactions',
+      href:    '/explorer',
     },
     {
       label:   'Unique Wallets',
       value:   String(stat.unique_wallets),
       sub:     `${users} registered users`,
       color:   ETH_COLOR,
-      spark:   spark(stat.unique_wallets),
+      spark:   sparkFrom(sparks.wallets),
       icon:    '◎',
       href:    '/admin/users',
     },
@@ -180,18 +246,18 @@ export default async function AdminOverviewPage() {
       value:   String(totalTxs),
       sub:     `${stat.borrow_count} borrows · ${stat.repay_count} repays`,
       color:   '#9B7DFF',
-      spark:   spark(totalTxs),
+      spark:   sparkFrom(sparks.txs),
       icon:    '⇄',
-      href:    '/admin/transactions',
+      href:    '/explorer',
     },
     {
       label:   'ETH Locked',
       value:   netLockedEth >= 1000 ? `${(netLockedEth / 1000).toFixed(2)}K` : netLockedEth.toFixed(2),
-      sub:     `${lockRate}% of deposited ETH`,
+      sub:     chain ? 'on-chain collateral, live' : `${lockRate}% of deposited ETH`,
       color:   C.amber,
-      spark:   spark(netLockedEth),
+      spark:   sparkFrom(sparks.eth),
       icon:    'Ξ',
-      href:    '/admin/transactions',
+      href:    '/explorer',
     },
   ];
 
@@ -202,8 +268,6 @@ export default async function AdminOverviewPage() {
     { label: 'KYC Approval',     value: kycApproveRate,  color: C.amber,   hint: `${kycApproved} approved of ${kycApproved + kycRejected}` },
     { label: 'User KYC Rate',    value: kycRate,         color: '#9B7DFF', hint: `${kycApproved} of ${users} users` },
   ];
-
-  const chartData = monthlyData(totalBorrowedMYR, totalRepaidMYR);
 
   /* ── Tx type display ─ */
   const TX_META: Record<string, { label: string; color: string }> = {
@@ -227,7 +291,7 @@ export default async function AdminOverviewPage() {
             </Typography>
             <Typography sx={{ fontSize: 12.5, color: C.muted, mt: 0.4 }}>
               {new Date().toLocaleDateString('en-MY', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-              {' · '}Supabase + on-chain mirror
+              {' · '}transactions from this chain&apos;s event log · identity from Supabase
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -274,19 +338,26 @@ export default async function AdminOverviewPage() {
               <Typography sx={{ fontWeight: 700, fontSize: 15, color: C.ink }}>Company Treasury</Typography>
               <Typography sx={{ fontSize: 11, color: C.muted }}>— what the protocol actually holds right now</Typography>
             </Box>
-            {chain && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Box sx={{
-                  width: 5, height: 5, borderRadius: '50%',
-                  bgcolor: Math.abs(chain.contractEthBalanceETH - chain.totalCollateralETH) < 0.0001 ? C.green : C.red,
-                }} />
-                <Typography sx={{ fontSize: 10, color: C.muted }}>
-                  {Math.abs(chain.contractEthBalanceETH - chain.totalCollateralETH) < 0.0001
-                    ? 'Balance reconciles with contract state'
-                    : 'Mismatch vs. internal collateral counter — investigate'}
-                </Typography>
-              </Box>
-            )}
+            {chain && (() => {
+              // buyMYR() sells MYR for ETH that stays at the contract without
+              // touching totalCollateral, so a SURPLUS over the collateral
+              // counter is normal revenue, not a discrepancy. The only alarming
+              // state is a deficit: less ETH held than depositors are owed.
+              const surplus = chain.contractEthBalanceETH - chain.totalCollateralETH;
+              const deficit = surplus < -0.0001;
+              return (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: deficit ? C.red : C.green }} />
+                  <Typography sx={{ fontSize: 10, color: deficit ? C.red : C.muted }}>
+                    {deficit
+                      ? `Holds ${Math.abs(surplus).toFixed(4)} ETH LESS than depositors are owed — investigate`
+                      : surplus > 0.0001
+                        ? `Balance covers all collateral (+${surplus.toFixed(4)} ETH revenue from MYR sales)`
+                        : 'Balance reconciles with contract state'}
+                  </Typography>
+                </Box>
+              );
+            })()}
           </Box>
 
           <Divider sx={{ borderColor: C.border }} />
@@ -609,7 +680,9 @@ export default async function AdminOverviewPage() {
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2.5, flexWrap: 'wrap', gap: 1 }}>
               <Box>
                 <Typography sx={{ fontWeight: 700, fontSize: 15, color: C.ink }}>Protocol Overview</Typography>
-                <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 0.25 }}>Monthly MYR volume · cumulative</Typography>
+                <Typography sx={{ fontSize: 11.5, color: C.muted, mt: 0.25 }}>
+                  Monthly MYR volume · cumulative · real activity since this chain deployment
+                </Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 2.5 }}>
                 {[
@@ -624,7 +697,15 @@ export default async function AdminOverviewPage() {
                 ))}
               </Box>
             </Box>
-            <ProtocolAreaChart data={chartData} />
+            {chartData.length > 0 ? (
+              <ProtocolAreaChart data={chartData} />
+            ) : (
+              <Box sx={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Typography sx={{ fontSize: 13, color: C.muted }}>
+                  No transactions on this deployment yet — the chart fills in as real activity happens.
+                </Typography>
+              </Box>
+            )}
           </Card>
 
           {/* Sidebar: donut + goals */}
@@ -680,8 +761,8 @@ export default async function AdminOverviewPage() {
                 <Typography sx={{ fontWeight: 700, fontSize: 14, color: C.ink }}>Recent Transactions</Typography>
                 <Typography sx={{ fontSize: 11, color: C.muted }}>Latest on-chain activity</Typography>
               </Box>
-              <Link href="/admin/transactions" style={{ color: C.blue, fontSize: 12, textDecoration: 'none' }}>
-                View all →
+              <Link href="/explorer" style={{ color: C.blue, fontSize: 12, textDecoration: 'none' }}>
+                View all in Explorer →
               </Link>
             </Box>
             <Divider sx={{ borderColor: C.border }} />

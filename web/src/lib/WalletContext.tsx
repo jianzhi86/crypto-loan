@@ -39,6 +39,21 @@ export interface TxReceipt {
   timestamp: number;
 }
 
+/// One on-chain loan (array index on the contract = loanId). Every borrow is
+/// its own fixed-term loan with its own locked APR, due date and interest
+/// clock — this mirrors CryptoLoan's Loan struct plus its live interest.
+export interface ChainLoan {
+  loanId: number;
+  principal: bigint;      // MYR units still owed
+  startTime: bigint;      // unix seconds
+  dueDate: bigint;        // unix seconds — startTime + term
+  lastRepayTime: bigint;  // THIS loan's interest clock
+  termDays: number;       // 30 / 90 / 180 / 365
+  aprBps: number;         // locked at borrow — fixed for the loan's life
+  active: boolean;
+  interest: bigint;       // contract's accrued figure (stale between blocks on Hardhat)
+}
+
 export interface LoanInfo {
   collateral: bigint;
   borrowed: bigint;
@@ -47,12 +62,15 @@ export interface LoanInfo {
   collateralValueMYR: number;
   accruedInterest: bigint;
   startTime: bigint;
-  /// Unix seconds of the last repayment (or first borrow) — the moment the
-  /// contract's interest clock last reset. Baseline for ledger interest on
-  /// debt that predates the itemized borrow ledger.
+  /// Unix seconds of the most recent repayment across active loans — kept for
+  /// aggregate displays; per-loan clocks live on each ChainLoan.
   lastRepayTime: bigint;
   ltv: number;
   isLiquidatable: boolean;
+  /// The full per-loan book (index-aligned with on-chain loanIds, inactive
+  /// loans included). Everything per-plan in the UI reads THIS, never the
+  /// aggregates above.
+  loans: ChainLoan[];
 }
 
 export interface WalletState {
@@ -198,6 +216,17 @@ function cachePosition(addr: string, p: Omit<CachedPosition, 'savedAt'>) {
         collateralValueMYR: p.info.collateralValueMYR,
         ltv:                p.info.ltv,
         isLiquidatable:     p.info.isLiquidatable,
+        loans: p.info.loans.map(l => ({
+          loanId:        l.loanId,
+          principal:     l.principal.toString(),
+          startTime:     l.startTime.toString(),
+          dueDate:       l.dueDate.toString(),
+          lastRepayTime: l.lastRepayTime.toString(),
+          termDays:      l.termDays,
+          aprBps:        l.aprBps,
+          active:        l.active,
+          interest:      l.interest.toString(),
+        })),
       },
       ethBalance: p.ethBalance,
       myrBalance: p.myrBalance,
@@ -213,6 +242,10 @@ function readCachedPosition(addr: string): CachedPosition | null {
     const raw = localStorage.getItem(LS_KEY(addr));
     if (!raw) return null;
     const d = JSON.parse(raw);
+    interface CachedLoan {
+      loanId: number; principal: string; startTime: string; dueDate: string;
+      lastRepayTime: string; termDays: number; aprBps: number; active: boolean; interest: string;
+    }
     return {
       info: {
         collateral:         BigInt(d.info.collateral),
@@ -226,6 +259,19 @@ function readCachedPosition(addr: string): CachedPosition | null {
         collateralValueMYR: Number(d.info.collateralValueMYR),
         ltv:                Number(d.info.ltv),
         isLiquidatable:     Boolean(d.info.isLiquidatable),
+        loans: Array.isArray(d.info.loans)
+          ? (d.info.loans as CachedLoan[]).map(l => ({
+              loanId:        Number(l.loanId),
+              principal:     BigInt(l.principal),
+              startTime:     BigInt(l.startTime),
+              dueDate:       BigInt(l.dueDate),
+              lastRepayTime: BigInt(l.lastRepayTime),
+              termDays:      Number(l.termDays),
+              aprBps:        Number(l.aprBps),
+              active:        Boolean(l.active),
+              interest:      BigInt(l.interest),
+            }))
+          : [],
       },
       ethBalance: d.ethBalance ?? '0',
       myrBalance: d.myrBalance ?? '0',
@@ -326,6 +372,16 @@ function revertReason(err: unknown): string | null {
   return reason;
 }
 
+/** One loan's share of a repayment — what the dashboard hands to repay(). */
+export interface RepayItem {
+  /** On-chain loan index. */
+  loanId: number;
+  /** MYR to apply to this loan (decimal string, e.g. "1234.56"). */
+  amount: string;
+  /** DB ledger row backing this loan, if one exists — settled after confirm. */
+  rowId?: string;
+}
+
 interface WalletCtx extends WalletState {
   connect: () => Promise<void>;
   disconnect: () => void;
@@ -335,13 +391,15 @@ interface WalletCtx extends WalletState {
   depositCollateral: (eth: string) => Promise<void>;
   borrow: (myr: string, opts?: { termMonths?: number }) => Promise<boolean>;
   buyMYR: (myr: string) => Promise<boolean>;
-  repay: (myr: string, opts?: {
-    full?: boolean;
-    /** Ledger tranches this payment settles — marked REPAID in the DB once
-     *  the on-chain repay confirms. `interest` = per-tranche ledger interest
-     *  (MYR units, stringified) included in the payment. */
-    settle?: { ids: string[]; interest?: Record<string, string> };
-  }) => Promise<void>;
+  /**
+   * Repay one or more loans in a single approve + repayMany transaction.
+   * Each item is scoped to ITS loan: that loan's interest is paid first, then
+   * its principal — other loans are never touched. With `settleFull`, every
+   * listed loan is meant to be cleared entirely, so each amount is re-quoted
+   * from the contract (with day-boundary headroom) at confirm time; the
+   * contract caps per-loan at the real due, so over-quoting never overcharges.
+   */
+  repay: (items: RepayItem[], opts?: { settleFull?: boolean }) => Promise<void>;
   withdrawCollateral: (eth: string) => Promise<void>;
   claimSupplyInterest: () => Promise<void>;
   addTokenToWallet: () => Promise<void>;
@@ -430,17 +488,34 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setS(p => ({ ...p, isDeployed: false, isRefreshing: false }));
         return;
       }
-      const [ethBal, myrBal, info, price, kyc, loanRaw] = await Promise.all([
+      const [ethBal, myrBal, info, price, kyc, userLoansRaw] = await Promise.all([
         provider.getBalance(address),
         c.myr.balanceOf(address),
         c.loan.getLoanInfo(address),
         c.loan.ethPrice(),
         c.loan.kycApproved(address),
-        c.loan.loans(address),
+        c.loan.getUserLoans(address),
       ]);
       const MAX_U = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
       const hfRaw = info[2] as bigint;
       const hf = hfRaw === MAX_U ? Infinity : Number(hfRaw) / 1e18;
+      // getUserLoans returns (Loan[] loansOut, uint256[] interests), index = loanId.
+      const [loansRaw, interestsRaw] = userLoansRaw as unknown as [
+        { principal: bigint; startTime: bigint; dueDate: bigint; lastRepayTime: bigint; termDays: bigint; aprBps: bigint; active: boolean }[],
+        bigint[],
+      ];
+      const loans: ChainLoan[] = loansRaw.map((l, i) => ({
+        loanId:        i,
+        principal:     l.principal,
+        startTime:     l.startTime,
+        dueDate:       l.dueDate,
+        lastRepayTime: l.lastRepayTime,
+        termDays:      Number(l.termDays),
+        aprBps:        Number(l.aprBps),
+        active:        l.active,
+        interest:      interestsRaw[i] ?? BigInt(0),
+      }));
+      const activeLoans = loans.filter(l => l.active);
       const loanInfo: LoanInfo = {
         collateral:         info[0] as bigint,
         borrowed:           info[1] as bigint,
@@ -448,10 +523,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         available:          info[3] as bigint,
         collateralValueMYR: Number(info[4] as bigint),
         accruedInterest:    info[5] as bigint,
-        startTime:          loanRaw[2] as bigint,
-        lastRepayTime:      loanRaw[3] as bigint,
+        startTime:          activeLoans.length ? activeLoans.reduce((m, l) => l.startTime < m ? l.startTime : m, activeLoans[0].startTime) : BigInt(0),
+        lastRepayTime:      activeLoans.length ? activeLoans.reduce((m, l) => l.lastRepayTime > m ? l.lastRepayTime : m, BigInt(0)) : BigInt(0),
         ltv:                Number(info[6] as bigint),
         isLiquidatable:     info[7] as boolean,
+        loans,
       };
       const ethBalance = parseFloat(ethers.formatEther(ethBal)).toFixed(4);
       const myrBalance = (Number(myrBal) / 1e6).toFixed(2);
@@ -687,9 +763,28 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const attemptBorrow = async () => {
       setTx('pending', `Borrowing RM ${myrAmt}…`);
       const units = BigInt(Math.floor(parseFloat(myrAmt) * 1e6));
-      const tx = await c.loan.borrow(units);
+      // The contract takes the term in DAYS (30/90/180/365) and stamps the
+      // loan's dueDate from it — the term is real on-chain state now, not a
+      // display convention.
+      const TERM_DAYS: Record<number, number> = { 1: 30, 3: 90, 6: 180, 12: 365 };
+      const termDays = TERM_DAYS[opts?.termMonths ?? 1] ?? 30;
+      const tx = await c.loan.borrow(units, BigInt(termDays));
       const receipt = await tx.wait();
       if (receipt) saveTxToDB(addr, 'Borrowed', units.toString(), receipt);
+      // LoanCreated carries the on-chain loanId and dueDate for this borrow —
+      // the ledger row stores both so repayments can settle by loanId and the
+      // admin view can query due dates without an RPC call.
+      let loanId: number | null = null;
+      let dueDateIso: string | null = null;
+      try {
+        const createdEvt = ((receipt?.logs ?? []) as ethers.Log[])
+          .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } })
+          .find(p => p?.name === 'LoanCreated');
+        if (createdEvt) {
+          loanId     = Number(createdEvt.args[1] as bigint);
+          dueDateIso = new Date(Number(createdEvt.args[3] as bigint) * 1000).toISOString();
+        }
+      } catch { /* event decode is best-effort */ }
       // The rate this borrow is recorded at: currentAprBps() — the SAME call
       // accruedInterest() charges against, and the same number the Borrow tab
       // quotes. Recording baseRateBps here was the divergence: the ledger then
@@ -724,6 +819,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({
             wallet: addr, principal: units.toString(), aprBps, baseAprBps,
             termMonths: opts?.termMonths ?? 1, txHash: receipt.hash,
+            loanId, dueDate: dueDateIso,
           }),
         }).then(res => {
           // A non-OK response silently loses the tranche's term/APR itemization
@@ -738,9 +834,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           title: 'Loan Disbursed',
           amountLabel: `RM ${parseFloat(myrAmt).toFixed(2)}`,
           lines: [
-            { label: 'Interest rate', value: `${(aprBps / 100).toFixed(2)}% APR (locked for this borrow)` },
+            { label: 'Interest rate', value: `${(aprBps / 100).toFixed(2)}% APR (locked for this loan)` },
+            { label: 'Loan term', value: `${termDays} days` },
+            ...(dueDateIso
+              ? [{ label: 'Due date', value: `${new Date(dueDateIso).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })} (+7-day grace period)` }]
+              : []),
             { label: 'Delivered as', value: 'MYR tokens to your wallet' },
-            { label: 'Repay anytime', value: 'No penalties or lock-in' },
+            { label: 'Repay early anytime', value: 'No penalties or lock-in' },
           ],
           txHash: receipt.hash,
         });
@@ -808,219 +908,173 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [getContracts, s.address, s.ethPriceMYR, refresh, guardTx]);
 
-  const repay = useCallback(async (myrAmt: string, opts?: {
-    full?: boolean;
-    // Rows this payment applies to, oldest-first — a partial payment pays
-    // down the oldest tranche(s) first (see /api/borrows/settle). When
-    // `allocations` is given (installment payments), each row instead gets
-    // its own principal share, so one plan's monthly bill can't drain another.
-    settle?: { ids: string[]; allocations?: { id: string; principal: string }[] };
-  }) => {
+  const repay = useCallback(async (items: RepayItem[], opts?: { settleFull?: boolean }) => {
     if (!guardTx()) return;
     const c = await getContracts(true);
     if (!c || !s.address) return;
+    if (!items.length) { setTx('error', 'Nothing selected to repay.'); return; }
     setTx('pending', 'Approving MYR spend…', 1, 2);
     try {
-      // Round the sen amount UP into 1e6 units. myrAmt arrives as a .toFixed(2)
-      // string, so flooring here could under-fund the payment by a fraction of
-      // a sen and leave residual principal; repay() caps what it pulls at
-      // totalDue anyway, so rounding up can never overcharge.
-      let units = BigInt(Math.ceil(parseFloat(myrAmt) * 1e6));
-      // What the contract will actually pull (before any headroom).
-      let due = units;
-      // The REAL current debt, used only for the balance-sufficiency check
-      // below — never padded with the day-boundary safety margin `due` gets,
-      // so a wallet holding exactly enough to cover the actual debt isn't
-      // rejected over interest that hasn't accrued yet and may never will.
-      let realDue = units;
-      if (opts?.full) {
-        // Full payoff: quote the real payoff, not the stale view. totalDue()
-        // is computed against the LAST MINED block's timestamp — frozen
-        // between transactions on a local chain — while the repay tx itself
-        // mines a fresh block and charges interest up to real wall-clock time
-        // at the live dynamic rate. Project the quote forward to now and take
-        // the max, so the approval covers what the contract will actually
-        // pull. Falls back to the caller's amount on old contracts.
+      // Per-loan amounts in 1e6 units. Round each UP — the amounts arrive as
+      // .toFixed(2) strings, so flooring could under-fund a payment by a
+      // fraction of a sen and leave residual principal; the contract caps each
+      // loan at its own due anyway, so rounding up can never overcharge.
+      const loanIds = items.map(i => BigInt(i.loanId));
+      let amounts   = items.map(i => BigInt(Math.ceil(parseFloat(i.amount) * 1e6)));
+      // What the balance check runs on — the actual current debt, never the
+      // padded approval amount, so a wallet holding exactly enough isn't
+      // rejected over interest that hasn't accrued yet.
+      let realDue = amounts.reduce((a, b) => a + b, BigInt(0));
+      if (opts?.settleFull) {
+        // Full settlement of every listed loan: quote each loan's REAL payoff
+        // fresh from the contract, then project one accrual day forward — the
+        // repay tx mines seconds from now and may cross a Malaysia-midnight
+        // day boundary, ticking interest up a step after we quoted. The
+        // contract caps per-loan at the true due, so over-quoting the
+        // APPROVAL costs nothing; under-quoting is exactly what used to leave
+        // sen of principal behind.
         try {
-          const [dueView, loanRaw, aprNow] = await Promise.all([
-            (c.loan.totalDue as (a: string) => Promise<bigint>)(s.address),
-            (c.loan.loans as (a: string) => Promise<bigint[]>)(s.address),
-            (c.loan.currentAprBps as () => Promise<bigint>)(),
-          ]);
-          realDue = dueView;
-          const STEP      = BigInt(86_400);     // mirrors ACCRUAL_STEP (1 day)
-          const TZ_OFFSET  = BigInt(8 * 3600);   // mirrors MYR_TZ_OFFSET (UTC+8)
-          const YEAR       = BigInt(31_536_000); // mirrors Solidity's `365 days`
-          const principalU = loanRaw[1];
-          const startTime  = loanRaw[2];
-          const lastRepay  = loanRaw[3];
-          const nowSec     = BigInt(Math.floor(Date.now() / 1000));
-          // Mirror accruedInterest()'s calendar-day anchoring (Malaysia
-          // midnight, minimum one day before the FIRST repay only — see the
-          // firstAccrual comment in CryptoLoan.sol), then add ONE extra day:
-          // this tx mines seconds from now and may cross a day boundary,
-          // ticking interest up a step after we quoted. repay() caps `paying`
-          // at totalDue, so over-quoting the APPROVAL costs nothing —
-          // under-quoting is exactly what leaves sen of principal behind and
-          // forces a repeat repay attempt. This padded `due` must NOT be used
-          // as the minimum balance required (see realDue above) — a full day
-          // of phantom interest on a large position can be a real amount of
-          // money the user was never actually going to owe.
-          let elapsed = BigInt(0);
-          if (lastRepay > BigInt(0)) {
-            const lastDay       = (lastRepay + TZ_OFFSET) / STEP;
-            const curDay        = (nowSec + TZ_OFFSET) / STEP;
-            const dayDiff       = curDay > lastDay ? curDay - lastDay : BigInt(0);
-            const firstAccrual  = lastRepay === startTime;
-            elapsed = ((dayDiff === BigInt(0) && firstAccrual ? BigInt(1) : dayDiff) + BigInt(1)) * STEP;
-          }
-          const projected = lastRepay > BigInt(0)
-            ? principalU + (principalU * aprNow * elapsed) / (BigInt(10_000) * YEAR)
-            : dueView;
-          due = projected > dueView ? projected : dueView;
-        } catch { /* totalDue unavailable: trust the caller's amount */ }
-        units = due + due / BigInt(500) + BigInt(1_000_000); // +0.2% + RM 1 headroom
+          const dues = await Promise.all(items.map(i =>
+            (c.loan.loanDue as (a: string, id: bigint) => Promise<bigint>)(s.address!, BigInt(i.loanId))));
+          realDue = dues.reduce((a, b) => a + b, BigInt(0));
+          const STEP = BigInt(86_400);           // mirrors ACCRUAL_STEP (1 day)
+          const YEAR = BigInt(31_536_000);       // mirrors Solidity's `365 days`
+          const book = s.loanInfo?.loans ?? [];
+          amounts = items.map((it, idx) => {
+            const chain = book.find(l => l.loanId === it.loanId);
+            const oneDay = chain ? (chain.principal * BigInt(chain.aprBps) * STEP) / (BigInt(10_000) * YEAR) : BigInt(0);
+            const padded = dues[idx] + oneDay;
+            return padded + padded / BigInt(500) + BigInt(1_000_000); // +0.2% + RM 1 headroom
+          });
+        } catch { /* loanDue unavailable: trust the caller's amounts */ }
       }
-      // Pre-flight balance check: the contract caps what it takes to totalDue,
-      // but if the wallet holds less than that the ERC20 transferFrom throws a
-      // custom error that surfaced as "Internal JSON-RPC error". Read the
-      // balance from the chain — the s.myrBalance state copy is a stale
-      // closure capture here (this callback's deps don't track it) and once
-      // reported a shortfall against a balance from a previous session.
-      // Checked against realDue (the actual current debt), not the padded
-      // `due` — see the comment on realDue above.
+      const approveUnits = amounts.reduce((a, b) => a + b, BigInt(0));
+      // Pre-flight balance check: the contract caps what it takes per loan,
+      // but if the wallet holds less than the real debt the ERC20
+      // transferFrom throws a custom error that surfaced as "Internal
+      // JSON-RPC error". Read the balance from the chain — the s.myrBalance
+      // state copy is a stale closure capture here.
       const myrBalUnits = (await c.myr.balanceOf(s.address)) as bigint;
       if (realDue > myrBalUnits) {
         const shortfall = Number(realDue - myrBalUnits) / 1e6;
-        // "Auto top-up" only exists in the UI for a FULL payoff (it's gated on
-        // repayFull there) — pointing a partial/custom-amount repay at a button
-        // that isn't on screen just strands the user. Tell them what's actually
-        // clickable in their current mode.
-        const fix = opts?.full
+        const fix = opts?.settleFull
           ? 'Use Auto top-up or buy MYR first.'
           : 'Buy MYR first, or switch to FULL repay to use Auto top-up.';
         setTx('error', `Insufficient MYR — short by RM ${shortfall.toFixed(2)}. ${fix}`);
         return;
       }
-      const approveTx = await c.myr.approve(CONTRACT_ADDRESSES.CryptoLoan, units);
+      const approveTx = await c.myr.approve(CONTRACT_ADDRESSES.CryptoLoan, approveUnits);
       await approveTx.wait();
-      setTx('pending', `Repaying RM ${myrAmt}…`, 2, 2);
-      const repayTx = await c.loan.repay(units);
+      const intentMYR = items.reduce((sum, i) => sum + (parseFloat(i.amount) || 0), 0);
+      setTx('pending', `Repaying RM ${intentMYR.toFixed(2)}…`, 2, 2);
+      // One transaction, however many loans — each amount applies to ITS loan
+      // only (interest first, then principal), so paying one plan never
+      // touches another plan's balance or interest.
+      const repayTx = loanIds.length === 1
+        ? await c.loan.repay(loanIds[0], amounts[0])
+        : await c.loan.repayMany(loanIds, amounts);
       const repayReceipt: ethers.TransactionReceipt | null = await repayTx.wait();
-      // The Repaid event carries what was actually charged — principal and
-      // interest split — which can differ slightly from the requested amount.
-      // Collateral is never auto-returned by repay() (see CryptoLoan.sol) —
-      // it stays deposited so the same collateral can back a new borrow
-      // without redepositing; withdraw it separately whenever you want it.
-      let principalUnits = BigInt(0), interestUnits = BigInt(0), evtDecoded = false;
+      // The per-loan Repaid events carry what was actually charged — the
+      // authoritative principal/interest split for each loan. Collateral is
+      // never auto-returned by repay() — it stays deposited so the same
+      // collateral can back a new borrow; withdraw it separately anytime.
+      const paidByLoan = new Map<number, { principal: bigint; interest: bigint }>();
       try {
-        const repaidEvt = (repayReceipt?.logs ?? [])
-          .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } })
-          .find(p => p?.name === 'Repaid');
-        if (repaidEvt) {
-          evtDecoded     = true;
-          principalUnits = repaidEvt.args[1] as bigint;
-          interestUnits  = repaidEvt.args[2] as bigint;
+        for (const l of repayReceipt?.logs ?? []) {
+          let parsed = null;
+          try { parsed = c.loan.interface.parseLog(l); } catch { /* other contract's log */ }
+          if (parsed?.name === 'Repaid') {
+            const loanId = Number(parsed.args[1] as bigint);
+            paidByLoan.set(loanId, {
+              principal: parsed.args[2] as bigint,
+              interest:  parsed.args[3] as bigint,
+            });
+          }
         }
       } catch { /* event decode is best-effort */ }
+      const principalUnits = Array.from(paidByLoan.values()).reduce((a, v) => a + v.principal, BigInt(0));
+      const interestUnits  = Array.from(paidByLoan.values()).reduce((a, v) => a + v.interest,  BigInt(0));
+      const evtDecoded     = paidByLoan.size > 0;
       // Floats are for the receipt lines only, never for the settle payload.
-      // Going Number(bigint)/1e6 and back through BigInt(Math.round(x * 1e6))
-      // could land a unit short, which left the last ledger row OPEN holding
-      // principal "1" — RM 0.000001 of phantom debt that never went away.
       const principalPaid = Number(principalUnits) / 1e6;
       const interestPaid  = Number(interestUnits)  / 1e6;
       const totalPaid = principalPaid + interestPaid;
-      const paidLabel = totalPaid > 0 ? totalPaid.toFixed(2) : parseFloat(myrAmt).toFixed(2);
+      const paidLabel = totalPaid > 0 ? totalPaid.toFixed(2) : intentMYR.toFixed(2);
       if (repayReceipt && s.address) {
         saveTxToDB(s.address, 'Repaid',
-          totalPaid > 0 ? principalUnits.toString() : units.toString(),
+          totalPaid > 0 ? principalUnits.toString() : approveUnits.toString(),
           repayReceipt);
       }
-      setTx('success', opts?.full
-        ? `Loan fully repaid (RM ${paidLabel})`
+      const clearedCount = Array.from(paidByLoan.keys()).length;
+      setTx('success', opts?.settleFull
+        ? `Repaid in full (RM ${paidLabel}, ${clearedCount} plan${clearedCount === 1 ? '' : 's'})`
         : `Repaid RM ${paidLabel}`, 2, 2);
       if (repayReceipt) {
         setReceipt({
           action: 'repay',
-          title: opts?.full ? 'Loan Fully Repaid' : 'Repayment Successful',
+          title: opts?.settleFull ? 'Plan(s) Fully Repaid' : 'Repayment Successful',
           amountLabel: `RM ${paidLabel}`,
           lines: [
+            { label: 'Plans covered',     value: `${items.length}` },
             { label: 'Principal repaid', value: `RM ${principalPaid.toFixed(2)}` },
             { label: 'Interest paid',    value: `RM ${interestPaid.toFixed(4)}` },
-            ...(opts?.full
+            ...(opts?.settleFull
               ? [{ label: 'Collateral', value: 'Still deposited — withdraw anytime, or borrow again against it' }]
               : []),
           ],
           txHash: repayReceipt.hash,
         });
       }
-      // Apply the confirmed payment to the ledger tranches it was meant to
-      // cover — fully settles rows the payment cleared, pays down the
-      // principal of whichever row it only partially covered (oldest-first).
-      // Awaited (though errors still never fail the repay result) because the
-      // refresh() below triggers the dashboard's ledger re-fetch — firing this
-      // without waiting raced that re-fetch against this write, and the
-      // re-fetch usually won, showing the pre-repay ledger row until some
-      // unrelated event happened to trigger another refetch.
-      if (repayReceipt && opts?.settle?.ids.length) {
-        // The event's principal split is authoritative — an interest-only
-        // payment (principalPaid = 0) settles nothing. Only when the event
-        // couldn't be decoded at all do we fall back to the requested amount.
-        const paidUnits = evtDecoded ? principalUnits : units;
-        // Scale per-plan allocations to the principal actually charged —
-        // interest is always paid first, so it differs slightly from the
-        // intent. Proportional split; the last plan absorbs rounding dust.
-        let allocations = opts.settle.allocations;
-        if (allocations && allocations.length > 0) {
-          const target = allocations.reduce((s, a) => s + BigInt(a.principal), BigInt(0));
-          if (target > BigInt(0) && target !== paidUnits) {
-            const last = allocations.length - 1;
-            let rem = paidUnits;
-            allocations = allocations.map((a, i) => {
-              const share = i === last ? rem : (BigInt(a.principal) * paidUnits) / target;
-              rem -= share;
-              return { id: a.id, principal: share.toString() };
-            });
-          }
-        }
-        if (paidUnits > BigInt(0)) {
+      // Apply the confirmed payment to the DB ledger rows, keyed by loanId —
+      // each row gets exactly the principal ITS loan's Repaid event reported,
+      // so the ledger can no longer drift from the chain. Awaited (though
+      // errors never fail the repay) because refresh() below triggers the
+      // dashboard's ledger re-fetch, which must see this write.
+      const settleRows = items.filter(i => i.rowId);
+      if (repayReceipt && settleRows.length > 0) {
+        const allocations = settleRows.map(i => ({
+          id: i.rowId as string,
+          principal: (paidByLoan.get(i.loanId)?.principal
+            ?? (evtDecoded ? BigInt(0) : BigInt(Math.ceil(parseFloat(i.amount) * 1e6)))).toString(),
+        })).filter(a => BigInt(a.principal) > BigInt(0));
+        const paidTotal = allocations.reduce((sum, a) => sum + BigInt(a.principal), BigInt(0));
+        if (paidTotal > BigInt(0)) {
           await fetch('/api/borrows/settle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              ids: opts.settle.ids,
-              principalPaid: paidUnits.toString(),
+              ids: allocations.map(a => a.id),
+              principalPaid: paidTotal.toString(),
               repayTxHash: repayReceipt.hash,
-              ...(allocations && allocations.length > 0 ? { allocations } : {}),
+              allocations,
             }),
           }).catch(() => {});
         }
       }
-      // Optimistically zero out the loan so the repay button disables immediately,
-      // before the async refresh() below propagates the on-chain state.
-      // Without this there is a brief window where principal > 0 (stale) but
-      // the MYR balance is already 0, which shows a false "short by RM X" error
-      // on a stray second click.
-      if (opts?.full) {
-        setS(p => ({
-          ...p,
-          // Collateral is untouched by repay() now — it stays deposited, so
-          // it must NOT be optimistically zeroed here (that used to mirror
-          // the auto-return this contract no longer does).
-          loanInfo: p.loanInfo
-            ? { ...p.loanInfo, borrowed: BigInt(0), accruedInterest: BigInt(0) }
-            : p.loanInfo,
-          pendingYieldMYR: 0,
-        }));
+      // Optimistically flip the covered loans locally so the repay button
+      // disables immediately, before the async refresh() propagates the
+      // on-chain state. Collateral is untouched by repay() and must NOT be
+      // zeroed here.
+      if (opts?.settleFull) {
+        const coveredIds = new Set(items.map(i => i.loanId));
+        setS(p => {
+          if (!p.loanInfo) return p;
+          const loans = p.loanInfo.loans.map(l =>
+            coveredIds.has(l.loanId) ? { ...l, principal: BigInt(0), interest: BigInt(0), active: false } : l);
+          const stillBorrowed = loans.filter(l => l.active).reduce((a, l) => a + l.principal, BigInt(0));
+          return {
+            ...p,
+            loanInfo: { ...p.loanInfo, loans, borrowed: stillBorrowed,
+              accruedInterest: stillBorrowed === BigInt(0) ? BigInt(0) : p.loanInfo.accruedInterest },
+          };
+        });
       }
       await refresh(s.address);
-      // Belt and braces for a full payoff: if the chain now says the position
-      // is clear, close every remaining OPEN row regardless of what the
-      // allocation arithmetic worked out to. The route re-reads the chain
-      // server-side and ignores this claim unless it agrees, so a client can't
-      // wipe its own ledger by asserting it. refresh() above has just re-read
-      // getLoanInfo, so this fires only when the loan is genuinely settled.
-      if (opts?.full && repayReceipt) {
+      // Belt and braces for a whole-account payoff: if the chain now says the
+      // position is clear, close every remaining OPEN ledger row. The route
+      // re-reads the chain server-side and ignores this claim unless it
+      // agrees, so a client can't wipe a ledger that still has debt behind it.
+      if (opts?.settleFull && repayReceipt) {
         await fetch('/api/borrows/settle', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1035,7 +1089,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const reason = revertReason(e);
       setTx('error', reason ? `Repay failed: ${reason}` : 'Repay failed — check MYR balance or approve amount', 1, 2);
     }
-  }, [getContracts, s.address, refresh, guardTx]);
+  }, [getContracts, s.address, s.loanInfo, refresh, guardTx]);
 
   const withdrawCollateral = useCallback(async (ethAmt: string) => {
     if (!guardTx()) return;

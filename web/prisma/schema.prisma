@@ -83,6 +83,15 @@ model LoanTransaction {
 model BorrowPosition {
   id           String    @id @default(cuid())
   wallet       String
+  /// On-chain loan index for this wallet (CryptoLoan._userLoans[wallet][loanId]).
+  /// The chain is the source of truth for principal/interest/dueDate; this key
+  /// is what lets a repay settle exactly the rows its Repaid(loanId) events
+  /// covered. Null only for rows recorded before the per-loan contract.
+  loanId       Int?
+  /// This loan's on-chain due date (startTime + term), denormalized at borrow
+  /// time for admin/reporting queries. The dashboard reads the live value from
+  /// the chain, never from here.
+  dueDate      DateTime?
   /// MYR units (1e6), stringified — bigint-safe. Shrinks as settle() applies
   /// payments; never the original borrowed amount after the first payment.
   principal    String
@@ -111,13 +120,14 @@ model BorrowPosition {
   termMonths   Int       @default(1)
   txHash       String    @unique
   borrowedAt   DateTime  @default(now())
-  status       String    @default("OPEN") // OPEN | REPAID
+  status       String    @default("OPEN") // OPEN | REPAID | LIQUIDATED
   repaidAt     DateTime?
   repayTxHash  String?
   /// MYR units of ledger interest attributed to this tranche at settlement.
   interestPaid String?
 
   @@index([wallet, status])
+  @@index([wallet, loanId])
 }
 
 model KycSubmission {

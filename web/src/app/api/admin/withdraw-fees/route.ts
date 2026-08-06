@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import { requireAdmin, audit } from '@/lib/authz';
 import { CONTRACT_ADDRESSES } from '@/lib/contractConfig';
@@ -14,12 +14,27 @@ const ABI = [
 ];
 
 // POST /api/admin/withdraw-fees — sweep accumulated protocol fees (interest
-// revenue) to the contract owner's own address. Owner-only on-chain (the
-// contract itself enforces this via onlyOwner; this route just gates who
-// can trigger it from the admin panel and records the action).
-export async function POST() {
+// revenue) as MYR tokens. Body may carry `{ to: "0x…" }` to direct the sweep
+// to any wallet the admin chooses (e.g. a treasury account separate from the
+// owner key, since on a local chain the owner account doubles as the server
+// keeper and is awkward to also use in MetaMask); it defaults to the contract
+// owner when omitted. The transaction is still SIGNED by the owner key — the
+// contract's onlyOwner check is untouched — and the chosen destination is
+// recorded in the audit log with the caller's identity.
+export async function POST(req: NextRequest) {
   const guard = await requireAdmin();
   if (!guard.ok) return guard.response;
+
+  let requestedTo: string | null = null;
+  try {
+    const body = await req.json() as { to?: string };
+    if (typeof body?.to === 'string' && body.to.trim() !== '') {
+      if (!ethers.isAddress(body.to.trim())) {
+        return NextResponse.json({ error: 'Invalid recipient address' }, { status: 400 });
+      }
+      requestedTo = ethers.getAddress(body.to.trim());
+    }
+  } catch { /* empty body — default to the owner below */ }
 
   if (!process.env.OWNER_PRIVATE_KEY) {
     return NextResponse.json({ error: 'OWNER_PRIVATE_KEY not set in .env' }, { status: 500 });
@@ -45,16 +60,15 @@ export async function POST() {
     }
 
     const owner = await (contract.owner as () => Promise<string>)();
-    // Sends to the contract's own owner — never a client-supplied address, so
-    // an admin session can trigger this but never redirect the funds.
-    const tx = await (contract.withdrawProtocolFees as (to: string) => Promise<ethers.TransactionResponse>)(owner);
+    const to    = requestedTo ?? owner;
+    const tx = await (contract.withdrawProtocolFees as (to: string) => Promise<ethers.TransactionResponse>)(to);
     const receipt = await tx.wait();
 
     await audit(guard.user, 'PROTOCOL_FEES_WITHDRAWN', 'system', 'CryptoLoan.protocolFees', {
-      amountMYR: fees, to: owner, txHash: receipt?.hash,
+      amountMYR: fees, to, txHash: receipt?.hash,
     });
 
-    return NextResponse.json({ success: true, amountMYR: fees, to: owner, txHash: receipt?.hash });
+    return NextResponse.json({ success: true, amountMYR: fees, to, txHash: receipt?.hash });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[admin/withdraw-fees]', msg);

@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireUser } from '@/lib/authz';
-import { getOnChainPosition } from '@/lib/kyc/chain';
+import { getOnChainPosition, getOnChainLoans } from '@/lib/kyc/chain';
 
-// POST /api/borrows — record one confirmed borrow as a ledger tranche:
-// its principal plus the APR captured at borrow time. Like /api/loan-tx this
-// only mirrors a transaction that already settled on-chain, so requireUser
-// (not requireActiveUser) is the right gate. Keyed by txHash so retries are
-// idempotent.
+// POST /api/borrows — record one confirmed borrow as a ledger row: the
+// on-chain loanId it maps to, its principal, term, due date, and the APR the
+// contract locked for it. Like /api/loan-tx this only mirrors a transaction
+// that already settled on-chain, so requireUser (not requireActiveUser) is the
+// right gate. Keyed by txHash so retries are idempotent.
 export async function POST(req: NextRequest) {
   const guard = await requireUser();
   if (!guard.ok) return guard.response;
 
-  const { wallet, principal, aprBps, baseAprBps, txHash, termMonths } = await req.json();
+  const { wallet, principal, aprBps, baseAprBps, txHash, termMonths, loanId, dueDate } = await req.json();
   if (!wallet || !principal || !txHash || aprBps == null) {
     return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
   }
@@ -21,6 +21,8 @@ export async function POST(req: NextRequest) {
   // trusting an arbitrary client-supplied divisor for the installment math.
   const VALID_TERM_MONTHS = [1, 3, 6, 12];
   const resolvedTermMonths = VALID_TERM_MONTHS.includes(Number(termMonths)) ? Number(termMonths) : 1;
+  const resolvedLoanId  = Number.isInteger(Number(loanId)) && Number(loanId) >= 0 ? Number(loanId) : null;
+  const resolvedDueDate = dueDate ? new Date(dueDate) : null;
 
   try {
     const row = await prisma.borrowPosition.upsert({
@@ -33,6 +35,8 @@ export async function POST(req: NextRequest) {
         aprBps:            Math.round(Number(aprBps)),
         baseAprBps:        baseAprBps != null ? Math.round(Number(baseAprBps)) : 0,
         termMonths:        resolvedTermMonths,
+        loanId:            resolvedLoanId,
+        dueDate:           resolvedDueDate && !Number.isNaN(resolvedDueDate.getTime()) ? resolvedDueDate : null,
         txHash,
       },
     });
@@ -50,28 +54,30 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/borrows?wallet=0x… — the wallet's open tranches, oldest first.
+// GET /api/borrows?wallet=0x… — the wallet's open ledger rows, oldest first.
 export async function GET(req: NextRequest) {
   const wallet = req.nextUrl.searchParams.get('wallet');
   if (!wallet) return NextResponse.json({ error: 'wallet required' }, { status: 400 });
 
   const walletKey = wallet.toLowerCase();
   try {
-    const borrows = await prisma.borrowPosition.findMany({
+    let borrows = await prisma.borrowPosition.findMany({
       where:   { wallet: walletKey, status: 'OPEN' },
       orderBy: { borrowedAt: 'asc' },
-      select:  { id: true, principal: true, originalPrincipal: true, aprBps: true, baseAprBps: true, termMonths: true, borrowedAt: true, txHash: true },
+      select:  { id: true, loanId: true, principal: true, originalPrincipal: true, aprBps: true, baseAprBps: true, termMonths: true, borrowedAt: true, dueDate: true, txHash: true },
     });
     if (borrows.length === 0) return NextResponse.json({ borrows });
 
-    // Reconcile against the chain: a redeployed/reset contract starts every
-    // wallet back at zero principal, but the DB ledger (a separate store) has
-    // no way to know that happened — it keeps showing the old open tranches
-    // and accruing "interest" on debt that no longer exists on-chain. If the
-    // chain agrees there's genuinely nothing owed, close the stale rows here
-    // rather than surfacing them. A read failure or nonzero balance leaves
-    // the ledger untouched — this only ever closes rows the chain confirms
-    // are already clear.
+    // Reconcile against the chain — the contract's per-loan book is the truth:
+    //  * aggregate principal 0 (fresh redeploy, or everything repaid straight
+    //    on the contract) → every OPEN row here is stale; close them all.
+    //  * a row whose on-chain loan is inactive → repaid or liquidated outside
+    //    this app's settle flow; close it.
+    //  * a row whose on-chain principal drifted below the ledger copy →
+    //    adopt the chain figure, so installment math never runs on debt that
+    //    no longer exists.
+    // A read failure leaves the ledger untouched — this only ever closes or
+    // shrinks rows the chain confirms are already clear.
     try {
       const pos = await getOnChainPosition(walletKey);
       if (pos.principal === BigInt(0)) {
@@ -81,6 +87,29 @@ export async function GET(req: NextRequest) {
         });
         return NextResponse.json({ borrows: [] });
       }
+
+      const chainLoans = await getOnChainLoans(walletKey);
+      const ops = [];
+      const closedIds = new Set<string>();
+      for (const row of borrows) {
+        if (row.loanId == null) continue;                    // pre-per-loan row — leave as-is
+        const chain = chainLoans[row.loanId];
+        if (!chain || !chain.active) {
+          ops.push(prisma.borrowPosition.updateMany({
+            where: { id: row.id, status: 'OPEN' },
+            data:  { status: 'REPAID', repaidAt: new Date() },
+          }));
+          closedIds.add(row.id);
+        } else if (chain.principal < BigInt(row.principal)) {
+          ops.push(prisma.borrowPosition.updateMany({
+            where: { id: row.id, status: 'OPEN' },
+            data:  { principal: chain.principal.toString() },
+          }));
+          row.principal = chain.principal.toString();
+        }
+      }
+      if (ops.length > 0) await prisma.$transaction(ops);
+      if (closedIds.size > 0) borrows = borrows.filter(r => !closedIds.has(r.id));
     } catch (err) {
       console.error('[GET /api/borrows] chain reconcile failed:', err);
     }

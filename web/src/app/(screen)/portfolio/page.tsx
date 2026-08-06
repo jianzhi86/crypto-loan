@@ -16,16 +16,15 @@ import { useTransactionHistory, ICONS, LABELS, COLORS } from '@/hooks/useTransac
 import { AlertIcon, BankIcon, ClipboardIcon, InboxIcon } from '@/components/Icons';
 import { supplyApr } from '@/lib/rates';
 
-const ORIG_FEE  = 0.001;
 const MAX_LTV   = 70;
 const LIQ_THRES = 80;
+const GRACE_DAYS = 7;   // mirrors CryptoLoan.GRACE_PERIOD
 
 function hColor(hf: number) { return !isFinite(hf) || hf >= 2 ? '#2BD9A2' : hf >= 1.5 ? '#FFB224' : '#E5484D'; }
 function hLabel(hf: number) { return !isFinite(hf) || hf >= 2 ? 'Safe' : hf >= 1.5 ? 'Moderate' : 'At Risk'; }
 function rm(n: number, d = 0) { return 'RM ' + n.toLocaleString('en-MY', { minimumFractionDigits: d, maximumFractionDigits: d }); }
 function short(addr: string) { return addr.slice(0, 6) + '…' + addr.slice(-4); }
 function pct(n: number, d = 1) { return n.toFixed(d) + '%'; }
-function addDays(date: Date, days: number) { const d = new Date(date); d.setDate(d.getDate() + days); return d; }
 function formatDate(d: Date) { return d.toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' }); }
 
 function RowSkeleton() {
@@ -44,9 +43,8 @@ function RowSkeleton() {
 export default function PortfolioPage() {
   const wallet     = useWallet();
   const { prices } = usePrices();
-  // Live variable borrow rate from the contract (falls back to 4.8% until the
-  // redeployed contract is on-chain).
-  const APR        = wallet.borrowAprBps / 100;
+  // The CURRENT rate a new borrow would be locked at (base + utilization
+  // premium). Existing loans each carry their own locked aprBps instead.
   const effAPR     = wallet.currentAprBps / 100;
   const isLive     = wallet.isConnected && wallet.isCorrectNetwork && wallet.isDeployed;
   const { events: txHistory, loading: txLoading } = useTransactionHistory(isLive ? wallet.address ?? undefined : undefined);
@@ -71,47 +69,22 @@ export default function PortfolioPage() {
   const hourlyEarn    = colEth > 0 ? colEth * (isLive ? wallet.ethPriceMYR : ethMYR) * (ethSupplyApr / 100) / 8760 : 0;
   const hasClaim       = earnedSoFar > 0.000001;
 
-  const LOAN_TERM    = 90;
-  const startTime    = loan?.startTime ?? BigInt(0);
-  const borrowDate   = startTime > BigInt(0) ? new Date(Number(startTime) * 1000) : null;
-  const today        = new Date();
-  // Loan LIFETIME clock (for the timeline/progress bar): plain calendar days
-  // since the original borrow, unrelated to the interest clock below.
-  const daysElapsed  = borrowDate ? Math.max(0, Math.floor((today.getTime() - borrowDate.getTime()) / 86400000)) : 0;
-  const daysLeft     = Math.max(0, LOAN_TERM - daysElapsed);
-  const maturityDate = borrowDate ? addDays(borrowDate, LOAN_TERM) : null;
-  const progressPct  = LOAN_TERM > 0 ? Math.min((daysElapsed / LOAN_TERM) * 100, 100) : 0;
-
-  // INTEREST clock (for "Accrued Interest × N days" and the daily/projected
-  // figures): mirrors CryptoLoan.accruedInterest() exactly — Malaysia-midnight
-  // (UTC+8) calendar days since the last repay (not the original borrow date,
-  // since every repay resets the clock), with a minimum of one day BEFORE the
-  // loan's first ever repay only (firstAccrual) — see dashboard/page.tsx's
-  // daysSince() for the same logic and why the firstAccrual guard exists (a
-  // same-day repeat repay must not get charged a phantom extra day).
+  // The REAL loan book: every borrow is its own on-chain loan with its own
+  // start date, due date, term and locked APR — the timeline below renders
+  // one bar per loan from this, replacing the old hardcoded 90-day display.
   const DAY_MS = 86_400_000;
-  const TZ_OFFSET_MS = 8 * 60 * 60 * 1000;
-  const lastRepaySec = loan ? Number(loan.lastRepayTime) : 0;
-  const sinceMs       = lastRepaySec > 0 ? lastRepaySec * 1000 : 0;
-  const firstAccrual  = loan ? Number(loan.lastRepayTime) === Number(loan.startTime) : true;
-  const interestDays  = (() => {
-    if (sinceMs <= 0) return 0;
-    const lastDay = Math.floor((sinceMs + TZ_OFFSET_MS) / DAY_MS);
-    const curDay  = Math.floor((Date.now() + TZ_OFFSET_MS) / DAY_MS);
-    const diff    = curDay - lastDay;
-    return diff === 0 && firstAccrual ? 1 : diff;
-  })();
+  const activeLoans = (loan?.loans ?? []).filter(l => l.active);
+  // Pinned to the wallet's refresh stamp (same idiom as the dashboard) so the
+  // timeline steps with each chain re-read instead of every render.
+  const nowMs       = wallet.lastRefreshAt || Date.now();
 
-  const origFee      = borMYR * ORIG_FEE;
   const accruedInt   = loan ? Number(loan.accruedInterest) / 1e6 : 0;
-  // effAPR (base + utilization premium) — the same rate accruedInterest()
-  // actually charges. Using the flat base rate here used to under-quote the
-  // daily/projected figures against what the dashboard (and the contract)
-  // show for the same position.
-  const projTotalInt = borMYR * (effAPR / 100) * (LOAN_TERM / 365);
+  // Per-loan figures at each loan's OWN locked APR — a single "position rate"
+  // no longer exists; summing per-loan is what the contract actually charges.
+  const projTotalInt = activeLoans.reduce((s, l) => s + (Number(l.principal) / 1e6) * (l.aprBps / 10_000) * (l.termDays / 365), 0);
+  const dailyInt     = activeLoans.reduce((s, l) => s + (Number(l.principal) / 1e6) * (l.aprBps / 10_000) / 365, 0);
   const totalRepay   = borMYR + accruedInt;
   const fullRepay    = borMYR + projTotalInt;
-  const dailyInt     = borMYR * (effAPR / 100) / 365;
 
   const cardSx = { p: 3, bgcolor: '#111B38', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 3 };
   const rowSx  = { p: 2, bgcolor: '#0B1226', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2 };
@@ -199,7 +172,7 @@ export default function PortfolioPage() {
             [
               { label: 'ETH Collateral',  value: `${colEth.toFixed(4)} ETH`,              sub: rm(colMYR),               sc: '#2BD9A2' },
               { label: 'Total Borrowed',  value: rm(borMYR, 2),                            sub: `${pct(ltvUsed)} LTV used`, sc: '#FFB224' },
-              { label: 'Accrued Interest',value: borMYR > 0 ? rm(accruedInt, 2) : '—',    sub: `${effAPR.toFixed(2)}% APR · ${interestDays}d this cycle`, sc: '#FFB224' },
+              { label: 'Accrued Interest',value: borMYR > 0 ? rm(accruedInt, 2) : '—',    sub: `${activeLoans.length} plan${activeLoans.length === 1 ? '' : 's'} · each at its locked APR`, sc: '#FFB224' },
               { label: 'Health Factor',   value: isFinite(hf) ? hf.toFixed(2) : '∞',      sub: hLabel(hf),               sc: hc },
             ].map(s => (
               <Paper key={s.label} sx={{ p: 2.5, bgcolor: '#111B38', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2 }}>
@@ -345,34 +318,63 @@ export default function PortfolioPage() {
               )}
             </Paper>
 
-            {/* Loan timeline & interest */}
+            {/* Loan timeline & interest — one bar per on-chain loan, driven by
+                each loan's REAL start date, due date, term and locked APR (the
+                old single 90-day bar here was cosmetic and matched nothing). */}
             {borMYR > 0 && (
               <Paper sx={cardSx}>
                 <Typography variant="h6" color="text.primary" sx={{ fontWeight: 600, mb: 3 }}>Loan Timeline & Interest</Typography>
 
-                {borrowDate && maturityDate && (
-                  <Box sx={{ mb: 3 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="caption" color="text.secondary">Start: {formatDate(borrowDate)}</Typography>
-                      <Typography variant="caption" color="text.secondary">Maturity: {formatDate(maturityDate)}</Typography>
-                    </Box>
-                    <LinearProgress variant="determinate" value={progressPct}
-                      sx={{ height: 12, borderRadius: 1.5, bgcolor: 'rgba(255,255,255,0.12)',
-                            '& .MuiLinearProgress-bar': { bgcolor: '#6E8BFF', borderRadius: 1.5 } }} />
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.75 }}>
-                      <Typography variant="caption" color="text.secondary">{daysElapsed} days elapsed</Typography>
-                      <Typography variant="caption" color="text.secondary">{daysLeft} days remaining</Typography>
-                    </Box>
-                  </Box>
-                )}
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 3 }}>
+                  {activeLoans.map(l => {
+                    const principalMYR = Number(l.principal) / 1e6;
+                    const startMs      = Number(l.startTime) * 1000;
+                    const dueMs        = Number(l.dueDate) * 1000;
+                    const graceEndMs   = dueMs + GRACE_DAYS * DAY_MS;
+                    const daysElapsed  = Math.max(0, Math.floor((nowMs - startMs) / DAY_MS));
+                    const daysLeft     = Math.ceil((dueMs - nowMs) / DAY_MS);
+                    const progressPct  = Math.min(Math.max(0, (nowMs - startMs) / (dueMs - startMs)) * 100, 100);
+                    const st = nowMs > graceEndMs
+                      ? { label: 'Overdue — liquidatable', color: '#E5484D', line: 'Grace period ended — repay immediately' }
+                      : nowMs > dueMs
+                        ? { label: 'In Grace Period', color: '#FFB224', line: `${Math.max(0, Math.ceil((graceEndMs - nowMs) / DAY_MS))}d of grace left to repay` }
+                        : daysLeft <= 7
+                          ? { label: 'Due Soon', color: '#FFB224', line: `${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining` }
+                          : { label: 'Active', color: '#2BD9A2', line: `${daysLeft} days remaining` };
+                    return (
+                      <Box key={l.loanId} sx={rowSx}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5, gap: 1, flexWrap: 'wrap' }}>
+                          <Typography variant="body2" color="text.primary" sx={{ fontWeight: 600 }}>
+                            {rm(principalMYR, 2)}
+                            <Box component="span" sx={{ color: 'rgba(255,255,255,0.65)', fontWeight: 400 }}>
+                              {' · '}{l.termDays}-day term · {(l.aprBps / 100).toFixed(2)}% locked
+                            </Box>
+                          </Typography>
+                          <Chip label={st.label} size="small"
+                            sx={{ bgcolor: `${st.color}1A`, color: st.color, fontWeight: 600, height: 20, fontSize: 11 }} />
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                          <Typography variant="caption" color="text.secondary">Start: {formatDate(new Date(startMs))}</Typography>
+                          <Typography variant="caption" color="text.secondary">Due: {formatDate(new Date(dueMs))} (+{GRACE_DAYS}d grace)</Typography>
+                        </Box>
+                        <LinearProgress variant="determinate" value={progressPct}
+                          sx={{ height: 10, borderRadius: 1.5, bgcolor: 'rgba(255,255,255,0.12)',
+                                '& .MuiLinearProgress-bar': { bgcolor: st.color, borderRadius: 1.5 } }} />
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.75 }}>
+                          <Typography variant="caption" color="text.secondary">{daysElapsed} days elapsed</Typography>
+                          <Typography variant="caption" sx={{ color: st.color }}>{st.line}</Typography>
+                        </Box>
+                      </Box>
+                    );
+                  })}
+                </Box>
 
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                   {[
-                    { label: 'Principal Borrowed',       value: rm(borMYR, 2),               sub: 'Original loan amount',              vc: '#F2F5FF' },
-                    { label: 'Origination Fee (0.1%)',   value: rm(origFee, 2),               sub: 'Charged at disbursement',           vc: 'rgba(255,255,255,0.65)' },
-                    { label: 'Accrued Interest',         value: rm(accruedInt, 2),            sub: `${effAPR.toFixed(2)}% APR × ${interestDays} day${interestDays === 1 ? '' : 's'} since last repay`, vc: '#FFB224' },
-                    { label: 'Daily Interest Rate',      value: rm(dailyInt, 2) + '/day',     sub: 'Steps once per calendar day',       vc: 'rgba(255,255,255,0.65)' },
-                    { label: 'Projected Total Interest', value: rm(projTotalInt, 2),          sub: `If held full ${LOAN_TERM} days`,    vc: 'rgba(255,255,255,0.65)' },
+                    { label: 'Principal Borrowed',       value: rm(borMYR, 2),               sub: `Across ${activeLoans.length} active plan${activeLoans.length === 1 ? '' : 's'}`, vc: '#F2F5FF' },
+                    { label: 'Accrued Interest',         value: rm(accruedInt, 2),            sub: 'Sum of each plan\'s interest at its locked APR since its last repay', vc: '#FFB224' },
+                    { label: 'Daily Interest Rate',      value: rm(dailyInt, 2) + '/day',     sub: 'Steps once per calendar day (Malaysia midnight)', vc: 'rgba(255,255,255,0.65)' },
+                    { label: 'Projected Total Interest', value: rm(projTotalInt, 2),          sub: 'If every plan runs to its own maturity',          vc: 'rgba(255,255,255,0.65)' },
                   ].map(r => (
                     <Box key={r.label} sx={{ ...rowSx, display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5 }}>
                       <Box>
@@ -396,7 +398,7 @@ export default function PortfolioPage() {
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Box>
                         <Typography variant="body2" color="text.primary" sx={{ fontWeight: 500 }}>Full-Term Repayment</Typography>
-                        <Typography variant="caption" color="text.secondary">If held to {LOAN_TERM}-day maturity</Typography>
+                        <Typography variant="caption" color="text.secondary">If every plan is held to its maturity</Typography>
                       </Box>
                       <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.65)', fontWeight: 600 }}>{rm(fullRepay, 2)}</Typography>
                     </Box>
@@ -431,13 +433,22 @@ export default function PortfolioPage() {
                     <Typography variant="caption" color="text.secondary">Deposit collateral or borrow MYR to see history</Typography>
                   </Box>
                 ) : (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {txHistory.map((tx, i) => {
-                      const isMyr  = tx.type === 'Borrowed' || tx.type === 'Repaid' || tx.type === 'MYRPurchased';
+                  <Box sx={{
+                    display: 'flex', flexDirection: 'column', gap: 1,
+                    // The list only ever shows this deployment's transactions,
+                    // but even those can pile up — cap the card's height and
+                    // scroll inside it rather than stretching the whole page.
+                    maxHeight: 430, overflowY: 'auto', pr: 0.5,
+                  }}>
+                    {txHistory.slice(0, 25).map((tx, i) => {
+                      const isMyr  = tx.type === 'Borrowed' || tx.type === 'Repaid' || tx.type === 'MYRPurchased' || tx.type === 'SupplyInterestClaimed';
                       const fmtAmt = isMyr
                         ? 'RM ' + (Number(tx.amount) / 1e6).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                         : parseFloat(ethers.formatEther(tx.amount)).toFixed(4) + ' ETH';
-                      const TxIcon = ICONS[tx.type];
+                      // Fallback icon: an unmapped type must degrade to a generic
+                      // glyph, never to `undefined` — rendering undefined as a
+                      // component crashes the entire page.
+                      const TxIcon = ICONS[tx.type] ?? ClipboardIcon;
                       return (
                         <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5, bgcolor: '#0B1226', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 2 }}>
                           <Box sx={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
@@ -455,6 +466,12 @@ export default function PortfolioPage() {
                         </Box>
                       );
                     })}
+                    {txHistory.length > 25 && (
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', textAlign: 'center', py: 0.5 }}>
+                        Showing the latest 25 — the full ledger lives in the{' '}
+                        <Box component={Link} href="/explorer" sx={{ color: '#6E8BFF' }}>Explorer</Box>
+                      </Typography>
+                    )}
                   </Box>
                 )}
               </Paper>
@@ -528,14 +545,16 @@ export default function PortfolioPage() {
               <Typography variant="body1" color="text.primary" sx={{ fontWeight: 600, mb: 2.5 }}>Loan Terms</Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                 {[
-                  { label: 'Annual Rate (APR)',      value: `${APR}%`,             vc: '#2BD9A2' },
+                  { label: 'APR on new borrows',     value: `${effAPR.toFixed(2)}%`, vc: '#2BD9A2' },
+                  { label: 'Interest Type',          value: 'Fixed — locked at borrow', vc: '#FFB224' },
+                  { label: 'Loan Terms',             value: '1 / 3 / 6 / 12 months', vc: '#F2F5FF' },
+                  { label: 'Grace Period',           value: `${GRACE_DAYS} days after due date`, vc: '#F2F5FF' },
                   { label: 'Max LTV',                value: `${MAX_LTV}%`,         vc: '#F2F5FF' },
                   { label: 'Liquidation Threshold',  value: `${LIQ_THRES}% LTV`,  vc: '#F2F5FF' },
-                  { label: 'Origination Fee',        value: `${ORIG_FEE * 100}%`,  vc: '#F2F5FF' },
+                  { label: 'Origination Fee',        value: 'None (0%)',           vc: '#F2F5FF' },
                   { label: 'Collateral Asset',       value: 'ETH',                 vc: '#627EEA' },
                   { label: 'Borrow Asset',           value: 'MYR (Mock)',          vc: '#2BD9A2' },
-                  { label: 'Interest Type',          value: 'Variable APR',        vc: '#FFB224' },
-                  { label: 'Liquidation Penalty',    value: '10%',                 vc: '#E5484D' },
+                  { label: 'Liquidator Bonus',       value: '5%',                  vc: '#E5484D' },
                 ].map(r => (
                   <Box key={r.label} sx={{ display: 'flex', justifyContent: 'space-between', py: 1, borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
                     <Typography variant="caption" color="text.secondary">{r.label}</Typography>

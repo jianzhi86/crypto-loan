@@ -17,7 +17,11 @@ const FAQS = [
   },
   {
     q: 'What happens if the market drops? (liquidation)',
-    a: 'Every loan has a live health factor. If your collateral falls and the health factor approaches 1.0, you can add collateral or repay to stay safe. If it crosses the liquidation threshold, part of your collateral is sold automatically to cover the debt.',
+    a: 'Every loan has a live health factor. If your collateral falls and the health factor approaches 1.0, you can add collateral or repay to stay safe. If it crosses the liquidation threshold, only enough of your collateral is sold to cover the debt (plus a small liquidator bonus) — the rest stays yours.',
+  },
+  {
+    q: 'Do loans have a due date?',
+    a: 'Yes — every loan is fixed-term. You pick 1, 3, 6 or 12 months when you borrow, and the due date is recorded on-chain. Repay before it to stay in good standing; after the due date a 7-day grace period gives you extra time before an unpaid loan can be liquidated, even if your collateral is still healthy. Interest keeps accruing until you repay.',
   },
   {
     q: 'Do I need to verify my identity?',
@@ -25,7 +29,7 @@ const FAQS = [
   },
   {
     q: 'How do I receive the money, and how do I repay?',
-    a: 'Approved loans are paid out as MYRC, the ringgit-denominated token, credited to your wallet in the same transaction as the borrow. Repay any time with no early-repayment penalty, and your collateral is unlocked instantly.',
+    a: 'Approved loans are paid out as MYRC, the ringgit-denominated token, credited to your wallet in the same transaction as the borrow. Repay each loan (principal plus its accrued interest) any time before its due date with no early-repayment penalty, and your collateral is unlocked instantly.',
   },
   {
     q: 'What is the MYRC token?',

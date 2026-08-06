@@ -6,16 +6,17 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 
 import {
-  ShieldIcon, SearchIcon, IdCardIcon, CashIcon,
+  ShieldIcon, SearchIcon, IdCardIcon,
   WrenchIcon, ClipboardIcon,
 } from '@/components/Icons';
 import { C } from './ui';
 
+// No Transactions tab: the public Explorer already renders the same ledger
+// (identity joins and all admin-only views were dropped with it).
 const TABS = [
   { href: '/admin',              label: 'Overview',     Icon: ShieldIcon    },
   { href: '/admin/users',        label: 'Users',        Icon: SearchIcon    },
   { href: '/admin/kyc',          label: 'KYC',          Icon: IdCardIcon    },
-  { href: '/admin/transactions', label: 'Transactions', Icon: CashIcon      },
   { href: '/admin/features',     label: 'Features',     Icon: WrenchIcon    },
   { href: '/admin/audit',        label: 'Audit Log',    Icon: ClipboardIcon },
 ];
