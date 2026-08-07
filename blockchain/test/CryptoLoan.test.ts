@@ -938,8 +938,60 @@ describe("CryptoLoan", function () {
     it("borrow interest charges the borrow day itself (minimum one day before first repay)", async () => {
       await loan.connect(user).depositCollateral({ value: ONE_ETH });
       await loan.connect(user).borrow(5_000n * MYR_6, 30n);
-      // Same block-day, no repay yet → the one-day floor applies.
+      // Same block-day, no repay yet → the borrow-date charge applies.
       expect(await loan.accruedInterestForLoan(user.address, 0n)).to.be.gt(0n);
+    });
+
+    it("each midnight after borrow adds exactly one more day on top of the borrow day", async () => {
+      // Pin the clock just past a Malaysia midnight so the +1d probes below
+      // each cross exactly one boundary.
+      const TZ = 8 * 3600;
+      const now = await time.latest();
+      const nextMidnightMY = (Math.floor((now + TZ) / DAY) + 1) * DAY - TZ;
+      await time.increaseTo(nextMidnightMY + 600);               // 00:10 MYT
+
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      const principal = 5_000n * MYR_6;
+      await loan.connect(user).borrow(principal, 30n);
+      const [loans] = await loan.getUserLoans(user.address);
+      const apr = loans[0].aprBps;
+      // Same integer math as _loanInterest(): the ACCRUAL_STEP factor in
+      // elapsed cancels exactly against the one in 365 days.
+      const daysCharged = (n: bigint) => (principal * apr * n) / (10_000n * 365n);
+
+      // The borrow date itself is day 1…
+      expect(await loan.accruedInterestForLoan(user.address, 0n)).to.equal(daysCharged(1n));
+      // …the first midnight crossed makes it 2 (this was the off-by-one:
+      // dayDiff replaced the borrow-day charge instead of adding to it,
+      // so day 2 used to show the same interest as day 1)…
+      await time.increase(DAY);
+      expect(await loan.accruedInterestForLoan(user.address, 0n)).to.equal(daysCharged(2n));
+      // …and the second makes it 3.
+      await time.increase(DAY);
+      expect(await loan.accruedInterestForLoan(user.address, 0n)).to.equal(daysCharged(3n));
+    });
+
+    it("repay resets the clock without re-charging the repay date", async () => {
+      const TZ = 8 * 3600;
+      const now = await time.latest();
+      const nextMidnightMY = (Math.floor((now + TZ) / DAY) + 1) * DAY - TZ;
+      await time.increaseTo(nextMidnightMY + 600);               // 00:10 MYT
+
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(5_000n * MYR_6, 30n);
+      await topUp(user, 1_000n * MYR_6);                          // interest headroom
+      await time.increase(DAY);                                   // day 2 of the loan
+
+      // Partial repay collects interest through today and resets the clock…
+      await myr.connect(user).approve(await loan.getAddress(), 2_000n * MYR_6);
+      await loan.connect(user).repay(0n, 500n * MYR_6);
+      // …so the rest of today accrues nothing further…
+      expect(await loan.accruedInterestForLoan(user.address, 0n)).to.equal(0n);
+      // …and the next midnight charges exactly one day on the reduced debt.
+      await time.increase(DAY);
+      const [loansAfter] = await loan.getUserLoans(user.address);
+      const expected = (loansAfter[0].principal * loansAfter[0].aprBps) / (10_000n * 365n);
+      expect(await loan.accruedInterestForLoan(user.address, 0n)).to.equal(expected);
     });
 
     it("holds interest flat between day boundaries", async () => {

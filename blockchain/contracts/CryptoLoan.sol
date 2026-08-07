@@ -643,19 +643,21 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     ///      and each local calendar date crossed after that adds one more
     ///      day's interest.
     ///
-    ///      The minimum-one-day floor applies ONLY before this loan's first
-    ///      ever repay (lastRepayTime == startTime) — a same-day borrow-then-
-    ///      repay still owes that day. It must NOT apply to a same-day REPEAT
-    ///      repay: lastRepayTime resets on every repay, so without this guard,
-    ///      two partial repayments minutes apart would each get charged a full
-    ///      phantom day of interest, silently eating every partial payment.
+    ///      The borrow-date charge applies ONLY before this loan's first ever
+    ///      repay (lastRepayTime == startTime): dayDiff counts the midnights
+    ///      crossed, so the borrow date itself goes on top — a same-day
+    ///      borrow-then-repay owes that one day, and the first midnight makes
+    ///      it two. It must NOT be added again after a repay: the repay
+    ///      collected interest through its own date and reset lastRepayTime,
+    ///      so adding it once more would charge a phantom day on every
+    ///      same-day partial payment, silently eating each one.
     function _loanInterest(Loan storage loan) internal view returns (uint256) {
         if (!loan.active || loan.principal == 0) return 0;
         uint256 lastDay = (loan.lastRepayTime + MYR_TZ_OFFSET) / ACCRUAL_STEP;
         uint256 curDay  = (block.timestamp + MYR_TZ_OFFSET) / ACCRUAL_STEP;
         uint256 dayDiff = curDay - lastDay;
         bool firstAccrual = loan.lastRepayTime == loan.startTime;
-        uint256 elapsed = (dayDiff == 0 && firstAccrual ? 1 : dayDiff) * ACCRUAL_STEP;
+        uint256 elapsed = (firstAccrual ? dayDiff + 1 : dayDiff) * ACCRUAL_STEP;
         return (loan.principal * loan.aprBps * elapsed) / (10_000 * 365 days);
     }
 

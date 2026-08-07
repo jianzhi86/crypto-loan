@@ -76,11 +76,12 @@ const MYR_TZ_OFFSET_MS = 8 * 60 * 60 * 1000; // UTC+8 — see CryptoLoan.MYR_TZ_
 // the borrow date itself (Malaysia midnight boundaries — "today" means local
 // time for an MYR product, not UTC), and each local calendar date crossed
 // since then adds one more day's interest — not a rolling 24h window from
-// the borrow timestamp. The minimum-one-day floor applies ONLY before this
-// loan's first ever repay (firstAccrual) — see the matching guard in
-// CryptoLoan.sol's accruedInterest(). Without it, repeated same-day partial
-// repayments would each get charged a fresh phantom day of interest, since
-// the interest clock (lastRepayTime) resets on every repay.
+// the borrow timestamp. The borrow-date charge (+1 on top of the dates
+// crossed) applies ONLY before this loan's first ever repay (firstAccrual) —
+// see the matching guard in CryptoLoan.sol's _loanInterest(). A repay
+// collects interest through its own date and resets the clock
+// (lastRepayTime), so adding the day again would charge repeated same-day
+// partial repayments a fresh phantom day of interest each.
 const daysSince = (sinceMs: number, now: number, firstAccrual: boolean) => {
   if (sinceMs <= 0) return 0;
   const lastDay = Math.floor((sinceMs + MYR_TZ_OFFSET_MS) / DAY_MS);
@@ -90,7 +91,7 @@ const daysSince = (sinceMs: number, now: number, firstAccrual: boolean) => {
   // lands, and its clock can sit behind a loan's own timestamps — which showed
   // up as negative interest on the Repay tab.
   const diff    = Math.max(0, curDay - lastDay);
-  return diff === 0 && firstAccrual ? 1 : diff;
+  return firstAccrual ? diff + 1 : diff;
 };
 
 /// ETH the MAX buttons hold back for gas. A depositCollateral() costs about
