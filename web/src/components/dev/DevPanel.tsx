@@ -77,6 +77,9 @@ const nonNegInput = { htmlInput: { min: 0 } };
 
 const fieldSx = {
   '& .MuiInputBase-root': { bgcolor: 'rgba(255,255,255,0.05)', color: S.text, fontSize: 13, borderRadius: 1.5 },
+  // The theme styles .MuiInputBase-input with its own (dark) text color, which
+  // beats the color inherited from the root — restate it on the input itself.
+  '& .MuiInputBase-input': { color: S.text },
   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.15)' },
   '& .MuiInputBase-root:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(110,139,255,0.4)' },
   '& .MuiInputLabel-root': { color: S.dim, fontSize: 12 },

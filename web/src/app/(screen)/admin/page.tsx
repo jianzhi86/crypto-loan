@@ -470,12 +470,18 @@ export default async function AdminOverviewPage() {
                   <Typography sx={{ fontSize: 24, fontWeight: 800, color: C.amber, lineHeight: 1.1, letterSpacing: -0.4 }}>
                     {rm(chain.protocolFeesMYR)}
                   </Typography>
-                  <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.4 }}>
-                    All interest + late penalties earned, not yet swept
-                  </Typography>
+                  {/* Both captions describe what the CURRENT balance is made of,
+                      so they only make sense while there is one — after a sweep
+                      the penalty/recovery totals (historical, from the event
+                      log) would read as if RM 0.00 still "included" them. */}
+                  {chain.protocolFeesMYR > 0 && (
+                    <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.4 }}>
+                      All interest + late penalties earned, not yet swept
+                    </Typography>
+                  )}
                   {/* The ETH leg is a separate ledger from the MYR fee balance,
                       so say where it went rather than letting the two blur. */}
-                  {totalSeizedEth > 0 && (
+                  {chain.protocolFeesMYR > 0 && totalSeizedEth > 0 && (
                     <Typography sx={{ fontSize: 10.5, color: C.slate, mt: 0.9, lineHeight: 1.55 }}>
                       Includes{' '}
                       <b style={{ color: C.amber }}>{rm(totalPenaltyMYR)}</b> of late-penalty revenue

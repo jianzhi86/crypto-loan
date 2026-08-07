@@ -158,6 +158,10 @@ export interface WalletState {
   /** Protocol-wide collateral in ETH. */
   protocolCollateralETH: number;
   pendingYieldMYR: number;
+  /** Late penalty (bps) recoverLoan() charges once a loan is past its grace
+   *  period — owner-adjustable, so read live. Repaying yourself never pays
+   *  it; the UI shows it as what's at stake if the protocol recovers first. */
+  latePenaltyBps: number;
 }
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
@@ -188,6 +192,7 @@ const INIT: WalletState = {
   borrowAprBps: 300, currentAprBps: 300, supplyAprBps: 0, utilizationRate: 0,
   supplyCapMYR: 0, poolAvailableMYR: 0, protocolBorrowedMYR: 0, protocolCollateralETH: 0,
   pendingYieldMYR: 0,
+  latePenaltyBps: 500,
 };
 
 const HN_PARAMS = {
@@ -556,12 +561,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const ethPriceMYR = Number(price as bigint);
       // Optional calls — only exist on the current contract version.
       // Promise.allSettled so a missing function never crashes the whole refresh.
-      const [aprLiveResult, dynAprResult, protStatsResult, supplyIntResult, poolResult] = await Promise.allSettled([
+      const [aprLiveResult, dynAprResult, protStatsResult, supplyIntResult, poolResult, latePenaltyResult] = await Promise.allSettled([
         Promise.resolve().then(() => c.loan.baseRateBps()),
         Promise.resolve().then(() => c.loan.currentAprBps()),
         Promise.resolve().then(() => c.loan.getProtocolStats()),
         Promise.resolve().then(() => c.loan.accruedSupplyInterest(address)),
         Promise.resolve().then(() => c.loan.getPoolStats()),
+        Promise.resolve().then(() => c.loan.latePenaltyBps()),
       ]);
       const aprBps    = aprLiveResult.status   === 'fulfilled' ? aprLiveResult.value : BigInt(300);
       const dynApr    = dynAprResult.status    === 'fulfilled' ? dynAprResult.value  : aprBps;
@@ -585,6 +591,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // yield tracks the same market conditions borrowers are paying for.
       const supplyAprBps       = Math.round(currentAprBps * 38 / 100);
       const pendingYieldMYR    = supplyIntResult.status === 'fulfilled' ? Number(supplyIntResult.value as bigint) / 1e6 : 0;
+      const latePenaltyBps     = latePenaltyResult.status === 'fulfilled' ? Number(latePenaltyResult.value as bigint) : 500;
       // Remember this position so it survives a disconnect / reload.
       cachePosition(address, { info: loanInfo, ethBalance, myrBalance, ethPriceMYR });
       setS(p => ({
@@ -603,6 +610,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         protocolBorrowedMYR,
         protocolCollateralETH,
         pendingYieldMYR,
+        latePenaltyBps,
         // Verification stays account-based: the on-chain flag is recorded for
         // resync detection but never upgrades the badge. The connected wallet
         // being chain-approved proves nothing about the signed-in account —

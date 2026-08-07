@@ -2632,6 +2632,18 @@ function Dashboard() {
                               <Typography sx={{ fontSize: 10.5, color: r.status === 'active' ? C.blue : st.color, mt: 0.25 }}>
                                 {timeline}
                               </Typography>
+                              {/* Past grace the protocol can recover this loan, and THAT
+                                  charges latePenaltyBps on top (see recoverLoan()) — a
+                                  self-repay never does. The admin page prices the
+                                  recovery, this page prices the repay; without this
+                                  line the two look like they disagree by 5%. */}
+                              {r.status === 'overdue' && (
+                                <Typography sx={{ fontSize: 10.5, color: st.color, mt: 0.25 }}>
+                                  +RM {((r.principalMYR + r.interest) * wallet.latePenaltyBps / 10_000).toFixed(2)}{' '}
+                                  late penalty ({(wallet.latePenaltyBps / 100).toFixed(0)}%) if the protocol
+                                  recovers this loan — repaying yourself avoids it
+                                </Typography>
+                              )}
                               <Typography sx={{ fontSize: 10.5, color: C.blue, mt: 0.25 }}>
                                 Month {Math.min(r.monthsElapsed + 1, r.termMonths)} of {r.termMonths} · RM {r.thisMonthDue.toFixed(2)} this month
                               </Typography>
