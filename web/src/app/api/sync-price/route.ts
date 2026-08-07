@@ -26,6 +26,7 @@ export async function POST() {
 
   return NextResponse.json({
     success: true, newPrice: result.newPrice, steps: result.steps, path: result.path,
+    ...(result.paused ? { paused: true } : {}),
     ...(result.message ? { message: result.message } : {}),
   });
 }

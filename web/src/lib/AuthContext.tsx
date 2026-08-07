@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { setDevModeUnlocked } from '@/components/dev/dev-mode-client';
 
 export interface AuthUser {
   id: string;
@@ -128,6 +129,9 @@ export function AuthProvider({
     // Latch it: the server-rendered identity is no longer valid, and without
     // this the 401 branch above would keep resurrecting it until a full reload.
     loggedOut.current = true;
+    // The developer panel is unlocked per person, not per browser — signing out
+    // relocks it rather than leaving the drawer open for whoever signs in next.
+    setDevModeUnlocked(false);
     setUser(null);
     setUnavailable(false);
   }, []);

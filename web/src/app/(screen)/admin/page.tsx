@@ -11,6 +11,7 @@ import { FLAGS, ON } from '@/lib/features';
 import { readChainStats, readChainActivity, readContractBirthMs } from '@/lib/contract-read';
 import { supplyApr } from '@/lib/rates';
 import { AdminAutoSync } from '@/components/AdminAutoSync';
+import { AdminAutoRefresh } from '@/components/AdminAutoRefresh';
 import { AdminWithdrawFees } from '@/components/admin/AdminWithdrawFees';
 import { ShieldIcon, BoltIcon, PulseIcon, BankIcon } from '@/components/Icons';
 import { Badge, C, type Tone } from '@/components/admin/ui';
@@ -18,6 +19,16 @@ import { Sparkline, ProtocolAreaChart, ActivityDonut } from '@/components/admin/
 
 /* ─── Types ───────────────────────────────────────────────────────────────── */
 type TxRow = { type: string; amount: string; wallet: string; createdAt: Date };
+
+/**
+ * Rows that are extra LEGS of another row's transaction, not transactions of
+ * their own. One recovery emits its debt figure, the collateral it took and
+ * the penalty it charged — three rows sharing one transaction hash, because
+ * each is in different units and feeds a different series. Counting them as
+ * three transactions would treble the activity numbers.
+ */
+const DERIVED_TYPES = new Set(['CollateralSeized', 'LatePenalty']);
+const isDerived = (type: string) => DERIVED_TYPES.has(type);
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 function rm(n: number) {
@@ -51,12 +62,19 @@ function countOf(rows: TxRow[], type: string) {
  * history.
  */
 function buildMonthlySeries(rows: TxRow[]) {
-  const chart: { month: string; borrowed: number; repaid: number; outstanding: number }[] = [];
+  const chart: { month: string; borrowed: number; repaid: number; recovered: number; outstanding: number }[] = [];
   const sparks = { borrowed: [] as number[], txs: [] as number[], wallets: [] as number[], eth: [] as number[] };
   if (rows.length === 0) return { chart, sparks };
 
   const first = rows[0].createdAt;
-  const end   = new Date();
+  // The last month to draw is whichever is later: real "now", or the newest
+  // activity on the chain. On a time-travelled dev chain block timestamps run
+  // ahead of the wall clock, and ending at wall time silently dropped every
+  // event past it — a recovery executed "in November" simply never appeared,
+  // which is why Repaid/Recovered sat at RM 0 after the action succeeded.
+  const lastActivity = rows.reduce((m, r) => (r.createdAt > m ? r.createdAt : m), rows[0].createdAt);
+  const now  = new Date();
+  const end  = lastActivity > now ? lastActivity : now;
   const months: Date[] = [];
   // Start one month BEFORE the first activity: a zero-point baseline, so the
   // chart visibly begins settled at RM 0 instead of a floating single dot.
@@ -65,25 +83,32 @@ function buildMonthlySeries(rows: TxRow[]) {
   while (cursor <= end) { months.push(new Date(cursor)); cursor.setMonth(cursor.getMonth() + 1); }
   const spansYears = months[0].getFullYear() !== end.getFullYear();
 
-  let cumB = 0, cumR = 0, cumTx = 0, cumEth = 0;
+  // cumF ("forced") is debt cleared without the borrower choosing to clear it —
+  // a protocol recovery or a liquidator's payout. It settles debt exactly as a
+  // repayment does, so it must come off Outstanding, but it is kept as its own
+  // series: folding it into Repaid would flatter the repayment rate with debt
+  // that was collected by seizing someone's collateral.
+  let cumB = 0, cumR = 0, cumF = 0, cumTx = 0, cumEth = 0;
   const wallets = new Set<string>();
   let i = 0;
   for (const m of months) {
     const next = new Date(m.getFullYear(), m.getMonth() + 1, 1);
     while (i < rows.length && rows[i].createdAt < next) {
       const r = rows[i++];
-      cumTx++;
+      if (!isDerived(r.type)) cumTx++;
       wallets.add(r.wallet);
       if (r.type === 'Borrowed')            cumB   += Number(r.amount) / 1e6;
       else if (r.type === 'Repaid')         cumR   += Number(r.amount) / 1e6;
+      else if (r.type === 'LoanRecovered' || r.type === 'Liquidated') cumF += Number(r.amount) / 1e6;
       else if (r.type === 'CollateralDeposited') cumEth += Number(r.amount) / 1e18;
-      else if (r.type === 'CollateralWithdrawn') cumEth -= Number(r.amount) / 1e18;
+      else if (r.type === 'CollateralWithdrawn' || r.type === 'CollateralSeized') cumEth -= Number(r.amount) / 1e18;
     }
     chart.push({
       month: m.toLocaleDateString('en-MY', spansYears ? { month: 'short', year: '2-digit' } : { month: 'short' }),
       borrowed:    Math.round(cumB),
       repaid:      Math.round(cumR),
-      outstanding: Math.round(Math.max(0, cumB - cumR)),
+      recovered:   Math.round(cumF),
+      outstanding: Math.round(Math.max(0, cumB - cumR - cumF)),
     });
     sparks.borrowed.push(cumB);
     sparks.txs.push(cumTx);
@@ -111,6 +136,7 @@ const ACTION_TONE: Record<string, Tone> = {
   USER_UNSUSPEND: 'green', USER_UNRESTRICT: 'green', KYC_APPROVE: 'green',
   FLAG_UPDATE: 'blue', USER_SET_ADMIN: 'blue',
   PRICE_SYNC: 'neutral', PROTOCOL_FEES_WITHDRAWN: 'amber',
+  LOAN_RECOVERED: 'red', LATE_PENALTY_UPDATED: 'amber',
 };
 
 /* ─── Page ────────────────────────────────────────────────────────────────── */
@@ -157,9 +183,13 @@ export default async function AdminOverviewPage() {
     : dbTxRows;
 
   // Latest 7 logical transactions for the "Recent Transactions" card —
-  // straight off the chain's event log, newest first.
+  // straight off the chain's event log, newest first. The id carries the TYPE
+  // as well as the hash because one transaction legitimately produces several
+  // rows: a recovery moves both MYR and ETH, and a full withdrawal emits its
+  // supply-interest claim alongside the withdrawal. Keying on the hash alone
+  // gave React duplicate keys and let it drop rows.
   const recentTxs = (chainActivity ?? []).slice(-7).reverse()
-    .map(t => ({ id: t.txHash, wallet: t.wallet, type: t.type as string, amount: t.amount.toString() }));
+    .map(t => ({ id: `${t.txHash}:${t.type}`, wallet: t.wallet, type: t.type as string, amount: t.amount.toString() }));
 
   const stat = {
     total_borrowed:       sumOf(txRows, 'Borrowed'),
@@ -173,18 +203,33 @@ export default async function AdminOverviewPage() {
     purchase_count:       countOf(txRows, 'MYRPurchased'),
     total_supply_claimed: sumOf(txRows, 'SupplyInterestClaimed'),
     claim_count:          countOf(txRows, 'SupplyInterestClaimed'),
+    total_recovered:      sumOf(txRows, 'LoanRecovered') + sumOf(txRows, 'Liquidated'),
+    recovery_count:       countOf(txRows, 'LoanRecovered') + countOf(txRows, 'Liquidated'),
+    total_seized:         sumOf(txRows, 'CollateralSeized'),
+    total_penalty:        sumOf(txRows, 'LatePenalty'),
     unique_wallets:       new Set(txRows.map(r => r.wallet)).size,
   };
 
   const totalBorrowedMYR     = stat.total_borrowed  / 1e6;
   const totalRepaidMYR       = stat.total_repaid    / 1e6;
+  // Debt collected by seizing collateral rather than by the borrower paying.
+  const totalRecoveredMYR    = stat.total_recovered / 1e6;
+  const totalSeizedEth       = stat.total_seized    / 1e18;
+  // Late-penalty revenue. This is NOT part of protocolFees: a recovery settles
+  // in ETH, and protocolFees is an MYR balance the contract must actually hold
+  // to pay out, so crediting it there would leave withdrawProtocolFees()
+  // promising MYR that was never received. The value arrives as ETH in the
+  // owner's wallet instead — surfaced here so it stops looking like zero.
+  const totalPenaltyMYR      = stat.total_penalty   / 1e6;
   // Outstanding debt is the CONTRACT's live figure, not DB arithmetic — the
   // chain is what actually says whether anything is still owed.
-  const netOutstandingMYR    = chain ? chain.totalBorrowedMYR : Math.max(0, totalBorrowedMYR - totalRepaidMYR);
+  const netOutstandingMYR    = chain ? chain.totalBorrowedMYR
+    : Math.max(0, totalBorrowedMYR - totalRepaidMYR - totalRecoveredMYR);
   const totalDepositedEth    = stat.total_deposited / 1e18;
   const totalWithdrawnEth    = stat.total_withdrawn / 1e18;
-  const netLockedEth         = chain ? chain.totalCollateralETH : totalDepositedEth - totalWithdrawnEth;
-  const totalTxs             = txRows.length;
+  const netLockedEth         = chain ? chain.totalCollateralETH
+    : totalDepositedEth - totalWithdrawnEth - totalSeizedEth;
+  const totalTxs             = txRows.filter(r => !isDerived(r.type)).length;
   const totalSupplyClaimedMYR = stat.total_supply_claimed / 1e6;
 
   const repaymentRate  = pct(totalRepaidMYR, totalBorrowedMYR);
@@ -215,6 +260,7 @@ export default async function AdminOverviewPage() {
     { name: 'Deposits',    value: stat.deposit_count,   color: C.amber   },
     { name: 'Earn Claims', value: stat.claim_count,     color: '#2BD9A2' },
     { name: 'Purchases',   value: stat.purchase_count,  color: '#9B7DFF' },
+    { name: 'Recoveries',  value: stat.recovery_count,  color: C.red     },
   ].filter(d => d.value > 0);
 
   /* ── Real cumulative series for the chart + KPI sparklines ─ */
@@ -263,7 +309,13 @@ export default async function AdminOverviewPage() {
 
   /* ── Protocol health goals ─ */
   const goals = [
-    { label: 'Repayment Rate',   value: repaymentRate,  color: C.green,   hint: `${rm(totalRepaidMYR)} of ${rm(totalBorrowedMYR)}` },
+    // Repayment rate stays voluntary-only on purpose: debt collected by seizing
+    // collateral is a recovery, not a borrower repaying, and rolling it in here
+    // would make a protocol that keeps liquidating people look healthy.
+    { label: 'Repayment Rate',   value: repaymentRate,  color: C.green,
+      hint: totalRecoveredMYR > 0
+        ? `${rm(totalRepaidMYR)} of ${rm(totalBorrowedMYR)} · ${rm(totalRecoveredMYR)} recovered`
+        : `${rm(totalRepaidMYR)} of ${rm(totalBorrowedMYR)}` },
     { label: 'Collateral Lock',  value: lockRate,        color: ETH_COLOR, hint: `${netLockedEth.toFixed(2)} ETH net locked` },
     { label: 'KYC Approval',     value: kycApproveRate,  color: C.amber,   hint: `${kycApproved} approved of ${kycApproved + kycRejected}` },
     { label: 'User KYC Rate',    value: kycRate,         color: '#9B7DFF', hint: `${kycApproved} of ${users} users` },
@@ -277,10 +329,19 @@ export default async function AdminOverviewPage() {
     CollateralWithdrawn:    { label: 'Withdraw',    color: C.red     },
     MYRPurchased:           { label: 'MYR Buy',     color: '#9B7DFF' },
     SupplyInterestClaimed:  { label: 'Earn Claim',  color: '#2BD9A2' },
+    LoanRecovered:          { label: 'Recovery',    color: C.red     },
+    Liquidated:             { label: 'Liquidation', color: C.red     },
+    CollateralSeized:       { label: 'Seized',      color: C.red     },
+    LatePenalty:            { label: 'Late Fee',    color: C.amber   },
   };
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#080E1F', minHeight: '100vh' }}>
+      {/* Without this the whole page — chart included — was frozen at whatever
+          the server rendered when you first navigated here, so a repay or a
+          seizure never showed up until a manual reload. 30s rather than the
+          KYC page's 10s: every pass re-reads the chain's full event log. */}
+      <AdminAutoRefresh intervalMs={30000} />
       <Box sx={{ maxWidth: 1440, mx: 'auto' }}>
 
         {/* ── Page header ──────────────────────────────────────────────── */}
@@ -410,8 +471,20 @@ export default async function AdminOverviewPage() {
                     {rm(chain.protocolFeesMYR)}
                   </Typography>
                   <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.4 }}>
-                    Interest revenue collected, not yet swept
+                    All interest + late penalties earned, not yet swept
                   </Typography>
+                  {/* The ETH leg is a separate ledger from the MYR fee balance,
+                      so say where it went rather than letting the two blur. */}
+                  {totalSeizedEth > 0 && (
+                    <Typography sx={{ fontSize: 10.5, color: C.slate, mt: 0.9, lineHeight: 1.55 }}>
+                      Includes{' '}
+                      <b style={{ color: C.amber }}>{rm(totalPenaltyMYR)}</b> of late-penalty revenue
+                      {totalPenaltyMYR === 0 && ' (no overdue recovery yet — the health-factor path charges none)'}.
+                      Recoveries also returned{' '}
+                      <b style={{ color: C.ink }}>{totalSeizedEth.toFixed(4)} ETH</b> of seized
+                      collateral to the owner wallet as recovered capital.
+                    </Typography>
+                  )}
                 </Box>
                 <AdminWithdrawFees feesMYR={chain.protocolFeesMYR} ownerAddress={chain.ownerAddress} />
               </Box>
@@ -688,6 +761,7 @@ export default async function AdminOverviewPage() {
                 {[
                   { label: 'Borrowed',    color: C.green   },
                   { label: 'Repaid',      color: ETH_COLOR },
+                  { label: 'Recovered',   color: C.red     },
                   { label: 'Outstanding', color: C.amber   },
                 ].map(l => (
                   <Box key={l.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>

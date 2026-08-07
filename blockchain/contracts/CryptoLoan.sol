@@ -38,6 +38,18 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     ///         liquidated the second the term ends.
     uint256 public constant GRACE_PERIOD = 7 days;
 
+    /// @notice Late penalty charged on top of the debt when the protocol
+    ///         recovers a loan the borrower let run past its grace period —
+    ///         the price of forcing the protocol to collect. Charged ONLY on
+    ///         the overdue path: a position recovered for being underwater is
+    ///         unlucky, not delinquent, so it pays no penalty.
+    uint256 public latePenaltyBps = 500;              // 5.0%
+
+    /// @notice Ceiling on latePenaltyBps. The owner sets the penalty, so
+    ///         without a cap "recover an overdue loan" could be turned into
+    ///         "seize the whole pot" by first setting the penalty to 1000%.
+    uint256 public constant MAX_LATE_PENALTY_BPS = 2000;  // 20.0%
+
     // Variable borrow rate, bank-style: a base rate plus premiums that move
     // with market conditions. APR = BASE + utilization premium — see
     // currentAprBps(). The rate a NEW borrow gets; once taken, each loan
@@ -113,6 +125,18 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
     event KYCSet(address indexed user, bool approved);
     event LiquidatorSet(address indexed liquidator, bool approved);
     event ProtocolFeesWithdrawn(address indexed to, uint256 amount);
+    /// @param debtCovered   MYR of principal + interest written off
+    /// @param penaltyCharged MYR of late penalty taken on top (0 on the health path)
+    /// @param collateralSeized wei taken from the borrower's pot
+    event LoanRecovered(
+        address indexed borrower,
+        uint256 indexed loanId,
+        uint256 collateralSeized,
+        uint256 debtCovered,
+        uint256 penaltyCharged,
+        string  reason
+    );
+    event LatePenaltyUpdated(uint256 oldBps, uint256 newBps);
     event EmergencyWithdraw(address indexed to, uint256 amount);
     event MYRPurchased(address indexed buyer, uint256 ethSpent, uint256 myrReceived);
     event SupplyInterestClaimed(address indexed user, uint256 amount);
@@ -170,6 +194,15 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 old = baseRateBps;
         baseRateBps = rateBps;
         emit BaseRateUpdated(old, rateBps);
+    }
+
+    /// @notice Adjust the late penalty charged by recoverLoan() on the overdue
+    ///         path (owner only, capped at MAX_LATE_PENALTY_BPS).
+    function setLatePenalty(uint256 penaltyBps) external onlyOwner {
+        require(penaltyBps <= MAX_LATE_PENALTY_BPS, "Penalty exceeds cap");
+        uint256 old = latePenaltyBps;
+        latePenaltyBps = penaltyBps;
+        emit LatePenaltyUpdated(old, penaltyBps);
     }
 
     /// @notice Resize the lending pool (owner only).
@@ -444,6 +477,126 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         emit LoanLiquidated(borrower, loanId, seize, unhealthy ? "collateral unsafe" : "loan overdue");
     }
 
+    /// @notice Protocol-side recovery of ONE loan, settled out of collateral
+    ///         instead of out of a liquidator's pocket.
+    ///
+    ///         liquidate() needs a third party holding MYR to make the pool
+    ///         whole, and earns them LIQ_BONUS for it. That is the right shape
+    ///         for an open market, but it leaves the protocol unable to act on
+    ///         a delinquent borrower when no such party shows up — and the
+    ///         owner is exactly the account that never holds MYR, since MYR
+    ///         only enters circulation through borrow(). This is the fallback:
+    ///         the owner writes the debt off and takes the equivalent
+    ///         collateral, with no MYR changing hands at all.
+    ///
+    ///         Two triggers, and they are NOT priced the same:
+    ///
+    ///         A. Collateral unsafe (health factor < 1). No penalty — a price
+    ///            crash is misfortune, not delinquency.
+    ///         B. Past dueDate + GRACE_PERIOD. latePenaltyBps is charged on top
+    ///            of the debt, which is the cost of ignoring the deadline.
+    ///
+    ///         Seizure is capped at what the borrower actually has, and the
+    ///         debt is settled BEFORE the penalty out of whatever the seizure
+    ///         is worth — so a pot too small to cover everything shortchanges
+    ///         the protocol's penalty, never inflates the borrower's remaining
+    ///         debt. Anything left in the pot after the loan is square stays
+    ///         the borrower's, exactly as under liquidate().
+    ///
+    ///         Earnings split across two ledgers, by necessity rather than
+    ///         design: the interest and the late penalty are booked as MYR
+    ///         protocolFees (minted to back the credit — see below), while the
+    ///         seized ETH itself goes to the owner as recovery of the capital
+    ///         that was lent out. Strictly this books the revenue slice in both
+    ///         places at once; on a chain whose MYR is minted on demand and
+    ///         backed by nothing that is a modelling choice, not a solvency
+    ///         problem, and it is what makes protocolFees meaningful as
+    ///         "everything the protocol earned".
+    function recoverLoan(address borrower, uint256 loanId)
+        external
+        onlyOwner
+        whenNotPaused
+        nonReentrant
+        returns (uint256 seized, uint256 debtCovered, uint256 penaltyCharged)
+    {
+        require(borrower != address(0), "Zero address");
+        require(loanId < _userLoans[borrower].length, "No such loan");
+
+        Loan storage loan = _userLoans[borrower][loanId];
+        require(loan.active, "Loan not active");
+
+        bool unhealthy = _healthFactor(borrower) < MIN_HEALTH;
+        bool overdue   = block.timestamp > loan.dueDate + GRACE_PERIOD;
+        require(unhealthy || overdue, "Not recoverable");
+
+        uint256 interest = _loanInterest(loan);
+        uint256 debt     = loan.principal + interest;
+        // Penalty rides on the overdue trigger only. A loan that is BOTH
+        // underwater and overdue is still delinquent, so it still pays.
+        uint256 penalty  = overdue ? (debt * latePenaltyBps) / 10_000 : 0;
+
+        uint256 wanted = ((debt + penalty) * PRECISION) / (ethPrice * MYR_DECIMALS);
+        uint256 pot    = collateralOf[borrower];
+        seized = wanted > pot ? pot : wanted;
+        require(seized > 0, "No collateral to seize");
+
+        // What the seized ETH is actually worth, re-derived at the same price.
+        // Integer division makes this <= debt + penalty, never more.
+        uint256 realised = (seized * ethPrice * MYR_DECIMALS) / PRECISION;
+
+        debtCovered    = realised > debt ? debt : realised;
+        penaltyCharged = realised - debtCovered;
+
+        uint256 interestCovered  = debtCovered > interest ? interest : debtCovered;
+        uint256 principalCovered = debtCovered - interestCovered;
+
+        // Interest earns for the protocol however the loan ends — repaid on
+        // time, repaid late, or collected here — and the late penalty is
+        // revenue on the same footing. Booking both into protocolFees is what
+        // makes "Protocol Fees (withdrawable)" mean total earnings rather than
+        // only the earnings from borrowers who paid voluntarily.
+        //
+        // The mint is what makes that credit real. protocolFees is denominated
+        // in MYR and withdrawProtocolFees() pays it out with myr.transfer(), so
+        // a credit with no tokens behind it would make the sweep revert. No MYR
+        // arrives in a recovery — the borrower keeps what they borrowed and the
+        // protocol takes ETH — so the revenue slice is minted to this contract
+        // to back it. Minting is how MYR enters circulation everywhere else
+        // here (borrow, buyMYR, supply interest), so this is consistent with
+        // the rest of the system rather than a special case.
+        uint256 revenueMYR = interestCovered + penaltyCharged;
+        if (revenueMYR > 0) {
+            myr.mint(address(this), revenueMYR);
+            protocolFees += revenueMYR;
+        }
+
+        totalBorrowed  -= principalCovered;
+        loan.principal -= principalCovered;
+        // The interest just settled is paid; restart this loan's clock so a
+        // partial recovery cannot re-charge the same days.
+        loan.lastRepayTime = block.timestamp;
+
+        collateralOf[borrower] -= seized;
+        totalCollateral        -= seized;
+        // Mirrors withdrawCollateral(): an emptied pot stops supply accrual.
+        if (collateralOf[borrower] == 0) {
+            supplyStart[borrower] = 0;
+        }
+
+        if (loan.principal == 0) {
+            loan.active = false;
+            emit LoanClosed(borrower, loanId);
+        }
+
+        (bool ok, ) = payable(owner()).call{value: seized}("");
+        require(ok, "ETH transfer failed");
+
+        emit LoanRecovered(
+            borrower, loanId, seized, debtCovered, penaltyCharged,
+            overdue ? "overdue past grace" : "collateral unsafe"
+        );
+    }
+
     // ── Views ───────────────────────────────────────────────────────────────
 
     /// @notice Share of the pool currently lent out, in basis points (0–10,000).
@@ -567,6 +720,40 @@ contract CryptoLoan is ReentrancyGuard, Pausable, Ownable2Step {
         unhealthy    = _healthFactor(user) < MIN_HEALTH;
         overdue      = block.timestamp > loan.dueDate + GRACE_PERIOD;
         liquidatable = unhealthy || overdue;
+    }
+
+    /// @notice What recoverLoan() would do to this loan right now, without
+    ///         doing it. Exposed so the admin panel can show the exact figures
+    ///         it is about to authorise instead of re-deriving them off-chain
+    ///         and drifting from the contract the moment either formula moves.
+    /// @return recoverable whether recoverLoan() would accept it
+    /// @return unhealthy   health factor < 1
+    /// @return overdue     past dueDate + GRACE_PERIOD (the penalty trigger)
+    /// @return debt        principal + accrued interest, MYR units
+    /// @return penalty     late penalty that would be charged, MYR units
+    /// @return seizeWei    collateral that would actually be taken
+    function recoveryQuote(address borrower, uint256 loanId)
+        external
+        view
+        returns (
+            bool recoverable, bool unhealthy, bool overdue,
+            uint256 debt, uint256 penalty, uint256 seizeWei
+        )
+    {
+        require(loanId < _userLoans[borrower].length, "No such loan");
+        Loan storage loan = _userLoans[borrower][loanId];
+        if (!loan.active) return (false, false, false, 0, 0, 0);
+
+        unhealthy   = _healthFactor(borrower) < MIN_HEALTH;
+        overdue     = block.timestamp > loan.dueDate + GRACE_PERIOD;
+        recoverable = unhealthy || overdue;
+
+        debt    = loan.principal + _loanInterest(loan);
+        penalty = overdue ? (debt * latePenaltyBps) / 10_000 : 0;
+
+        uint256 wanted = ((debt + penalty) * PRECISION) / (ethPrice * MYR_DECIMALS);
+        uint256 pot    = collateralOf[borrower];
+        seizeWei = wanted > pot ? pot : wanted;
     }
 
     /// @notice The whole loan book for one borrower, plus each loan's live

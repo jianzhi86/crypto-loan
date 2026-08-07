@@ -601,6 +601,211 @@ describe("CryptoLoan", function () {
     });
   });
 
+  // ── Protocol-side recovery (owner, no MYR) ────────────────────────────────
+  describe("recoverLoan — owner settles a loan out of collateral", () => {
+    const principal = 1_000n * MYR_6;
+
+    beforeEach(async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH });
+      await loan.connect(user).borrow(principal, 30n);
+    });
+
+    it("refuses a loan that is neither overdue nor underwater", async () => {
+      await expect(
+        loan.connect(owner).recoverLoan(user.address, 0n)
+      ).to.be.revertedWith("Not recoverable");
+    });
+
+    it("is owner-only — a whitelisted liquidator cannot call it", async () => {
+      await time.increase(30 * DAY + GRACE + 60);
+      await expect(
+        loan.connect(liquidator).recoverLoan(user.address, 0n)
+      ).to.be.revertedWithCustomError(loan, "OwnableUnauthorizedAccount");
+    });
+
+    it("settles an overdue loan from collateral and charges the late penalty", async () => {
+      await time.increase(30 * DAY + GRACE + 60);
+
+      const debtBefore = await loan.loanDue(user.address, 0n);
+      const [recoverable, unhealthy, overdue, quotedDebt, quotedPenalty, quotedSeize] =
+        await loan.recoveryQuote(user.address, 0n);
+      expect(recoverable).to.be.true;
+      expect(unhealthy).to.be.false;      // 1 ETH backs only RM 1,000 of debt
+      expect(overdue).to.be.true;
+      // 5% default penalty on top of the debt.
+      expect(quotedPenalty).to.equal((quotedDebt * 500n) / 10_000n);
+      expect(quotedDebt).to.be.closeTo(debtBefore, MYR_6);
+
+      const potBefore = await loan.collateralOf(user.address);
+      await expect(loan.connect(owner).recoverLoan(user.address, 0n))
+        .to.emit(loan, "LoanRecovered")
+        .and.to.emit(loan, "LoanClosed");
+
+      // Loan closed, debt gone, and only the debt + penalty worth of ETH taken.
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans[0].active).to.be.false;
+      expect(loans[0].principal).to.equal(0n);
+
+      const seized = potBefore - (await loan.collateralOf(user.address));
+      expect(seized).to.be.closeTo(quotedSeize, quotedSeize / 100n);
+      // The pot was far bigger than the debt — the remainder stays the user's.
+      expect(await loan.collateralOf(user.address)).to.be.gt((ONE_ETH * 8n) / 10n);
+    });
+
+    it("charges no penalty on the health-factor path", async () => {
+      // Borrow near the cap, then crash the price so HF < 1 while the loan is
+      // nowhere near its due date.
+      await loan.connect(user).depositCollateral({ value: ONE_ETH * 9n });
+      const [pot] = await loan.getPosition(user.address);
+      const headroom = ((pot * ETH_PRICE * MAX_LTV * MYR_6) / (10n ** 18n * 100n)) - principal;
+      await loan.connect(user).borrow(headroom, 365n);   // loanId 1
+
+      // Walk the price down in <=20% steps (MAX_PRICE_CHANGE).
+      let p = ETH_PRICE;
+      for (let i = 0; i < 4; i++) {
+        p = (p * 81n) / 100n;
+        await loan.connect(owner).setEthPrice(p);
+      }
+      expect(await loan.healthFactor(user.address)).to.be.lt(10n ** 18n);
+
+      const [recoverable, unhealthy, overdue, , penalty] =
+        await loan.recoveryQuote(user.address, 1n);
+      expect(recoverable).to.be.true;
+      expect(unhealthy).to.be.true;
+      expect(overdue).to.be.false;
+      expect(penalty).to.equal(0n);       // misfortune, not delinquency
+
+      await expect(loan.connect(owner).recoverLoan(user.address, 1n))
+        .to.emit(loan, "LoanRecovered");
+    });
+
+    it("forwards the seized ETH to the owner and pulls no MYR from anyone", async () => {
+      await time.increase(30 * DAY + GRACE + 60);
+      const [, , , , , seizeWei] = await loan.recoveryQuote(user.address, 0n);
+
+      const userMyrBefore  = await myr.balanceOf(user.address);
+      const ownerMyrBefore = await myr.balanceOf(owner.address);
+      const ownerEthBefore = await ethers.provider.getBalance(owner.address);
+
+      const tx = await loan.connect(owner).recoverLoan(user.address, 0n);
+      const receipt = await tx.wait();
+      const gas = receipt!.gasUsed * receipt!.gasPrice;
+
+      // Owner is up the seized ETH (net of gas). Nobody's MYR was touched —
+      // the borrower keeps what they borrowed and no liquidator paid anything.
+      expect(await ethers.provider.getBalance(owner.address))
+        .to.be.closeTo(ownerEthBefore + seizeWei - gas, ethers.parseEther("0.0001"));
+      expect(await myr.balanceOf(user.address)).to.equal(userMyrBefore);
+      expect(await myr.balanceOf(owner.address)).to.equal(ownerMyrBefore);
+    });
+
+    it("books interest AND the late penalty into withdrawable protocol fees", async () => {
+      await time.increase(30 * DAY + GRACE + 60);
+      const [, , , , , , ] = await loan.recoveryQuote(user.address, 0n);
+      const feesBefore = await loan.protocolFees();
+
+      const receipt = await (await loan.connect(owner).recoverLoan(user.address, 0n)).wait();
+      const evt = receipt!.logs
+        .map(l => { try { return loan.interface.parseLog(l); } catch { return null; } })
+        .find(p => p?.name === "LoanRecovered")!;
+      const [, , , debtCovered, penaltyCharged] = evt.args;
+
+      // Interest is whatever of the debt was not principal.
+      const interestCovered = debtCovered - principal;
+      expect(interestCovered).to.be.gt(0n);
+      expect(penaltyCharged).to.be.gt(0n);
+
+      // Both slices land in protocolFees...
+      expect(await loan.protocolFees())
+        .to.equal(feesBefore + interestCovered + penaltyCharged);
+
+      // ...and the credit is genuinely backed, so the owner can actually sweep
+      // it. An unbacked credit would revert here on the ERC-20 transfer.
+      await expect(loan.connect(owner).withdrawProtocolFees(other.address))
+        .to.emit(loan, "ProtocolFeesWithdrawn");
+      expect(await myr.balanceOf(other.address))
+        .to.equal(feesBefore + interestCovered + penaltyCharged);
+      expect(await loan.protocolFees()).to.equal(0n);
+    });
+
+    it("credits interest but no penalty when recovered on the health path", async () => {
+      await loan.connect(user).depositCollateral({ value: ONE_ETH * 9n });
+      const [pot] = await loan.getPosition(user.address);
+      const headroom = ((pot * ETH_PRICE * MAX_LTV * MYR_6) / (10n ** 18n * 100n)) - principal;
+      await loan.connect(user).borrow(headroom, 365n);   // loanId 1
+      let p = ETH_PRICE;
+      for (let i = 0; i < 4; i++) {
+        p = (p * 81n) / 100n;
+        await loan.connect(owner).setEthPrice(p);
+      }
+      const feesBefore = await loan.protocolFees();
+
+      const receipt = await (await loan.connect(owner).recoverLoan(user.address, 1n)).wait();
+      const evt = receipt!.logs
+        .map(l => { try { return loan.interface.parseLog(l); } catch { return null; } })
+        .find(p2 => p2?.name === "LoanRecovered")!;
+      const [, , , , penaltyCharged] = evt.args;
+
+      expect(penaltyCharged).to.equal(0n);
+      // Interest still earns — only the penalty is path-dependent.
+      expect(await loan.protocolFees()).to.be.gte(feesBefore);
+    });
+
+    it("a pot too small to cover everything eats the penalty, not the borrower", async () => {
+      // Crash the price until 1 ETH of collateral is worth less than the debt
+      // (RM 1,000 + penalty), walking down in <=20% steps. 0.81^16 puts ETH
+      // near RM 620, so the whole pot cannot cover even the principal.
+      let p = ETH_PRICE;
+      for (let i = 0; i < 16; i++) {
+        p = (p * 81n) / 100n;
+        await loan.connect(owner).setEthPrice(p);
+      }
+      await time.increase(30 * DAY + GRACE + 60);
+
+      const potBefore = await loan.collateralOf(user.address);
+      const debtBefore = await loan.loanDue(user.address, 0n);
+      const receipt = await (await loan.connect(owner).recoverLoan(user.address, 0n)).wait();
+
+      const evt = receipt!.logs
+        .map(l => { try { return loan.interface.parseLog(l); } catch { return null; } })
+        .find(p => p?.name === "LoanRecovered")!;
+      const [, , seized, debtCovered, penaltyCharged] = evt.args;
+
+      // Whole pot taken, every sen of it applied to the debt before any
+      // penalty — the penalty is what goes unpaid, never the borrower's debt.
+      expect(seized).to.equal(potBefore);
+      expect(penaltyCharged).to.equal(0n);
+      expect(debtCovered).to.be.lt(debtBefore);
+      expect(await loan.collateralOf(user.address)).to.equal(0n);
+
+      // Loan stays open for the shortfall rather than being written off.
+      const [loans] = await loan.getUserLoans(user.address);
+      expect(loans[0].active).to.be.true;
+      expect(loans[0].principal).to.be.gt(0n);
+    });
+
+    it("setLatePenalty is owner-only and capped", async () => {
+      await expect(
+        loan.connect(user).setLatePenalty(100n)
+      ).to.be.revertedWithCustomError(loan, "OwnableUnauthorizedAccount");
+      await expect(
+        loan.connect(owner).setLatePenalty(2_001n)
+      ).to.be.revertedWith("Penalty exceeds cap");
+
+      await expect(loan.connect(owner).setLatePenalty(1_000n))
+        .to.emit(loan, "LatePenaltyUpdated").withArgs(500n, 1_000n);
+      expect(await loan.latePenaltyBps()).to.equal(1_000n);
+    });
+
+    it("cannot be run twice on a loan it already closed", async () => {
+      await time.increase(30 * DAY + GRACE + 60);
+      await loan.connect(owner).recoverLoan(user.address, 0n);
+      await expect(
+        loan.connect(owner).recoverLoan(user.address, 0n)
+      ).to.be.revertedWith("Loan not active");
+    });
+  });
+
   // ── Pause ─────────────────────────────────────────────────────────────────
   describe("Pausable", () => {
     it("owner can pause and unpause", async () => {

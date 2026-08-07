@@ -35,7 +35,7 @@ export function Sparkline({ data, color }: { data: { v: number }[]; color?: stri
 }
 
 /* ─── Protocol overview area chart ──────────────────────────────────────── */
-type MonthRow = { month: string; borrowed: number; repaid: number; outstanding: number };
+type MonthRow = { month: string; borrowed: number; repaid: number; recovered: number; outstanding: number };
 
 const TOOLTIP_STYLE: React.CSSProperties = {
   background: '#14203A',
@@ -68,6 +68,10 @@ export function ProtocolAreaChart({ data }: { data: MonthRow[] }) {
             <stop offset="5%"  stopColor="#FFB224" stopOpacity={0.20} />
             <stop offset="95%" stopColor="#FFB224" stopOpacity={0}    />
           </linearGradient>
+          <linearGradient id="gRecovered" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%"  stopColor="#E5484D" stopOpacity={0.20} />
+            <stop offset="95%" stopColor="#E5484D" stopOpacity={0}    />
+          </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
         <XAxis dataKey="month" tick={{ fill: AXIS, fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -79,6 +83,9 @@ export function ProtocolAreaChart({ data }: { data: MonthRow[] }) {
         />
         <Area type="monotone" dataKey="borrowed"    name="Borrowed"    stroke="#2BD9A2" strokeWidth={2} fill="url(#gBorrow)" dot={false} />
         <Area type="monotone" dataKey="repaid"      name="Repaid"      stroke="#6E8BFF" strokeWidth={2} fill="url(#gRepaid)" dot={false} />
+        {/* Debt cleared by force — protocol recovery or liquidation. Dashed so
+            it reads as the exception it is, and never mistaken for a repayment. */}
+        <Area type="monotone" dataKey="recovered"   name="Recovered"   stroke="#E5484D" strokeWidth={2} strokeDasharray="4 3" fill="url(#gRecovered)" dot={false} />
         <Area type="monotone" dataKey="outstanding" name="Outstanding" stroke="#FFB224" strokeWidth={2} fill="url(#gOut)"    dot={false} />
       </AreaChart>
     </ResponsiveContainer>

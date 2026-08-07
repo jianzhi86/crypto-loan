@@ -85,7 +85,11 @@ const daysSince = (sinceMs: number, now: number, firstAccrual: boolean) => {
   if (sinceMs <= 0) return 0;
   const lastDay = Math.floor((sinceMs + MYR_TZ_OFFSET_MS) / DAY_MS);
   const curDay  = Math.floor((now + MYR_TZ_OFFSET_MS) / DAY_MS);
-  const diff    = curDay - lastDay;
+  // Clamped at 0: the contract can never accrue backwards, so neither may this
+  // mirror. A position restored from cache renders before the first chain read
+  // lands, and its clock can sit behind a loan's own timestamps — which showed
+  // up as negative interest on the Repay tab.
+  const diff    = Math.max(0, curDay - lastDay);
   return diff === 0 && firstAccrual ? 1 : diff;
 };
 
@@ -304,6 +308,11 @@ function Dashboard() {
   // the user never has to click the button themselves.
   const lastAutoSync = useRef(0);
   const syncingRef   = useRef(false);
+  // True once a sync attempt comes back reporting the developer panel is
+  // holding the on-chain price at a manual value. The drift between chain and
+  // market is then deliberate — the keeper must stop trying to "heal" it and
+  // the warning must stop reading like a fault.
+  const [pricePinned, setPricePinned] = useState(false);
 
   // Show KYC dialog once per session when wallet connects and deposit tab is active.
   // Wait for BOTH loanInfo (chain read done) AND kycDbChecked (DB check done) before
@@ -413,6 +422,15 @@ function Dashboard() {
 
   const isLive = wallet.isConnected && wallet.isCorrectNetwork && wallet.isDeployed;
 
+  /// The clock for anything measured against an on-chain timestamp (loan start,
+  /// lastRepayTime, dueDate). Whichever of wall time and the chain's own clock
+  /// is FURTHER along, because that is what the next block will carry: an idle
+  /// Hardhat chain sits behind (its last block is old, but the next one mines at
+  /// real time), while the dev panel's evm_increaseTime pushes it days ahead and
+  /// the offset persists into every block after. Pinned to the refresh stamp so
+  /// the figures step once per chain read rather than on every render.
+  const chainNow = Math.max(wallet.lastRefreshAt || Date.now(), wallet.chainNowMs);
+
   // ── Per-loan ledger ───────────────────────────────────────────────────────
   // One entry per ON-CHAIN loan (wallet.loanInfo.loans — the contract's own
   // per-loan book), joined with the DB ledger row that recorded the borrow
@@ -507,9 +525,7 @@ function Dashboard() {
     if (!isLive || !wallet.loanInfo) return null;
     const activeLoans = wallet.loanInfo.loans.filter(l => l.active);
     if (activeLoans.length === 0) return { rows: [] as LedgerRow[], totalInt: 0, totalPrincipal: 0 };
-    // Pinned to the 60s refresh stamp so interest advances each time the
-    // wallet re-reads the chain, not on every render.
-    const now = wallet.lastRefreshAt || Date.now();
+    const now = chainNow;
     const MONTH_MS = 30 * 86_400_000; // matches LOAN_TERMS' own 30-day "1 month"
     // "Months elapsed" advances two ways, whichever is FURTHER along: real
     // calendar time passing (30-day cycles since borrow — falling behind
@@ -583,8 +599,8 @@ function Dashboard() {
   // On-chain accrued interest — the contract's own (block-stale) figure.
   const chainAccruedInt = wallet.loanInfo ? Number(wallet.loanInfo.accruedInterest) / 1e6 : 0;
   // On Hardhat, block.timestamp only advances when a TX mines a block, so
-  // chainAccruedInt is frozen between transactions. ledgerInt uses wall-clock
-  // time (wallet.lastRefreshAt) and advances correctly every 60s refresh.
+  // chainAccruedInt is frozen between transactions. ledgerInt runs on chainNow,
+  // which keeps moving between blocks and still honours a dev-panel time jump.
   // Use ledgerInt for display; chainAccruedInt is kept for reference only.
   const liveChainInt = ledgerInt > 0 ? ledgerInt : chainAccruedInt;
   const selectedRows  = ledger ? ledger.rows.filter(r => selectedBorrowIds.includes(String(r.loanId))) : [];
@@ -678,13 +694,26 @@ function Dashboard() {
   const colEth        = wallet.loanInfo ? Number(ethers.formatEther(wallet.loanInfo.collateral)) : 0;
   const liveColMktMYR = isLive ? colEth * mktEthPrice : null;
   const totalDebtMYR    = liveBorMYR !== null ? liveBorMYR + chainAccruedInt : null;
-  const mktNetPos     = liveColMktMYR !== null && totalDebtMYR !== null ? liveColMktMYR - totalDebtMYR : null;
   const mktHF         = (liveColMktMYR !== null && totalDebtMYR !== null && totalDebtMYR > 0)
     ? (liveColMktMYR * 0.8) / totalDebtMYR : null;
 
   const onChainPrice    = wallet.ethPriceMYR;
   const priceDiffPct    = onChainPrice > 0 ? Math.abs((mktEthPrice - onChainPrice) / onChainPrice) * 100 : 0;
   const hasPriceMismatch = isLive && priceDiffPct > 3;
+
+  // Which valuation the solvency cards lead with. The contract's oracle price
+  // is the ONLY one that can liquidate you, so when the two disagree it is the
+  // headline and the market number becomes the reference caption — the previous
+  // arrangement was inverted, and it told a wallet the contract had already
+  // marked liquidatable that it was "Safe" at 67.58. In normal operation the
+  // keeper holds the two within 3% and this picks the market price as before,
+  // so nothing visibly changes until the gap is real (a stale oracle, or the
+  // developer panel deliberately pinning the price to test liquidation).
+  const useChainPrice = hasPriceMismatch;
+  const colMYR    = useChainPrice ? liveColMYR : liveColMktMYR;
+  const netPosMYR = colMYR !== null && totalDebtMYR !== null ? colMYR - totalDebtMYR : null;
+  const shownHF   = useChainPrice ? liveHF : mktHF;
+  const priceUsed = useChainPrice ? onChainPrice : mktEthPrice;
 
   // Keeper call: nudges the on-chain price to the live market price. The
   // server fetches the target itself, so this is safe for any signed-in user —
@@ -697,11 +726,12 @@ function Dashboard() {
     setSyncing(true);
     try {
       const res  = await fetch('/api/sync-price', { method: 'POST' });
-      const data = await res.json() as { error?: string; steps?: number; newPrice?: number };
+      const data = await res.json() as { error?: string; steps?: number; newPrice?: number; paused?: boolean };
       if (!res.ok) {
         setSyncError(data.error ?? 'Sync failed');
       } else {
-        await wallet.refresh();
+        setPricePinned(!!data.paused);
+        if (!data.paused) await wallet.refresh();
       }
     } catch {
       setSyncError('Network error — is the dev server running?');
@@ -717,7 +747,10 @@ function Dashboard() {
   // sync without anyone clicking the button. The manual button remains as an
   // instant-retry path.
   useEffect(() => {
-    if (!isLive || !hasPriceMismatch) return;
+    // A pinned price is a drift somebody asked for — one attempt is what
+    // discovers the hold, and after that re-trying every 5 minutes only burns
+    // requests on a server-side no-op.
+    if (!isLive || !hasPriceMismatch || pricePinned) return;
     const attempt = () => {
       if (syncingRef.current) return;
       if (Date.now() - lastAutoSync.current < 5 * 60_000) return;
@@ -728,7 +761,7 @@ function Dashboard() {
     const id = setInterval(attempt, 60_000);
     return () => { clearTimeout(first); clearInterval(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLive, hasPriceMismatch]);
+  }, [isLive, hasPriceMismatch, pricePinned]);
 
   // Hourly market-rate keeper. /api/sync-price already re-derives the on-chain
   // base borrow rate from ETH's 24h move after every convergence, but the
@@ -750,8 +783,10 @@ function Dashboard() {
       // /api/sync-price dedupes concurrent calls server-side, so it's safe
       // even if a slow request overlaps the next scheduled attempt.
       fetch('/api/sync-price', { method: 'POST' })
-        .then(res => {
+        .then(async res => {
           if (res.ok) localStorage.setItem(KEY, String(Date.now()));
+          const data = await res.json().catch(() => ({})) as { paused?: boolean };
+          if (data.paused) setPricePinned(true);
           return walletRefreshRef.current();
         })
         .catch(() => {});
@@ -867,7 +902,12 @@ function Dashboard() {
             {
               label: 'ETH / MYR Price',
               value: loading ? '…' : `RM ${prices.ethereum.myr.toLocaleString()}`,
-              sub: `${prices.ethereum.change24h >= 0 ? '+' : ''}${prices.ethereum.change24h?.toFixed(2) ?? '0.00'}% 24h`,
+              // This tile is the live market feed. Name the contract's own
+              // price alongside it whenever the two have parted company, so the
+              // headline number can't be mistaken for the one the protocol
+              // values collateral at.
+              sub: `${prices.ethereum.change24h >= 0 ? '+' : ''}${prices.ethereum.change24h?.toFixed(2) ?? '0.00'}% 24h`
+                + (hasPriceMismatch ? ` · contract ${rm(onChainPrice)}` : ''),
               color: (prices.ethereum.change24h ?? 0) >= 0 ? C.teal : C.red,
             },
           ].map(s => (
@@ -890,13 +930,15 @@ function Dashboard() {
                 <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #2BD9A2, transparent)' }} />
                 <InfoBlock
                   label="My Collateral"
-                  value={isLive && liveColMktMYR !== null ? rm(liveColMktMYR) : '—'}
-                  sub={isLive ? `${colEth.toFixed(4)} ETH · live market` : 'Connect your wallet'}
+                  value={isLive && colMYR !== null ? rm(colMYR) : '—'}
+                  sub={isLive
+                    ? `${colEth.toFixed(4)} ETH · ${useChainPrice ? 'contract price' : 'live market'}`
+                    : 'Connect your wallet'}
                   color={C.tp}
                 />
-                {isLive && liveColMYR !== null && hasPriceMismatch && (
+                {isLive && liveColMktMYR !== null && hasPriceMismatch && (
                   <Typography variant="caption" sx={{ color: C.ts, display: 'block', mt: 1 }}>
-                    Contract: {rm(liveColMYR)}
+                    At live market: {rm(liveColMktMYR)}
                   </Typography>
                 )}
               </Paper>
@@ -919,7 +961,7 @@ function Dashboard() {
                 {/* Nearest maturity across the active plans — the one date the
                     borrower must not miss. Colored by how urgent it is. */}
                 {isLive && wallet.loanInfo && wallet.loanInfo.loans.some(l => l.active) && (() => {
-                  const nowMs = wallet.lastRefreshAt || Date.now();
+                  const nowMs = chainNow;
                   const next  = wallet.loanInfo.loans.filter(l => l.active)
                     .reduce((a, l) => (Number(l.dueDate) < Number(a.dueDate) ? l : a));
                   const dueMs = Number(next.dueDate) * 1000;
@@ -972,9 +1014,9 @@ function Dashboard() {
                 <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #6E8BFF, transparent)' }} />
                 <InfoBlock
                   label="Net Position"
-                  value={isLive && mktNetPos !== null ? rm(mktNetPos) : '—'}
-                  sub={isLive ? 'Market collateral − Debt' : 'Connect your wallet'}
-                  color={mktNetPos !== null && mktNetPos >= 0 ? C.teal : C.red}
+                  value={isLive && netPosMYR !== null ? rm(netPosMYR) : '—'}
+                  sub={isLive ? `${useChainPrice ? 'Contract' : 'Market'} collateral − Debt` : 'Connect your wallet'}
+                  color={netPosMYR !== null && netPosMYR >= 0 ? C.teal : C.red}
                 />
               </Paper>
 
@@ -984,14 +1026,17 @@ function Dashboard() {
                 // never rendered. Showing an invented health factor — with the
                 // amber "moderate risk" border that came with it — implied this
                 // visitor had a position at risk when they have no position.
-                const hf = isLive && mktHF !== null ? mktHF : isLive && liveHF !== null ? liveHF : 1.58;
+                const hf = isLive && shownHF !== null ? shownHF : isLive && liveHF !== null ? liveHF : 1.58;
                 const hc = isLive ? hColor(hf) : C.ts;
                 const hv = isLive ? fmtHF(hf) : '—';
                 // Translate the ratio into something concrete: the ETH price
-                // at which liquidation starts, and how far away that is.
+                // at which liquidation starts, and how far away that is. "How
+                // far" is measured from the SAME price the card is valued at —
+                // quoting a market-price drop next to a contract-price health
+                // factor is what let a liquidatable position read as "−99%".
                 const debtNow  = totalDebtMYR ?? 0;
                 const liqPrice = isLive && debtNow > 0 && colEth > 0 ? debtNow / (0.8 * colEth) : null;
-                const refPrice = mktEthPrice > 0 ? mktEthPrice : ethPriceMYR;
+                const refPrice = priceUsed > 0 ? priceUsed : ethPriceMYR;
                 const dropPct  = liqPrice !== null && refPrice > 0 ? (1 - liqPrice / refPrice) * 100 : null;
                 const hl = !isLive ? 'Connect your wallet'
                   : debtNow <= 0 ? 'No debt — nothing to liquidate'
@@ -1006,9 +1051,9 @@ function Dashboard() {
                   }}>
                     <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${hc}, transparent)` }} />
                     <InfoBlock label={<>Health Factor<Hint text={HINTS.healthFactor} /></>} value={hv} sub={hl} color={hc} />
-                    {isLive && liveHF !== null && hasPriceMismatch && (
+                    {isLive && mktHF !== null && hasPriceMismatch && (
                       <Typography variant="caption" sx={{ color: C.ts, display: 'block', mt: 1 }}>
-                        Contract HF: {fmtHF(liveHF)}
+                        At live market: {fmtHF(mktHF)}
                       </Typography>
                     )}
                   </Paper>
@@ -1053,22 +1098,26 @@ function Dashboard() {
               border: '1px solid rgba(255,178,36,0.25)',
               '& .MuiAlert-icon': { color: C.gold }, borderRadius: 2,
             }}
-            action={
+            action={pricePinned ? undefined : (
               <Button size="small" disabled={syncing}
                 onClick={() => { void doPriceSync(); }}
                 sx={{ color: C.teal, border: '1px solid rgba(43,217,162,0.3)', fontSize: 11, borderRadius: 2, whiteSpace: 'nowrap' }}>
                 {syncing ? 'Syncing…' : '⟳ Sync Price'}
               </Button>
-            }
+            )}
           >
             <Typography variant="body2" sx={{ fontWeight: 700, color: C.gold }}>
-              {syncing ? 'Syncing on-chain price to live market…' : 'On-chain price differs from live market'}
+              {pricePinned ? 'On-chain price is pinned by the developer panel'
+                : syncing ? 'Syncing on-chain price to live market…'
+                : 'On-chain price differs from live market'}
             </Typography>
             <Typography variant="caption" sx={{ color: 'rgba(255,178,36,0.7)', display: 'block', mt: 0.5 }}>
               Contract: <b style={{ color: C.gold }}>{rm(onChainPrice)}/ETH</b>
               {' · '}Live: <b style={{ color: C.gold }}>{rm(mktEthPrice)}/ETH</b>
               {' '}({priceDiffPct.toFixed(1)}% diff)
-              {syncing ? ' — updating automatically, this takes a few seconds' : ''}
+              {pricePinned
+                ? ' — the cards above are valued at the contract price, the one that decides liquidation. Use the panel\'s “back to live price” to release the hold.'
+                : syncing ? ' — updating automatically, this takes a few seconds' : ''}
             </Typography>
             {syncError && (
               <Typography variant="caption" sx={{ color: C.red, display: 'block', mt: 0.75, fontWeight: 600 }}>
@@ -2298,7 +2347,7 @@ function Dashboard() {
                             Due date<Hint text={HINTS.dueDate} />
                           </Typography>
                           <Typography variant="caption" sx={{ color: C.tp, fontWeight: 500 }}>
-                            {new Date((wallet.lastRefreshAt || Date.now()) + loanTermDays * 86_400_000).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {new Date(chainNow + loanTermDays * 86_400_000).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })}
                           </Typography>
                         </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2533,7 +2582,7 @@ function Dashboard() {
                         const key = String(r.loanId);
                         const sel = selectedBorrowIds.includes(key);
                         const st  = STATUS_META[r.status];
-                        const nowMs    = wallet.lastRefreshAt || Date.now();
+                        const nowMs    = chainNow;
                         const msLeft   = r.dueMs - nowMs;
                         const daysLeft = Math.ceil(msLeft / DAY_MS);
                         const graceLeft = Math.ceil((r.dueMs + GRACE_MS - nowMs) / DAY_MS);
@@ -3064,7 +3113,7 @@ function Dashboard() {
             <Row label={`Est. interest (${loanTermDays}d)`} value={rm(panelInterest, 2)} vc={C.gold} />
             <Row label="Loan term" value={`${loanTermDays} days`} />
             <Row label="Due date"
-              value={new Date((wallet.lastRefreshAt || Date.now()) + loanTermDays * 86_400_000).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })} />
+              value={new Date(chainNow + loanTermDays * 86_400_000).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })} />
             <Row label="Grace period" value="7 days after due date" />
             <Box sx={{ pt: 1, borderTop: `1px solid ${C.border}` }}>
               <Row label="Total to repay (est.)" value={rm(panelTotal, 2)} vc={C.teal} bold />

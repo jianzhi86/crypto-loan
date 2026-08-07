@@ -33,7 +33,10 @@ function marketBaseRateBps(change24h: number): number {
 }
 
 export type SyncResult =
-  | { ok: true; newPrice: number; steps: number; path: number[]; message?: string }
+  /** `paused` marks the developer-panel hold: the call succeeded by doing
+   *  nothing on purpose, which is a different thing from "already in sync" and
+   *  the dashboard needs to tell them apart. */
+  | { ok: true; newPrice: number; steps: number; path: number[]; message?: string; paused?: boolean }
   | { ok: false; error: string; status: number };
 
 /**
@@ -53,7 +56,7 @@ export async function syncEthPriceToMarket(): Promise<SyncResult> {
   // the admin button) becomes a no-op instead of clobbering the override.
   // newPrice 0 is deliberate — callers display it only when truthy.
   if (isKeeperPaused()) {
-    return { ok: true, newPrice: 0, steps: 0, path: [], message: 'Auto-sync paused by developer panel' };
+    return { ok: true, newPrice: 0, steps: 0, path: [], paused: true, message: 'Auto-sync paused by developer panel' };
   }
   if (!process.env.OWNER_PRIVATE_KEY) {
     return { ok: false, error: 'OWNER_PRIVATE_KEY not set in .env', status: 500 };

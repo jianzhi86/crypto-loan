@@ -11,9 +11,11 @@ import { ethers } from "hardhat";
  * as Liquidatable in the dashboard and liquidate() accepts it.
  *
  * NOTE: this moves block.timestamp AHEAD of wall-clock time. The web UI's
- * client-side interest mirror uses wall-clock, so on-chain figures will read
- * ahead of the UI's live estimates until real time catches up. That is
- * expected on a demo chain.
+ * client-side interest mirror follows whichever clock is further along, so the
+ * jump shows up in its figures on the next position refresh. Nothing on the
+ * borrower's side is automatic though — see liquidate()'s onlyLiquidator:
+ * travelling past dueDate + grace makes a loan ELIGIBLE, it does not seize
+ * anything until a liquidator actually calls it.
  */
 async function main() {
   const days = Number(process.env.DAYS ?? 31);

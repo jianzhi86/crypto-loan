@@ -76,15 +76,13 @@ const fieldSx = {
   '& .MuiInputLabel-root': { color: S.dim, fontSize: 12 },
 };
 
-// The unlock flag is external state (localStorage + a window event fired by
-// the navbar egg) — useSyncExternalStore subscribes to it without effects.
+// The unlock flag is external state (an in-memory module flag plus the window
+// event fired when it changes) — useSyncExternalStore subscribes without an
+// effect. No 'storage' listener: the flag is per-document by design, so it
+// never crosses tabs and nothing writes it to storage to listen for.
 function subscribeUnlock(cb: () => void) {
   window.addEventListener(DEV_MODE_EVENT, cb);
-  window.addEventListener('storage', cb);
-  return () => {
-    window.removeEventListener(DEV_MODE_EVENT, cb);
-    window.removeEventListener('storage', cb);
-  };
+  return () => window.removeEventListener(DEV_MODE_EVENT, cb);
 }
 
 export default function DevPanel() {
@@ -358,6 +356,18 @@ export default function DevPanel() {
             <Typography sx={{ fontSize: 10.5, color: S.dim, mt: 1 }}>
               0–15% (contract cap). New rates apply to NEW loans only — existing
               loans keep the APR they were born with.
+            </Typography>
+          </Box>
+
+          {/* ── Liquidation ─────────────────────────────────────────────── */}
+          <Box sx={{ p: 1.75, borderRadius: 2, bgcolor: S.cardBg, border: S.border }}>
+            <Typography sx={sectionTitle}>Liquidation</Typography>
+            <Typography sx={{ fontSize: 11.5, color: S.dim }}>
+              Moved to the admin panel — <Box component="span" sx={{ color: S.text, fontWeight: 600 }}>Admin → Recovery</Box>,
+              which lists every loan the protocol may seize collateral on and
+              badges the tab when one appears. Use the levers above to create a
+              case for it: crash the ETH price to push a position underwater, or
+              jump the clock past due date + 7 days to make it overdue.
             </Typography>
           </Box>
 

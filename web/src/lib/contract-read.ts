@@ -88,7 +88,20 @@ export interface ChainTx {
   blockNumber: number;
   timestampMs: number;
   wallet:      string;
-  type:        'Borrowed' | 'Repaid' | 'CollateralDeposited' | 'CollateralWithdrawn' | 'MYRPurchased' | 'SupplyInterestClaimed';
+  type:        'Borrowed' | 'Repaid' | 'CollateralDeposited' | 'CollateralWithdrawn'
+             | 'MYRPurchased' | 'SupplyInterestClaimed'
+             /** Debt settled by the protocol seizing collateral (recoverLoan). */
+             | 'LoanRecovered'
+             /** Debt settled by a liquidator paying MYR (liquidate). */
+             | 'Liquidated'
+             /** The ETH leg of either of the two above — collateral leaving the
+              *  borrower's pot. Kept as its own row so the MYR series and the
+              *  collateral series each get the figure in their own units. */
+             | 'CollateralSeized'
+             /** The 5% overdue surcharge inside a recovery, MYR units. Tracked
+              *  separately because it is protocol REVENUE, whereas the rest of
+              *  a recovery is just principal and interest coming back. */
+             | 'LatePenalty';
   /** Event units: MYR 1e6 for the MYR types, wei for the collateral types. */
   amount:      bigint;
 }
@@ -100,6 +113,8 @@ const ACTIVITY_ABI = [
   'event CollateralWithdrawn(address indexed user, uint256 amount)',
   'event MYRPurchased(address indexed buyer, uint256 ethSpent, uint256 myrReceived)',
   'event SupplyInterestClaimed(address indexed user, uint256 amount)',
+  'event Liquidated(address indexed user, address indexed liquidator, uint256 debtCovered, uint256 collateralSeized)',
+  'event LoanRecovered(address indexed borrower, uint256 indexed loanId, uint256 collateralSeized, uint256 debtCovered, uint256 penaltyCharged, string reason)',
 ];
 
 /**
@@ -118,13 +133,18 @@ export async function readChainActivity(): Promise<ChainTx[] | null> {
   try {
     const provider = new ethers.JsonRpcProvider(HARDHAT_RPC_URL);
     const c = new ethers.Contract(CONTRACT_ADDRESSES.CryptoLoan, ACTIVITY_ABI, provider);
-    const [borrowed, repaid, deposited, withdrawn, purchased, claimed] = await Promise.all([
+    // Recovery/liquidation events only exist on contracts deployed after they
+    // were added, so those two queries are allowed to come back empty rather
+    // than taking the whole read down with them.
+    const [borrowed, repaid, deposited, withdrawn, purchased, claimed, liquidated, recovered] = await Promise.all([
       c.queryFilter(c.filters.Borrowed()),
       c.queryFilter(c.filters.Repaid()),
       c.queryFilter(c.filters.CollateralDeposited()),
       c.queryFilter(c.filters.CollateralWithdrawn()),
       c.queryFilter(c.filters.MYRPurchased()),
       c.queryFilter(c.filters.SupplyInterestClaimed()),
+      c.queryFilter(c.filters.Liquidated()).catch(() => [] as ethers.Log[]),
+      c.queryFilter(c.filters.LoanRecovered()).catch(() => [] as ethers.Log[]),
     ]);
 
     const merged = new Map<string, ChainTx>();
@@ -140,6 +160,23 @@ export async function readChainActivity(): Promise<ChainTx[] | null> {
     for (const e of withdrawn as ethers.EventLog[]) add(e, 'CollateralWithdrawn',   e.args.user  as string, e.args.amount      as bigint);
     for (const e of purchased as ethers.EventLog[]) add(e, 'MYRPurchased',          e.args.buyer as string, e.args.myrReceived as bigint);
     for (const e of claimed   as ethers.EventLog[]) add(e, 'SupplyInterestClaimed', e.args.user  as string, e.args.amount      as bigint);
+    // Both forced-settlement paths clear debt and move collateral, so each one
+    // contributes to BOTH the MYR series and the collateral series. Without
+    // these the overview chart's "Outstanding" line stayed flat forever after a
+    // recovery — the debt was gone on-chain but nothing in the log said so.
+    for (const e of liquidated as ethers.EventLog[]) {
+      add(e, 'Liquidated',       e.args.user     as string, e.args.debtCovered      as bigint);
+      add(e, 'CollateralSeized', e.args.user     as string, e.args.collateralSeized as bigint);
+    }
+    for (const e of recovered  as ethers.EventLog[]) {
+      add(e, 'LoanRecovered',    e.args.borrower as string, e.args.debtCovered      as bigint);
+      add(e, 'CollateralSeized', e.args.borrower as string, e.args.collateralSeized as bigint);
+      // Only when one was actually charged — a recovery on the health-factor
+      // path carries no penalty, and a zero row would clutter the activity feed.
+      if ((e.args.penaltyCharged as bigint) > BigInt(0)) {
+        add(e, 'LatePenalty',    e.args.borrower as string, e.args.penaltyCharged   as bigint);
+      }
+    }
 
     const txs = Array.from(merged.values());
     const blockNums = Array.from(new Set(txs.map(t => t.blockNumber)));

@@ -149,7 +149,12 @@ export type AuditAction =
   | 'KYC_DELETE'
   | 'FLAG_UPDATE'
   | 'PRICE_SYNC'
-  | 'PROTOCOL_FEES_WITHDRAWN';
+  | 'PROTOCOL_FEES_WITHDRAWN'
+  /** Collateral seized to settle a defaulted or underwater loan. The single
+   *  most consequential thing an admin can do to a borrower — it moves their
+   *  ETH — so it is always written with the wallet, loan id and amounts. */
+  | 'LOAN_RECOVERED'
+  | 'LATE_PENALTY_UPDATED';
 
 /**
  * Append an entry to the admin audit trail. Never throws — an audit write

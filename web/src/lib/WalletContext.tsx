@@ -114,6 +114,15 @@ export interface WalletState {
   // cadence and UI countdowns derived from it stay in phase with the actual
   // chain read.
   lastRefreshAt: number;
+  /**
+   * block.timestamp of the latest block at the last refresh, in epoch ms.
+   * Every comparison against an on-chain timestamp (loan start, lastRepayTime,
+   * dueDate) must use this, not the browser clock: the dev panel's time travel
+   * (evm_increaseTime) moves the chain hours or days ahead of wall time, which
+   * made elapsed-day math freeze — or go negative for a loan opened after a
+   * jump. 0 until the first successful refresh.
+   */
+  chainNowMs: number;
   isConnecting: boolean;
   txStatus: TxStatus;
   txMessage: string;
@@ -171,6 +180,7 @@ const INIT: WalletState = {
   myrTokenAdded: false,
   isRefreshing: false,
   lastRefreshAt: 0,
+  chainNowMs: 0,
   isConnecting: false,
   txStatus: 'idle', txMessage: '',
   txStep: 1, txTotalSteps: 1,
@@ -404,6 +414,12 @@ interface WalletCtx extends WalletState {
    */
   repay: (items: RepayItem[], opts?: { settleFull?: boolean }) => Promise<void>;
   withdrawCollateral: (eth: string) => Promise<void>;
+  /**
+   * Admin Recovery screen: liquidate a borrower's loan by paying its debt in
+   * MYR from THIS wallet, earning the contract's 5% liquidator bonus. Resolves
+   * to the ETH seized, or null if it never went through.
+   */
+  liquidate: (borrower: string, loanId: number, amountMYR: string) => Promise<number | null>;
   claimSupplyInterest: () => Promise<void>;
   addTokenToWallet: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -491,14 +507,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setS(p => ({ ...p, isDeployed: false, isRefreshing: false }));
         return;
       }
-      const [ethBal, myrBal, info, price, kyc, userLoansRaw] = await Promise.all([
+      const [ethBal, myrBal, info, price, kyc, userLoansRaw, latestBlock] = await Promise.all([
         provider.getBalance(address),
         c.myr.balanceOf(address),
         c.loan.getLoanInfo(address),
         c.loan.ethPrice(),
         c.loan.kycApproved(address),
         c.loan.getUserLoans(address),
+        provider.getBlock('latest'),
       ]);
+      const chainNowMs = latestBlock ? Number(latestBlock.timestamp) * 1000 : Date.now();
       const MAX_U = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
       const hfRaw = info[2] as bigint;
       const hf = hfRaw === MAX_U ? Infinity : Number(hfRaw) / 1e18;
@@ -575,6 +593,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         myrBalance,
         loanInfo,
         ethPriceMYR,
+        chainNowMs,
         borrowAprBps,
         currentAprBps,
         supplyAprBps,
@@ -1146,6 +1165,87 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [getContracts, s.address, s.ethPriceMYR, refresh, guardTx]);
 
+  /**
+   * Liquidate someone else's loan the open-market way: the caller supplies MYR
+   * to cover the debt and receives the equivalent collateral plus LIQ_BONUS.
+   * Driven from the admin Recovery screen.
+   *
+   * This is the counterpart to the server-signed recoverLoan(), and the two are
+   * deliberately different tools. recoverLoan() is the protocol repossessing:
+   * owner-only, no MYR, collateral goes to the treasury. This one is a real
+   * liquidation — capital changes hands and the liquidator is paid the 5% bonus
+   * for providing it — which is why it must run through the caller's own wallet
+   * rather than the owner key, and why the caller has to actually hold MYR.
+   *
+   * Resolves to the ETH seized, or null if the transaction did not go through.
+   */
+  const liquidate = useCallback(async (
+    borrower: string, loanId: number, amountMYR: string,
+  ): Promise<number | null> => {
+    if (!guardTx()) return null;
+    const c = await getContracts(true);
+    if (!c || !s.address) return null;
+    setTx('pending', 'Approving MYR for liquidation…', 1, 2);
+    try {
+      const quoted = BigInt(Math.ceil(parseFloat(amountMYR) * 1e6));
+      if (quoted <= BigInt(0)) { setTx('error', 'Liquidation amount must be greater than zero.'); return null; }
+      // Headroom for a Malaysia-midnight day boundary crossed between the quote
+      // and the tx mining. The contract caps `covering` at the loan's true debt,
+      // so padding costs nothing, while quoting short leaves a sliver of
+      // principal and keeps a loan open that was meant to close.
+      const want    = quoted + quoted / BigInt(500) + BigInt(1_000_000); // +0.2% + RM 1
+      const balance = (await c.myr.balanceOf(s.address)) as bigint;
+      // Cap at what the wallet holds rather than failing: a partial liquidation
+      // seizes proportionally less collateral and is still a valid action.
+      const covering = want > balance ? balance : want;
+      if (covering <= BigInt(0)) {
+        setTx('error', 'This wallet holds no MYR — a liquidator has to pay the debt to seize collateral.');
+        return null;
+      }
+      const approveTx = await c.myr.approve(CONTRACT_ADDRESSES.CryptoLoan, covering);
+      await approveTx.wait();
+      setTx('pending', `Liquidating RM ${(Number(covering) / 1e6).toFixed(2)} of debt…`, 2, 2);
+      const tx = await c.loan.liquidate(borrower, BigInt(loanId), covering);
+      const receipt: ethers.TransactionReceipt | null = await tx.wait();
+      // Seized ETH comes off the event, not a local recomputation — the
+      // contract scales the seizure down when the pot cannot cover the amount
+      // plus bonus, and only it knows what it actually took.
+      let seizedEth = 0;
+      let reason = '';
+      try {
+        const parsed = ((receipt?.logs ?? []) as ethers.Log[])
+          .map(l => { try { return c.loan.interface.parseLog(l); } catch { return null; } })
+          .filter((p): p is ethers.LogDescription => p !== null);
+        const liq = parsed.find(p => p.name === 'Liquidated');
+        if (liq) seizedEth = Number(ethers.formatEther(liq.args[3] as bigint));
+        const detail = parsed.find(p => p.name === 'LoanLiquidated');
+        if (detail) reason = String(detail.args[3] ?? '');
+      } catch { /* event decode is best-effort */ }
+      setTx('success', `Liquidated — ${seizedEth.toFixed(4)} ETH collateral seized`, 2, 2);
+      if (receipt) {
+        setReceipt({
+          action: 'repay',
+          title: 'Loan Liquidated',
+          amountLabel: `${seizedEth.toFixed(4)} ETH`,
+          lines: [
+            { label: 'Borrower',          value: `${borrower.slice(0, 6)}…${borrower.slice(-4)}` },
+            { label: 'Loan',              value: `#${loanId}` },
+            { label: 'Debt covered',      value: `RM ${(Number(covering) / 1e6).toFixed(2)}` },
+            { label: 'Collateral seized', value: `${seizedEth.toFixed(4)} ETH (incl. 5% bonus)` },
+            ...(reason ? [{ label: 'Reason', value: reason }] : []),
+          ],
+          txHash: receipt.hash,
+        });
+      }
+      await refresh(s.address);
+      return seizedEth;
+    } catch (e) {
+      const reason = revertReason(e);
+      setTx('error', reason ? `Liquidation failed: ${reason}` : 'Liquidation failed', 2, 2);
+      return null;
+    }
+  }, [getContracts, s.address, refresh, guardTx]);
+
   const claimSupplyInterest = useCallback(async () => {
     if (!guardTx()) return;
     const c = await getContracts(true);
@@ -1387,7 +1487,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value: WalletCtx = {
     ...s,
     connect, disconnect, tryAutoConnect, switchToHardhat,
-    depositCollateral, borrow, buyMYR, repay, withdrawCollateral, claimSupplyInterest,
+    depositCollateral, borrow, buyMYR, repay, withdrawCollateral, liquidate, claimSupplyInterest,
     addTokenToWallet,
     refresh: () => s.address ? refresh(s.address) : Promise.resolve(),
     clearTx: () => setS(p => ({ ...p, txStatus: 'idle', txMessage: '' })),

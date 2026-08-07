@@ -283,6 +283,7 @@ export default function DocsPage() {
               { label: 'Loan Terms',           value: '1–12 months',   color: C.slate, grad: GRAD.blue, icon: <ClockIcon size={18} />     },
               { label: 'Grace Period',         value: '7 days',        color: C.slate, grad: GRAD.teal, icon: <CashIcon size={18} />      },
               { label: 'Liquidator Bonus',     value: '5%',            color: C.red,   grad: GRAD.red,  icon: <TrendDownIcon size={18} /> },
+              { label: 'Late Penalty (overdue)', value: '5%',          color: C.red,   grad: GRAD.red,  icon: <AlertIcon size={18} />     },
             ]} />
             <Alert severity="warning" sx={{ borderRadius: 2, fontSize: 13 }}>
               <strong>Testnet only.</strong> All MYR tokens are mock ERC-20s with no real-world value. Never connect a wallet holding real funds.
@@ -433,7 +434,7 @@ Example:
                 },
                 {
                   title: '2 · Loan overdue (maturity)',
-                  desc: 'The loan reaches its due date, the 7-day grace period passes, and it still isn’t repaid. That one loan becomes liquidatable even if your collateral is perfectly healthy. Your other, on-time loans are not affected.',
+                  desc: 'The loan reaches its due date, the 7-day grace period passes, and it still isn’t repaid. That one loan becomes liquidatable even if your collateral is perfectly healthy, and a 5% late penalty is added to what you owe. Your other, on-time loans are not affected.',
                 },
               ].map(x => (
                 <Paper key={x.title} sx={{ p: 2, bgcolor: '#111B38', border: `1px solid ${C.red}30`, borderRadius: 2 }}>
@@ -449,9 +450,42 @@ Example:
               liquidator takes ≈ RM 11,025 worth of ETH and the remaining ≈ RM 8,975 worth stays in your
               account, withdrawable once your remaining debt allows.
             </P>
+            <P>
+              Two parties can act on an eligible loan, and the difference matters to you.
+              Anyone holding MYR can <Strong>liquidate</Strong> it on the open market: they repay
+              your debt and take the collateral plus their 5% bonus, exactly as above. Separately,
+              the protocol itself can <Strong>recover</Strong> the loan — an administrator deducts
+              collateral directly to settle the debt, with no MYR involved and no action needed from
+              you. Recovery is what happens when a loan is left in default and nobody has stepped in
+              to liquidate it.
+            </P>
+            <P>
+              <Strong>The 5% late penalty applies only to the overdue path.</Strong> A loan recovered
+              because its health factor fell below 1 pays no penalty — a price crash is not
+              delinquency. A loan recovered for running past its due date and grace period pays the
+              penalty on top of its debt, and the collateral deducted covers both.
+            </P>
+            <CodeBlock>{`Overdue recovery — worked example
+
+  Outstanding debt          RM 10,000.00
+  Late penalty (5%)         RM    500.00
+                            ─────────────
+  Total collected           RM 10,500.00
+
+  ETH price (on-chain)      RM 10,000 / ETH
+  Collateral deducted       1.0500 ETH
+  Your remaining collateral stays yours and is withdrawable`}</CodeBlock>
+            <P>
+              Your debt is always settled <Strong>before</Strong> the penalty. If your collateral is
+              not enough to cover both, the protocol gives up its penalty rather than increasing what
+              you owe — you will never end a recovery owing more than you did before it. Every
+              recovery is recorded on-chain and in the platform&apos;s audit log.
+            </P>
             <Alert severity="info" sx={{ borderRadius: 2, fontSize: 13 }}>
-              Fully repaying a loan marks it inactive on-chain — it can no longer be liquidated for any
-              reason, and its share of your collateral is freed for withdrawal.
+              Fully repaying a loan marks it inactive on-chain — it can no longer be liquidated or
+              recovered for any reason, no late penalty can be charged on it, and its share of your
+              collateral is freed for withdrawal. Repaying at any point before the grace period ends
+              avoids the penalty completely.
             </Alert>
           </Section>
 
@@ -635,8 +669,16 @@ Example (RM 10,000 borrowed for 30 days at 4.8% locked APR):
                   a: 'The grace period provides additional repayment time after the loan maturity date before liquidation becomes possible. On CryptoLend it is 7 days, enforced by the smart contract. Interest continues to accrue during it — it is a shield against being liquidated the second your term ends, not a free extension.',
                 },
                 {
+                  q: 'What happens if I repay late? Is there a penalty?',
+                  a: 'Interest keeps accruing daily past the due date, so a late loan costs more every day. There is no penalty while you are inside the 7-day grace period — repay any time before it ends and you owe only principal plus interest. Once the grace period expires the loan is in default and a 5% late penalty is added on top of the debt. That penalty applies only to the overdue path: a loan acted on because its health factor fell below 1 pays no penalty, because a price crash is not delinquency.',
+                },
+                {
+                  q: 'Can an administrator deduct my collateral?',
+                  a: 'Yes, in the two cases the smart contract allows: your health factor has fallen below 1, or your loan has passed its due date plus the 7-day grace period. In either case an administrator can recover the loan, which deducts collateral directly to settle the debt (plus the 5% late penalty when it is a default). No MYR is involved and no approval from you is required — the on-chain rules are the authorisation. Only what is needed is taken, your debt is always settled before any penalty, and whatever collateral remains afterwards stays yours and is withdrawable. Every recovery is written to the audit log.',
+                },
+                {
                   q: 'What happens to my collateral during liquidation?',
-                  a: 'Only enough is taken to cover the debt being repaid plus a 5% liquidator bonus — never automatically all of it. Example: RM 10,500 owed against 2 ETH worth RM 20,000 — about RM 11,025 worth of ETH is seized and the rest stays yours. Collateral is required in the first place because MYR is lent against it: it is what guarantees the debt when a borrower walks away.',
+                  a: 'Only enough is taken to cover the debt being repaid plus a 5% liquidator bonus — never automatically all of it. Example: RM 10,500 owed against 2 ETH worth RM 20,000 — about RM 11,025 worth of ETH is seized and the rest stays yours. If your collateral is not enough to cover everything, the protocol absorbs the shortfall rather than increasing your debt. Collateral is required in the first place because MYR is lent against it: it is what guarantees the debt when a borrower walks away.',
                 },
                 {
                   q: 'What happens when I fully repay a loan?',

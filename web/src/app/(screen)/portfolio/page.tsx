@@ -74,9 +74,10 @@ export default function PortfolioPage() {
   // one bar per loan from this, replacing the old hardcoded 90-day display.
   const DAY_MS = 86_400_000;
   const activeLoans = (loan?.loans ?? []).filter(l => l.active);
-  // Pinned to the wallet's refresh stamp (same idiom as the dashboard) so the
-  // timeline steps with each chain re-read instead of every render.
-  const nowMs       = wallet.lastRefreshAt || Date.now();
+  // Same clock as the dashboard's ledger: whichever of wall time and the chain's
+  // own is further along, since these bars are drawn against block timestamps
+  // and the dev panel's time travel pushes the chain ahead of wall time.
+  const nowMs       = Math.max(wallet.lastRefreshAt || Date.now(), wallet.chainNowMs);
 
   const accruedInt   = loan ? Number(loan.accruedInterest) / 1e6 : 0;
   // Per-loan figures at each loan's OWN locked APR — a single "position rate"
