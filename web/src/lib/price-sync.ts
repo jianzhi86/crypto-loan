@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { CONTRACT_ADDRESSES } from '@/lib/contractConfig';
+import { isKeeperPaused } from '@/lib/dev-mode';
 
 const RPC_URL   = process.env.HARDHAT_RPC_URL ?? 'http://127.0.0.1:8545';
 const LOAN_ADDR = CONTRACT_ADDRESSES.CryptoLoan as string;
@@ -47,6 +48,13 @@ export type SyncResult =
  * so normal users just stared at a warning they were forbidden to fix.
  */
 export async function syncEthPriceToMarket(): Promise<SyncResult> {
+  // The developer panel can hold the price/rate at a manual value; while the
+  // hold is on, every keeper trigger (AdminAutoSync, dashboard drift detection,
+  // the admin button) becomes a no-op instead of clobbering the override.
+  // newPrice 0 is deliberate — callers display it only when truthy.
+  if (isKeeperPaused()) {
+    return { ok: true, newPrice: 0, steps: 0, path: [], message: 'Auto-sync paused by developer panel' };
+  }
   if (!process.env.OWNER_PRIVATE_KEY) {
     return { ok: false, error: 'OWNER_PRIVATE_KEY not set in .env', status: 500 };
   }

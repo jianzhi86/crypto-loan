@@ -13,11 +13,14 @@ import Alert from '@mui/material/Alert';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Divider from '@mui/material/Divider';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useWallet } from '@/lib/WalletContext';
 import { usePrices, SYMBOL_TO_ID } from '@/hooks/usePrices';
 import { useAuth } from '@/hooks/useAuth';
 import { useViewer } from '@/lib/ViewerContext';
+import {
+  isDevModeUnlocked, setDevModeUnlocked, TAPS_TO_UNLOCK, TAP_WINDOW_MS,
+} from '@/components/dev/dev-mode-client';
 
 // const NAV = [
 //   { href: '/dashboard',          label: 'Dashboard' },
@@ -51,6 +54,36 @@ export default function Navbar() {
   const viewer = useViewer();
   const [copied, setCopied] = useState(false);
   const [walletMenuEl, setWalletMenuEl] = useState<null | HTMLElement>(null);
+
+  // Android-style easter egg: 7 quick taps on the network chip unlock the
+  // developer panel (time travel / mock price / base rate — dev builds only).
+  // The countdown is shown by briefly hijacking the chip's own label, so the
+  // egg needs no extra UI of its own.
+  const devTaps = useRef(0);
+  const devLastTap = useRef(0);
+  const devMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [devTapMsg, setDevTapMsg] = useState<string | null>(null);
+  const showDevMsg = (msg: string, ms = 1600) => {
+    setDevTapMsg(msg);
+    if (devMsgTimer.current) clearTimeout(devMsgTimer.current);
+    devMsgTimer.current = setTimeout(() => setDevTapMsg(null), ms);
+  };
+  const onNetworkChipTap = () => {
+    if (process.env.NODE_ENV === 'production') return;
+    if (isDevModeUnlocked()) { showDevMsg('Developer mode is already on'); return; }
+    const now = Date.now();
+    if (now - devLastTap.current > TAP_WINDOW_MS) devTaps.current = 0;
+    devLastTap.current = now;
+    devTaps.current += 1;
+    const left = TAPS_TO_UNLOCK - devTaps.current;
+    if (left <= 0) {
+      devTaps.current = 0;
+      setDevModeUnlocked(true);
+      showDevMsg('Developer mode enabled ✓', 2400);
+    } else if (left <= 4) {
+      showDevMsg(`${left} more tap${left === 1 ? '' : 's'} for developer mode`);
+    }
+  };
   // The server said this document belongs to a signed-in account, or the client
   // session agrees. Either alone is enough to offer Logout — hiding it because
   // one of the two answers hiccuped strands people in a session they cannot end.
@@ -126,18 +159,19 @@ export default function Navbar() {
           {/* Right side */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
 
-            {/* Network dot */}
+            {/* Network dot — also the developer-mode easter egg (7 quick taps) */}
             <Chip
               size="small"
+              onClick={onNetworkChipTap}
               label={
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                   <Box sx={{
                     width: 6, height: 6, borderRadius: '50%',
-                    bgcolor: isLive ? '#0E9F6E' : wallet.isConnected ? '#C77700' : 'rgba(16,21,28,0.2)',
-                    boxShadow: isLive ? '0 0 6px #0E9F6E' : 'none',
+                    bgcolor: devTapMsg ? '#6E8BFF' : isLive ? '#0E9F6E' : wallet.isConnected ? '#C77700' : 'rgba(16,21,28,0.2)',
+                    boxShadow: devTapMsg ? '0 0 6px #6E8BFF' : isLive ? '0 0 6px #0E9F6E' : 'none',
                   }} />
-                  <Typography variant="caption" sx={{ color: wallet.isConnected && !isLive ? '#FFB224' : 'rgba(255,255,255,0.7)', fontSize: 11 }}>
-                    {isLive ? 'Hardhat Local' : wallet.isConnected ? 'Wrong Network' : 'Not Connected'}
+                  <Typography variant="caption" sx={{ color: devTapMsg ? '#6E8BFF' : wallet.isConnected && !isLive ? '#FFB224' : 'rgba(255,255,255,0.7)', fontSize: 11 }}>
+                    {devTapMsg ?? (isLive ? 'Hardhat Local' : wallet.isConnected ? 'Wrong Network' : 'Not Connected')}
                   </Typography>
                 </Box>
               }
@@ -146,6 +180,12 @@ export default function Navbar() {
                 border: '1px solid rgba(255,255,255,0.12)',
                 display: { xs: 'none', sm: 'flex' },
                 height: 30,
+                userSelect: 'none',
+                // Keep the chip looking inert — the egg should not advertise
+                // itself with a pointer cursor or hover/click effects.
+                cursor: 'default',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
+                '& .MuiChip-label': { px: 1.5 },
               }}
             />
 

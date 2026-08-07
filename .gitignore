@@ -58,6 +58,9 @@ blockchain/artifacts/
 blockchain/cache/
 blockchain/typechain-types/
 
+# Developer-panel state (keeper pause flag, restore-point id) — local only
+web/.dev-mode.json
+
 # Environment files — contain live secrets (DB creds, owner private key, API
 # keys). Never commit these; copy from .env.example instead.
 .env
