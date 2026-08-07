@@ -144,7 +144,10 @@ export default function ICOPage() {
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 2, bgcolor: C.inner, border: `1px solid ${C.border}`, borderRadius: 2, mb: 1 }}>
                 <Typography sx={{ fontSize: 20, fontWeight: 700, color: '#627EEA' }}>Ξ</Typography>
-                <InputBase type="number" value={ethAmount} onChange={e => setEthAmount(e.target.value)}
+                <InputBase type="number" inputProps={{ min: 0 }} value={ethAmount}
+                  // Amounts are never negative: min=0 stops the stepper at zero,
+                  // the clamp catches a typed minus ('-' alone is NaN → untouched).
+                  onChange={e => setEthAmount(Number(e.target.value) < 0 ? '0' : e.target.value)}
                   placeholder="0.00" sx={{ flex: 1, color: C.tp, fontSize: 20, fontWeight: 600, '& input': { p: 0 } }} />
                 <Typography variant="caption" sx={{ color: C.ts, fontWeight: 700 }}>ETH</Typography>
               </Box>

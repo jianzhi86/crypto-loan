@@ -267,9 +267,12 @@ export default function AdminRecovery() {
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
           <InputBase
             value={penaltyInput}
-            onChange={e => setPenaltyInput(e.target.value)}
+            // Amounts are never negative: min=0 stops the stepper at zero, the
+            // clamp catches a typed minus ('-' alone is NaN → untouched).
+            onChange={e => setPenaltyInput(Number(e.target.value) < 0 ? '0' : e.target.value)}
             placeholder="5"
             type="number"
+            inputProps={{ min: 0 }}
             sx={{
               width: 90, px: 1.25, py: 0.5, fontSize: 13, color: C.ink,
               bgcolor: 'rgba(255,255,255,0.05)', border: `1px solid ${C.border}`, borderRadius: 1.5,

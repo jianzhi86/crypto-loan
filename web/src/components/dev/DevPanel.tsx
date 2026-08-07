@@ -69,6 +69,12 @@ const smallBtn = {
   '&:hover': { bgcolor: 'rgba(110,139,255,0.15)', borderColor: 'rgba(110,139,255,0.4)' },
 };
 
+/// Amount fields never mean a negative number: min=0 stops the stepper
+/// arrows at zero, and this clamp catches a typed or pasted minus.
+/// (Number('-') is NaN, so a half-typed value passes through untouched.)
+const nonNeg = (v: string) => (Number(v) < 0 ? '0' : v);
+const nonNegInput = { htmlInput: { min: 0 } };
+
 const fieldSx = {
   '& .MuiInputBase-root': { bgcolor: 'rgba(255,255,255,0.05)', color: S.text, fontSize: 13, borderRadius: 1.5 },
   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.15)' },
@@ -227,7 +233,8 @@ export default function DevPanel() {
             </Box>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <TextField size="small" label="Custom days" type="number" value={customDays}
-                onChange={e => setCustomDays(e.target.value)} sx={{ ...fieldSx, flex: 1 }} />
+                slotProps={nonNegInput}
+                onChange={e => setCustomDays(nonNeg(e.target.value))} sx={{ ...fieldSx, flex: 1 }} />
               <Button size="small" disabled={disabled || !(Number(customDays) > 0)} sx={smallBtn}
                 onClick={() => act('time', { action: 'advance-time', days: Number(customDays) }, `Chain clock advanced by ${customDays} day(s).`)}>
                 {busy === 'time' ? '…' : 'Jump'}
@@ -308,7 +315,8 @@ export default function DevPanel() {
             </Box>
             <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
               <TextField size="small" label="RM per ETH" type="number" value={priceInput}
-                onChange={e => setPriceInput(e.target.value)} sx={{ ...fieldSx, flex: 1 }} />
+                slotProps={nonNegInput}
+                onChange={e => setPriceInput(nonNeg(e.target.value))} sx={{ ...fieldSx, flex: 1 }} />
               <Button size="small" disabled={disabled || !(Number(priceInput) > 0)} sx={smallBtn}
                 onClick={() => act('price', { action: 'set-price', price: Number(priceInput) }, `ETH price set to RM ${Number(priceInput).toLocaleString()}. Auto-sync paused so it sticks.`)}>
                 {busy === 'price' ? '…' : 'Set'}
@@ -345,7 +353,8 @@ export default function DevPanel() {
             </Box>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <TextField size="small" label="Base rate %" type="number" value={aprInput}
-                onChange={e => setAprInput(e.target.value)} sx={{ ...fieldSx, flex: 1 }} />
+                slotProps={nonNegInput}
+                onChange={e => setAprInput(nonNeg(e.target.value))} sx={{ ...fieldSx, flex: 1 }} />
               <Button size="small"
                 disabled={disabled || aprInput === '' || Number(aprInput) < 0 || Number(aprInput) > 15}
                 sx={smallBtn}

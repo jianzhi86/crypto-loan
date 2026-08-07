@@ -94,6 +94,12 @@ const daysSince = (sinceMs: number, now: number, firstAccrual: boolean) => {
   return firstAccrual ? diff + 1 : diff;
 };
 
+/// Amount fields never mean a negative number: min=0 (via nonNegProps) stops
+/// the stepper arrows at zero, and nonNeg() catches a typed or pasted minus.
+/// (Number('-') is NaN, so a half-typed value passes through untouched.)
+const nonNeg = (v: string) => (Number(v) < 0 ? '0' : v);
+const nonNegProps = { min: 0 };
+
 /// ETH the MAX buttons hold back for gas. A depositCollateral() costs about
 /// 0.00008 ETH on this chain, so this covers roughly a hundred more actions —
 /// enough that withdrawing or repaying afterwards is never blocked.
@@ -1375,7 +1381,7 @@ function Dashboard() {
               </Typography>
               <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.75 }}>
                 <Typography sx={{ fontSize: 22, fontWeight: 700, color: calcAsset.color, lineHeight: 1 }}>{calcAsset.icon}</Typography>
-                <InputBase type="number" value={collAmt} onChange={e => setCollAmt(e.target.value)}
+                <InputBase type="number" inputProps={nonNegProps} value={collAmt} onChange={e => setCollAmt(nonNeg(e.target.value))}
                   placeholder="0.00"
                   sx={{ flex: 1, color: C.tp, fontSize: 20, fontWeight: 600, '& input': { p: 0 } }} />
                 <Typography variant="caption" sx={{ color: C.ts, fontWeight: 700, pr: 0.5 }}>{calcAsset.symbol}</Typography>
@@ -1899,7 +1905,7 @@ function Dashboard() {
                     </Box>
                     <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Typography sx={{ fontSize: 22, fontWeight: 700, color: '#627EEA', lineHeight: 1 }}>Ξ</Typography>
-                      <InputBase type="number" value={depositAmt} onChange={e => setDepositAmt(e.target.value)}
+                      <InputBase type="number" inputProps={nonNegProps} value={depositAmt} onChange={e => setDepositAmt(nonNeg(e.target.value))}
                         placeholder="0.00"
                         sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
                       {depositAmt && (
@@ -2119,7 +2125,7 @@ function Dashboard() {
                     </Box>
                     <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Typography sx={{ fontSize: 22, fontWeight: 700, color: '#627EEA', lineHeight: 1 }}>Ξ</Typography>
-                      <InputBase type="number" value={withdrawAmt} onChange={e => setWithdrawAmt(e.target.value)}
+                      <InputBase type="number" inputProps={nonNegProps} value={withdrawAmt} onChange={e => setWithdrawAmt(nonNeg(e.target.value))}
                         placeholder="0.00"
                         sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
                       {withdrawAmt && (
@@ -2268,8 +2274,8 @@ function Dashboard() {
                         </Typography>
                         <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                           <Typography variant="body2" sx={{ color: C.teal, fontWeight: 800, fontSize: 15 }}>RM</Typography>
-                          <InputBase type="number" value={borrowAmt}
-                            onChange={e => { setBorrowAmt(e.target.value); setBorrowError(''); }}
+                          <InputBase type="number" inputProps={nonNegProps} value={borrowAmt}
+                            onChange={e => { setBorrowAmt(nonNeg(e.target.value)); setBorrowError(''); }}
                             placeholder="0.00"
                             sx={{ flex: 1, color: C.tp, fontSize: 20, fontWeight: 600, '& input': { p: 0 } }} />
                           <Button size="small"
@@ -2707,14 +2713,14 @@ function Dashboard() {
                     </Box>
                     <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Typography variant="body2" sx={{ color: C.teal, fontWeight: 800, fontSize: 17 }}>RM</Typography>
-                      <InputBase type="number" value={repayAmtEffective}
+                      <InputBase type="number" inputProps={nonNegProps} value={repayAmtEffective}
                         onChange={e => {
                           // Typing takes over the amount but keeps the ticked
                           // borrows — they still mark which tranches this
                           // payment settles (if the amount covers them). A typed
                           // amount is no longer "the bill", so it distributes
                           // oldest-first across the ticked plans.
-                          setRepayAmt(e.target.value); setRepayAmtEdited(true); setRepayFull(false); setRepayBillMode(false);
+                          setRepayAmt(nonNeg(e.target.value)); setRepayAmtEdited(true); setRepayFull(false); setRepayBillMode(false);
                         }}
                         placeholder="0.00"
                         sx={{ flex: 1, color: C.tp, fontSize: 22, fontWeight: 600, '& input': { p: 0 } }} />
@@ -2827,8 +2833,9 @@ function Dashboard() {
                             <Typography sx={{ fontSize: 13, color: C.ts, fontWeight: 600, flexShrink: 0 }}>RM</Typography>
                             <InputBase
                               type="number"
+                              inputProps={nonNegProps}
                               value={buyAmt !== '' ? buyAmt : topUpAmt.toFixed(2)}
-                              onChange={e => setBuyAmt(e.target.value)}
+                              onChange={e => setBuyAmt(nonNeg(e.target.value))}
                               sx={{ flex: 1, color: C.tp, fontSize: 14, fontWeight: 600, '& input': { p: 0 } }}
                             />
                           </Box>
@@ -2985,7 +2992,7 @@ function Dashboard() {
                       </Typography>
                       <Box sx={{ ...innerSx, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <Typography sx={{ fontSize: 16, fontWeight: 700, color: C.teal, lineHeight: 1 }}>RM</Typography>
-                        <InputBase type="number" value={buyAmt} onChange={e => setBuyAmt(e.target.value)}
+                        <InputBase type="number" inputProps={nonNegProps} value={buyAmt} onChange={e => setBuyAmt(nonNeg(e.target.value))}
                           placeholder="0.00"
                           sx={{ flex: 1, color: C.tp, fontSize: 20, fontWeight: 600, '& input': { p: 0 } }} />
                         <Typography variant="caption" sx={{ color: C.ts, fontWeight: 700, pr: 0.5 }}>MYR</Typography>
